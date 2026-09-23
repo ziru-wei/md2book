@@ -279,6 +279,25 @@ function postProcessMarkdown(renderedHtml) {
     return null;
   }
 
+  // parseFigureMarker above matches against a node's plain .text(),
+  // which flattens any inline formatting markdown-it already rendered
+  // inside the caption (e.g. "**bold**" is <strong>bold</strong> in the
+  // HTML by this point) down to plain text — so a bold marker in a
+  // caption would otherwise just vanish. The "//teaser" marker and the
+  // wrapping parentheses are always plain literal characters even when
+  // the caption itself has inline HTML in it, so the exact same two
+  // regexes apply just as safely to the node's raw .html() — this
+  // extracts the caption as HTML instead, preserving that formatting.
+  function captionHtmlFromMarker(html, marker) {
+    const trimmed = (html || "").trim();
+    if (marker.isTeaser) {
+      const m = /^\/\/\s*teaser\s*(?:\((.+)\))?$/is.exec(trimmed);
+      return m && m[1] ? m[1].trim() : escapeHtml(marker.caption || "");
+    }
+    const m = /^\((.+)\)$/s.exec(trimmed);
+    return m ? m[1].trim() : escapeHtml(marker.caption || "");
+  }
+
   // Pass 1: wrap every standalone image into a figure, picking up any
   // marker/caption soft-wrapped into its own paragraph. Teaser
   // promotion itself happens in pass 2, so a bare "//teaser" here can
@@ -291,11 +310,8 @@ function postProcessMarkdown(renderedHtml) {
     if (imgNodes.length !== 1) return;
 
     const img = $(imgNodes[0]);
-    const trailingText = contents
-      .filter(node => node !== imgNodes[0])
-      .map(node => $(node).text())
-      .join(" ")
-      .trim();
+    const trailingNodes = contents.filter(node => node !== imgNodes[0]);
+    const trailingText = trailingNodes.map(node => $(node).text()).join(" ").trim();
 
     let marker = { isTeaser: false, caption: null };
     if (trailingText) {
@@ -311,7 +327,9 @@ function postProcessMarkdown(renderedHtml) {
     figure.append(img.clone());
     if (marker.isTeaser) figure.attr("data-teaser-pending", "1");
     if (marker.caption) {
-      figure.append(`<figcaption data-caption="${escapeHtml(marker.caption)}"></figcaption>`);
+      const trailingHtml = trailingNodes.map(node => $.html(node)).join(" ").trim();
+      const captionHtml = captionHtmlFromMarker(trailingHtml, marker);
+      figure.append(`<figcaption data-figcaption="1">${captionHtml}</figcaption>`);
     }
 
     $p.replaceWith(figure);
@@ -330,10 +348,12 @@ function postProcessMarkdown(renderedHtml) {
       if (next.length && next.is("p")) {
         const parsed = parseFigureMarker(next.text());
         if (parsed) {
+          const nextHtml = next.html();
           next.remove();
           isTeaser = parsed.isTeaser;
           if (parsed.caption) {
-            $figure.append(`<figcaption data-caption="${escapeHtml(parsed.caption)}"></figcaption>`);
+            const captionHtml = captionHtmlFromMarker(nextHtml, parsed);
+            $figure.append(`<figcaption data-figcaption="1">${captionHtml}</figcaption>`);
           }
         }
       }
@@ -346,8 +366,10 @@ function postProcessMarkdown(renderedHtml) {
       if (next.length && next.is("p")) {
         const capMatch = /^\((.+)\)$/s.exec(next.text().trim());
         if (capMatch) {
+          const htmlMatch = /^\((.+)\)$/s.exec((next.html() || "").trim());
+          const captionHtml = htmlMatch ? htmlMatch[1].trim() : escapeHtml(capMatch[1].trim());
           next.remove();
-          $figure.append(`<figcaption data-caption="${escapeHtml(capMatch[1].trim())}"></figcaption>`);
+          $figure.append(`<figcaption data-figcaption="1">${captionHtml}</figcaption>`);
         }
       }
     }
@@ -360,11 +382,16 @@ function postProcessMarkdown(renderedHtml) {
   // the teaser is pulled out below, so its caption (if any) is
   // numbered like any other.
   let figureNumber = 0;
-  root.find("figcaption[data-caption]").each((_, caption) => {
+  root.find("figcaption[data-figcaption]").each((_, caption) => {
     figureNumber += 1;
     const $caption = $(caption);
-    $caption.text(`Figure ${figureNumber}. ${$caption.attr("data-caption")}`);
-    $caption.removeAttr("data-caption");
+    // Prepended as a string, not re-set via .text() — the caption's
+    // own inline HTML (its <strong>/<em> etc., already inside
+    // $caption from captionHtmlFromMarker above) must stay exactly as
+    // parsed, not get flattened back to plain text here. "Figure N. "
+    // itself has no special characters, so parsing it as HTML is safe.
+    $caption.prepend(`Figure ${figureNumber}. `);
+    $caption.removeAttr("data-figcaption");
   });
 
   // First "//teaser" candidate (in document order) is promoted under

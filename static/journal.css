@@ -685,7 +685,6 @@ html.paged-loading #paged-loader {
   font-family: var(--serif);
   font-size: 11.5px;
   font-style: italic;
-  font-weight: bold;
   line-height: 1.3;
 }
 
