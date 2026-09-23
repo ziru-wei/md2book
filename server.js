@@ -102,6 +102,110 @@ function getPublishId(value) {
   return null;
 }
 
+// --- Managed remote PNG placeholders for Paged.js pagination ---------
+//
+// Paged.js can stall generating a page while an <img> on it still has
+// unknown/unfinished layout, and a raw.githubusercontent.com PNG can
+// take a while to arrive. Rather than let pagination wait on the
+// network, matching <img>s get swapped — only in the HTML handed to
+// Paged.js, never in the Markdown renderer's own output or the home
+// page's waterfall thumbnails — for a same-aspect-ratio inline SVG
+// placeholder with the real, pre-resolved width/height already set, so
+// pagination only ever waits on a local, instantly-resolving image. The
+// real URL (kept on data-real-src) is restored client-side once
+// pagination has fully settled — see hydratePagedImages in pageShell's
+// script below.
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+function isManagedPngUrl(rawUrl) {
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  return url.hostname === "raw.githubusercontent.com" && url.pathname.toLowerCase().endsWith(".png");
+}
+
+function parsePngHeader(buf) {
+  if (buf.length < 24) return null;
+  if (!buf.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
+  if (buf.toString("ascii", 12, 16) !== "IHDR") return null;
+  const width = buf.readUInt32BE(16);
+  const height = buf.readUInt32BE(20);
+  if (width <= 0 || height <= 0) return null;
+  return { width, height };
+}
+
+// Cached by URL — both in-flight promises (so concurrent requests for
+// the same image share one fetch) and resolved results, for the
+// lifetime of the process. Only the PNG header is ever requested
+// (Range: bytes=0-23, exactly the signature + IHDR's width/height);
+// if the remote server doesn't honor Range and answers with a full 200
+// instead, the body is cancelled unread rather than downloaded.
+const pngDimensionCache = new Map();
+
+async function resolvePngDimensions(rawUrl) {
+  if (pngDimensionCache.has(rawUrl)) return pngDimensionCache.get(rawUrl);
+
+  const promise = (async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    try {
+      const res = await fetch(rawUrl, {
+        headers: { Range: "bytes=0-23" },
+        signal: controller.signal
+      });
+      if (res.status !== 206) {
+        // Range wasn't honored — don't read a potentially huge body.
+        await res.body?.cancel?.().catch(() => {});
+        return null;
+      }
+      return parsePngHeader(Buffer.from(await res.arrayBuffer()));
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+
+  pngDimensionCache.set(rawUrl, promise);
+  return promise;
+}
+
+function pngPlaceholderDataUri(width, height) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+// Swaps every matching raw-GitHub PNG <img src> in `html` for a local,
+// same-aspect-ratio, visually-transparent SVG placeholder — used only
+// on the HTML assembled for Paged.js on paginated /entry and /contents
+// views (see renderEntryPage/renderContentsPage). Images whose
+// dimensions can't be resolved (non-PNG, non-raw-GitHub, network
+// failure) are left completely unchanged.
+async function preparePagedImagePlaceholders(html) {
+  const $ = cheerio.load(`<div id="__wrap">${html}</div>`, null, false);
+  const wrap = $("#__wrap");
+
+  await Promise.all(wrap.find("img[src]").toArray().map(async img => {
+    const $img = $(img);
+    const src = $img.attr("src");
+    if (!src || !isManagedPngUrl(src)) return;
+
+    const dims = await resolvePngDimensions(src);
+    if (!dims) return;
+
+    $img.attr("data-real-src", src);
+    $img.attr("src", pngPlaceholderDataUri(dims.width, dims.height));
+    $img.attr("width", String(dims.width));
+    $img.attr("height", String(dims.height));
+  }));
+
+  return wrap.html() || "";
+}
+
 // Inline citation tokens: %%REF{>>{"author":"...","time":...}@@URL<<}%%
 // The JSON blob is metadata only (author/time) and is discarded here —
 // only the URL after "@@" feeds the reference system. Turned into a
@@ -732,14 +836,8 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // overlap retry are left to resolve visibly afterward instead of
       // blocking first paint.
       function revealPagedReader() {
-        console.log("[paged-debug] revealPagedReader() called at", performance.now());
         requestAnimationFrame(() => {
           document.documentElement.classList.remove("paged-loading");
-          console.log(
-            "[paged-debug] reveal rAF ran at", performance.now(),
-            "html.className=", document.documentElement.className,
-            "target visibility=", getComputedStyle(target).visibility
-          );
         });
       }
 
@@ -796,6 +894,23 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         }
       }
 
+      // Restores the real raw-GitHub PNG src (from data-real-src) once
+      // pagination is completely final — called only after any overlap/
+      // repagination correction has already landed, never before or
+      // during it, so Paged.js never has to wait on the network again.
+      // width/height are left in place: the real image loads into an
+      // already-reserved box at the same aspect ratio, so it can't shift
+      // page geometry on arrival.
+      function hydratePagedImages(root) {
+        for (const img of root.querySelectorAll("img[data-real-src]")) {
+          const realSrc = img.dataset.realSrc;
+          if (!realSrc) continue;
+
+          img.src = realSrc;
+          img.removeAttribute("data-real-src");
+        }
+      }
+
       // Extra clearance required beyond a bare touch — both because a
       // late-loading image can still nudge layout a little after this
       // check runs (waitForImages below covers the common case, this
@@ -810,7 +925,14 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // every image actually inserted by this render before measuring
       // anything.
       async function waitForImages() {
-        const images = Array.from(target.querySelectorAll("img"));
+        // Managed placeholder images (data-real-src) are local SVGs that
+        // resolve instantly and are deliberately NOT hydrated to their
+        // real remote src yet — pagination geometry is governed by their
+        // already-known width/height, not by whether the eventual real
+        // PNG has loaded, so they're excluded here entirely rather than
+        // waited on.
+        const images = Array.from(target.querySelectorAll("img"))
+          .filter(img => !img.hasAttribute("data-real-src"));
         // loading="lazy" images that are hidden or off-screen (every
         // page but the first in the touch swipe track) never start
         // loading on iOS — waiting on them hung the reader forever.
@@ -904,13 +1026,6 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
 
       function revealProgressiveDesktop() {
         const pageCount = target.querySelectorAll(".pagedjs_page").length;
-        console.log(
-          "[paged-debug] observer callback at", performance.now(),
-          "pageCount=", pageCount,
-          "wantsSpread=", wantsSpread,
-          "progressiveRevealed=", progressiveRevealed,
-          "isTouchBook=", isTouchBook
-        );
 
         if (progressiveRevealed || isTouchBook) return;
 
@@ -932,18 +1047,9 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         ? new MutationObserver(() => revealProgressiveDesktop())
         : null;
       progressiveObserver?.observe(target, { childList: true, subtree: true });
-      console.log(
-        "[paged-debug] observer attached, calling preview() at", performance.now(),
-        "isTouchBook=", isTouchBook, "wantsSpread=", wantsSpread
-      );
 
       const previewer = new Paged.Previewer();
       await previewer.preview(source.innerHTML, pageStylesheets, target);
-      console.log(
-        "[paged-debug] preview() resolved at", performance.now(),
-        "pageCount=", target.querySelectorAll(".pagedjs_page").length,
-        "progressiveRevealed=", progressiveRevealed
-      );
       progressiveObserver?.disconnect();
 
       // A real one-page document (or touch, where the observer never
@@ -961,8 +1067,14 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // content flow/page breaks once its real intrinsic size lands —
       // a correctness issue independent of (and in addition to) the
       // reference-overlap check below, so it also has to force the
-      // final corrective repagination pass.
-      const hadIncompleteImages = Array.from(target.querySelectorAll("img")).some(img => !img.complete);
+      // final corrective repagination pass. Managed placeholder images
+      // are excluded — their reserved width/height is already final and
+      // authoritative for pagination; the real PNG loading in behind
+      // them later (after hydratePagedImages, below) must never trigger
+      // this.
+      const hadIncompleteImages = Array.from(target.querySelectorAll("img"))
+        .filter(img => !img.hasAttribute("data-real-src"))
+        .some(img => !img.complete);
 
       await waitForImages();
       const overlappingRefs = findOverlappingReferenceSlugs();
@@ -994,6 +1106,13 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
 
         finishUp();
       }
+
+      // Pagination is now completely final (including any overlap
+      // correction above) — safe to swap in the real raw-GitHub PNGs.
+      // They load into their already-reserved, already-correctly-sized
+      // boxes from here on, visibly, without affecting page geometry.
+      hydratePagedImages(target);
+      attachImageFallback(target);
     })();
     ` : `attachImageFallback();`}
   </script>
@@ -1082,7 +1201,7 @@ function renderHomePage(entries) {
 // inner gutter shadow standing in for a book's spine. Order matches the
 // TOC (by created date) so scrolling down tracks the sidebar top to
 // bottom.
-function renderContentsPage(entries) {
+async function renderContentsPage(entries) {
   const orderedEntries = sortByDateDesc(entries, "created");
 
   const toc = orderedEntries.map(entry => {
@@ -1103,6 +1222,11 @@ function renderContentsPage(entries) {
     </article>
   `).join("");
 
+  // Only the HTML actually handed to Paged.js gets its raw-GitHub PNGs
+  // swapped for local placeholders — home/waterfall thumbnails never go
+  // through this.
+  const pagedSpreads = orderedEntries.length ? await preparePagedImagePlaceholders(spreads) : "";
+
   const bodyHtml = `
   ${renderEdgeControls({ href: HOME_PATH, showToggle: orderedEntries.length > 0 })}
 
@@ -1113,7 +1237,7 @@ function renderContentsPage(entries) {
 
   <div class="entry-page${orderedEntries.length ? " has-toc" : ""}">
     ${orderedEntries.length
-      ? `<template id="pagedjs-source">${spreads}</template>
+      ? `<template id="pagedjs-source">${pagedSpreads}</template>
          <div id="pagedjs-target" class="journal-spreads"></div>`
       : `<div class="journal-spreads">${renderEmptyState(entries)}</div>`}
   </div>`;
@@ -1177,16 +1301,21 @@ function renderEntryBody(entry, { mode }) {
   `;
 }
 
-function renderEntryPage(entry) {
+async function renderEntryPage(entry) {
+  const articleHtml = `
+      <article class="paper">
+        ${renderEntryBody(entry, { mode: "running" })}
+      </article>
+    `;
+  // Only the HTML actually handed to Paged.js gets its raw-GitHub PNGs
+  // swapped for local placeholders.
+  const pagedArticleHtml = await preparePagedImagePlaceholders(articleHtml);
+
   const bodyHtml = `
   ${renderEdgeControls({ href: HOME_PATH, showBack: false, showToggle: true })}
 
   <div class="entry-page">
-    <template id="pagedjs-source">
-      <article class="paper">
-        ${renderEntryBody(entry, { mode: "running" })}
-      </article>
-    </template>
+    <template id="pagedjs-source">${pagedArticleHtml}</template>
     <div id="pagedjs-target"></div>
   </div>`;
 
@@ -1209,7 +1338,7 @@ app.get(HOME_PATH, async (_req, res) => {
 app.get(CONTENTS_PATH, async (_req, res) => {
   try {
     const entries = await listEntries();
-    res.type("html").send(renderContentsPage(entries));
+    res.type("html").send(await renderContentsPage(entries));
   } catch (error) {
     res.status(500).type("text").send(`Could not list entries from ${entrySource.label}\n\n${error.stack || error}`);
   }
@@ -1223,7 +1352,7 @@ app.get("/entry/:slug", async (req, res) => {
       res.status(404).type("text").send(`No entry found for "${req.params.slug}"`);
       return;
     }
-    res.type("html").send(renderEntryPage(entry));
+    res.type("html").send(await renderEntryPage(entry));
   } catch (error) {
     res.status(500).type("text").send(`Could not render entry\n\n${error.stack || error}`);
   }
