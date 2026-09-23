@@ -431,7 +431,7 @@ async function listEntries() {
 
 function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
   return `<!doctype html>
-<html lang="en">
+<html lang="en"${paginated ? ' class="paged-loading"' : ""}>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="${paginated
@@ -444,6 +444,7 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
 </head>
 <body class="${escapeHtml(bodyClass)}">
   ${bodyHtml}
+  ${paginated ? `<div id="paged-loader" aria-hidden="true"></div>` : ""}
 
   <script>
     function attachImageFallback(root) {
@@ -695,14 +696,27 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         });
       }
 
-      function finishUp() {
-        attachImageFallback(target);
+      // Removes the loading gate on the next animation frame. Called
+      // once, right after the FIRST preview()'s pages get their final
+      // layout applied (see finishUp/applyDesktopPageLayout below) —
+      // never before that, so the first visible frame is never an
+      // un-fitted single-page flash ahead of the default double spread,
+      // and never later than that either: images and the reference-
+      // overlap retry are left to resolve visibly afterward instead of
+      // blocking first paint.
+      function revealPagedReader() {
+        requestAnimationFrame(() => {
+          document.documentElement.classList.remove("paged-loading");
+        });
+      }
 
-        if (isTouchBook) {
-          setupTouchBook();
-          return;
-        }
-
+      // Desktop-only: applies the default double spread (or single-page
+      // fallback for a one-page document) to whatever pages currently
+      // exist in \`target\`. Idempotent and safe to call again after an
+      // overlap-retry swaps in corrected pages — it only ever reads the
+      // current page count and re-applies fitting, same as the first
+      // time.
+      function applyDesktopPageLayout() {
         const pageCount = target.querySelectorAll(".pagedjs_page").length;
         if (pageCount <= 1) {
           // Nothing to spread — a single page has no facing page to
@@ -717,13 +731,28 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
           return;
         }
 
-        // Double-page is the default view otherwise: apply it once the
-        // pages that just got rendered actually exist to measure/zoom.
+        // Double-page is the default view otherwise.
         if (toggle && toggle.classList.contains("is-on")) {
           target.classList.add("spread-mode");
           fitSpreadWidth();
         } else {
           applySinglePageZoom();
+        }
+      }
+
+      // Final setup for whatever pages currently exist in \`target\` —
+      // called once right after the first preview() (before images or
+      // the reference-overlap check), and again, idempotently, after an
+      // overlap retry swaps in corrected pages. Does NOT itself decide
+      // when to reveal — see revealPagedReader, called once by the
+      // caller right after the first call to this.
+      function finishUp() {
+        attachImageFallback(target);
+
+        if (isTouchBook) {
+          setupTouchBook();
+        } else {
+          applyDesktopPageLayout();
         }
       }
 
@@ -811,21 +840,38 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       const pageStylesheets = ["/static/journal.css"];
 
       const previewer = new Paged.Previewer();
-      await previewer.preview(source.innerHTML, pageStylesheets, target)
-        .then(async () => {
-          await waitForImages();
-          const overlappingRefs = findOverlappingReferenceSlugs();
-          if (overlappingRefs.length === 0) {
-            finishUp();
-            return;
-          }
+      await previewer.preview(source.innerHTML, pageStylesheets, target);
 
-          target.innerHTML = "";
-          const retryPreviewer = new Paged.Previewer();
-          await retryPreviewer
-            .preview(withForcedBreaksBefore(overlappingRefs), pageStylesheets, target)
-            .then(finishUp);
-        });
+      // Paged.js now knows every page this pass will produce — apply
+      // final layout and reveal immediately, rather than waiting on
+      // image decode or the reference-overlap check below. The user
+      // sees the whole (correctly spread, on desktop) publication right
+      // away; remote images resolve into place visibly afterward.
+      finishUp();
+      revealPagedReader();
+
+      await waitForImages();
+      const overlappingRefs = findOverlappingReferenceSlugs();
+      if (overlappingRefs.length > 0) {
+        // Render the corrected pagination into an off-screen staging
+        // element instead of clearing the live, already-visible target
+        // — the current book must stay on screen for the whole retry.
+        const staging = document.createElement("div");
+        staging.className = target.className;
+        staging.style.cssText =
+          "position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;";
+        document.body.appendChild(staging);
+
+        const retryPreviewer = new Paged.Previewer();
+        await retryPreviewer.preview(withForcedBreaksBefore(overlappingRefs), pageStylesheets, staging);
+
+        // Atomic swap: the corrected pages replace the old ones in one
+        // move, no intermediate empty state.
+        target.replaceChildren(...staging.childNodes);
+        staging.remove();
+
+        finishUp();
+      }
     })();
     ` : `attachImageFallback();`}
   </script>

@@ -123,6 +123,45 @@ html:has(body.page-contents) {
    two-column gutter.
    ========================================================= */
 
+/* Server-rendered on <html> for every paginated page (see pageShell in
+   server.js) and removed by revealPagedReader() only once Paged.js has
+   finished AND the desktop/touch fit code has applied its final state
+   — hides the brief un-fitted single-page flash that would otherwise
+   show before the default double spread. visibility, not display:
+   #pagedjs-target must stay measurable while hidden. */
+html.paged-loading #pagedjs-target {
+  visibility: hidden;
+}
+
+#paged-loader {
+  display: none;
+}
+
+html.paged-loading #paged-loader {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 10;
+}
+
+#paged-loader::before {
+  content: "";
+  width: 22px;
+  height: 22px;
+  border: 2px solid rgba(255, 255, 255, .18);
+  border-top-color: rgba(255, 255, 255, .72);
+  border-radius: 50%;
+  animation: paged-spin .9s linear infinite;
+}
+
+@keyframes paged-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Literal pixel values here, not var(--paper-width)/var(--page-height):
    verified with a real headless-browser render that Paged.js's CSS
    parser does not resolve custom properties inside @page's `size` —
@@ -608,13 +647,23 @@ html:has(body.page-contents) {
   object-fit: contain;
 }
 
+/* CUSTOMIZABLE STYLE: 正片叠底 (multiply) on publication figures —
+   normal in-article figures, the /entry and /contents teaser, and
+   the same teaser-figure markup reused as .wf-thumb on the waterfall
+   index. Scoped to these two selectors only, not `img` globally, so
+   the owl logo and any UI chrome stay unaffected. */
+.body figure img,
+.teaser-figure img {
+  mix-blend-mode: multiply;
+}
+
 .body figcaption,
 .teaser-slot figcaption {
   /* CUSTOMIZABLE STYLE: numbered figure caption ("Figure N. ...").
      The teaser lives in .teaser-slot, outside .body, so it needs its
      own selector here too. */
   margin-top: .4em;
-  text-align: center;
+  text-align: left;
   color: var(--muted);
   font-family: var(--serif);
   font-size: 11.5px;

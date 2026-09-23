@@ -29,7 +29,8 @@
       "Bash(git push *)",
       "Bash(git pull *)",
       "Bash(git merge *)",
-      "Bash(git commit -m 'Update static files and server configuration *)"
+      "Bash(git commit -m 'Update static files and server configuration *)",
+      "Bash(git commit -m 'Additional updates to server and journal styles *)"
     ],
     "additionalDirectories": [
       "/tmp/md2book-test-entries"
