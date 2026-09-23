@@ -898,16 +898,28 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // pagination is completely final — called only after any overlap/
       // repagination correction has already landed, never before or
       // during it, so Paged.js never has to wait on the network again.
-      // width/height are left in place: the real image loads into an
-      // already-reserved box at the same aspect ratio, so it can't shift
-      // page geometry on arrival.
+      // width/height are left in place throughout: the box is already
+      // the real image's own size, so nothing here can shift page
+      // geometry. data-real-src (and the loading background it drives,
+      // via journal.css's .paged-image-loading) stays on the element
+      // until the real PNG actually finishes loading (or fails) —
+      // removing it immediately on hydration would drop the loading
+      // indicator the instant the real request starts, not when it ends.
       function hydratePagedImages(root) {
         for (const img of root.querySelectorAll("img[data-real-src]")) {
           const realSrc = img.dataset.realSrc;
           if (!realSrc) continue;
 
+          img.classList.add("paged-image-loading");
+
+          const done = () => {
+            img.classList.remove("paged-image-loading");
+            img.removeAttribute("data-real-src");
+          };
+          img.addEventListener("load", done, { once: true });
+          img.addEventListener("error", done, { once: true });
+
           img.src = realSrc;
-          img.removeAttribute("data-real-src");
         }
       }
 

@@ -664,6 +664,16 @@ html.paged-loading #paged-loader {
   mix-blend-mode: multiply;
 }
 
+/* Managed raw-GitHub PNGs (see hydratePagedImages in server.js): a
+   flat, light background while the real image is still loading behind
+   its already-correctly-sized placeholder box — removed as soon as
+   that image fires load/error. No shimmer, no skeleton, doesn't touch
+   pagination geometry (the box is already the real image's own size). */
+.body figure img.paged-image-loading,
+.teaser-figure img.paged-image-loading {
+  background: rgba(0, 0, 0, 0.045);
+}
+
 .body figcaption,
 .teaser-slot figcaption {
   /* CUSTOMIZABLE STYLE: numbered figure caption ("Figure N. ...").
@@ -776,6 +786,10 @@ html.paged-loading #paged-loader {
   /* CUSTOMIZABLE STYLE: gap above References — no rule line, just
      spacing */
   height: 3em;
+}
+
+.references h2 {
+  break-after: avoid;
 }
 
 .references h2 {
