@@ -568,13 +568,26 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         // No upper cap: when there's more than enough room for both
         // pages at their natural size, scale UP to actually fill it
         // instead of leaving the extra space as centered padding.
-        pages.style.zoom = target.clientWidth / (NOMINAL_WIDTH * 2);
+        const scale = target.clientWidth / (NOMINAL_WIDTH * 2);
+        // Kept in sync so pages Paged.js is still inserting mid-preview
+        // (see the spread-mode CSS's \`zoom: var(--spread-zoom, 1)\`)
+        // are born at approximately the right scale before this ever
+        // gets to run against the finished set.
+        target.style.setProperty("--spread-zoom", scale);
+        pages.style.zoom = scale;
       }
+
+      // The user's intended spread state, independent of how many pages
+      // currently happen to exist — a mid-repagination page count (or a
+      // one-page doc's forced single-page fallback) must never overwrite
+      // this, so a later corrected multi-page render can restore it.
+      let wantsSpread = !!(toggle && toggle.classList.contains("is-on"));
 
       if (toggle && !isTouchBook) {
         toggle.addEventListener("click", () => {
-          const isOn = toggle.classList.toggle("is-on");
-          target.classList.toggle("spread-mode", isOn);
+          wantsSpread = !wantsSpread;
+          toggle.classList.toggle("is-on", wantsSpread);
+          target.classList.toggle("spread-mode", wantsSpread);
           fitSpreadWidth();
         });
         window.addEventListener("resize", () => {
@@ -610,7 +623,16 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // pagination always runs against that one fixed page size (see
       // @page in journal.css), on every device, so nothing about the
       // document itself changes with screen shape.
+      let cleanupTouchBook = null;
+
       function setupTouchBook() {
+        // finishUp() (and therefore setupTouchBook()) can run again
+        // after a staging repagination swap — drop any listener from a
+        // previous run first, or they'd accumulate, including ones
+        // still closing over an already-detached .pagedjs_pages track.
+        cleanupTouchBook?.();
+        cleanupTouchBook = null;
+
         const track = target.querySelector(".pagedjs_pages");
         if (!track) return;
         const pages = Array.from(track.querySelectorAll(".pagedjs_page"));
@@ -668,7 +690,7 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         // so it survives a rescale (or a tablet regrouping) untouched.
         let currentSlide = 0;
         let lastWidth = viewportWidth();
-        window.addEventListener("resize", () => {
+        function handleTouchResize() {
           const w = viewportWidth();
           if (w === lastWidth) {
             // Height-only change (mobile address bar sliding) — just
@@ -693,7 +715,12 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
 
           applyScale();
           track.scrollLeft = currentSlide * viewportWidth();
-        });
+        }
+
+        window.addEventListener("resize", handleTouchResize);
+        cleanupTouchBook = () => {
+          window.removeEventListener("resize", handleTouchResize);
+        };
       }
 
       // Removes the loading gate on the next animation frame. Called
@@ -715,25 +742,32 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // exist in \`target\`. Idempotent and safe to call again after an
       // overlap-retry swaps in corrected pages — it only ever reads the
       // current page count and re-applies fitting, same as the first
-      // time.
+      // time. The one-page fallback disables the toggle UI but never
+      // touches \`wantsSpread\` itself, so if a later corrected render
+      // turns out to have multiple pages after all, the user's actual
+      // intended (or default) spread state comes back automatically.
       function applyDesktopPageLayout() {
         const pageCount = target.querySelectorAll(".pagedjs_page").length;
         if (pageCount <= 1) {
           // Nothing to spread — a single page has no facing page to
-          // sit beside, so default to single-page regardless of the
-          // toggle's usual default state.
+          // sit beside, so default to single-page regardless of
+          // wantsSpread.
           if (toggle) {
-            toggle.classList.remove("is-on");
             toggle.disabled = true;
+            toggle.classList.remove("is-on");
           }
           target.classList.remove("spread-mode");
           applySinglePageZoom();
           return;
         }
 
-        // Double-page is the default view otherwise.
-        if (toggle && toggle.classList.contains("is-on")) {
-          target.classList.add("spread-mode");
+        if (toggle) {
+          toggle.disabled = false;
+          toggle.classList.toggle("is-on", wantsSpread);
+        }
+        target.classList.toggle("spread-mode", wantsSpread);
+
+        if (wantsSpread) {
           fitSpreadWidth();
         } else {
           applySinglePageZoom();
@@ -839,23 +873,87 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // geometry never changes with screen shape (see setupTouchBook).
       const pageStylesheets = ["/static/journal.css"];
 
+      // Desktop only: prime the spread presentation BEFORE Paged.js
+      // inserts anything, so \`.spread-mode\` and an approximate
+      // \`--spread-zoom\` already exist the moment the first \`.pagedjs_pages\`
+      // grid is born mid-preview — pages arrive already close to their
+      // final scale instead of at 1:1 before fitSpreadWidth() can run.
+      if (!isTouchBook && wantsSpread) {
+        target.classList.add("spread-mode");
+        target.style.setProperty("--spread-zoom", target.clientWidth / (NOMINAL_WIDTH * 2));
+      }
+
+      // Desktop progressive reveal: rather than waiting for the whole
+      // \`preview()\` promise (which only resolves once EVERY page has
+      // been generated) a target-scoped MutationObserver reveals the
+      // reader as soon as the first usable state exists — the first
+      // page pair for the default spread, since revealing a lone page
+      // that's about to become a pair would just be a different flash.
+      // Paged.js keeps appending later pages into the now-visible
+      // \`.pagedjs_pages\` underneath. Scoped to \`target\` (not a global
+      // Paged.Handler) so it can never fire for the hidden retry/staging
+      // Previewer below.
+      let progressiveRevealed = false;
+
+      function revealProgressiveDesktop() {
+        if (progressiveRevealed || isTouchBook) return;
+
+        const pageCount = target.querySelectorAll(".pagedjs_page").length;
+        if (wantsSpread && pageCount < 2) return;
+
+        progressiveRevealed = true;
+
+        if (wantsSpread) {
+          target.classList.add("spread-mode");
+          fitSpreadWidth();
+        } else {
+          applySinglePageZoom();
+        }
+
+        revealPagedReader();
+      }
+
+      const progressiveObserver = !isTouchBook
+        ? new MutationObserver(() => revealProgressiveDesktop())
+        : null;
+      progressiveObserver?.observe(target, { childList: true, subtree: true });
+
       const previewer = new Paged.Previewer();
       await previewer.preview(source.innerHTML, pageStylesheets, target);
+      progressiveObserver?.disconnect();
 
-      // Paged.js now knows every page this pass will produce — apply
-      // final layout and reveal immediately, rather than waiting on
-      // image decode or the reference-overlap check below. The user
-      // sees the whole (correctly spread, on desktop) publication right
-      // away; remote images resolve into place visibly afterward.
-      finishUp();
-      revealPagedReader();
+      // A real one-page document (or touch, where the observer never
+      // runs) never got progressively revealed above — reveal it now
+      // that pagination is actually done. Otherwise the progressive
+      // path already applied final layout and revealed.
+      if (!progressiveRevealed) {
+        finishUp();
+        revealPagedReader();
+      } else {
+        finishUp();
+      }
+
+      // An <img> still incomplete during this first pass can change
+      // content flow/page breaks once its real intrinsic size lands —
+      // a correctness issue independent of (and in addition to) the
+      // reference-overlap check below, so it also has to force the
+      // final corrective repagination pass.
+      const hadIncompleteImages = Array.from(target.querySelectorAll("img")).some(img => !img.complete);
 
       await waitForImages();
       const overlappingRefs = findOverlappingReferenceSlugs();
-      if (overlappingRefs.length > 0) {
-        // Render the corrected pagination into an off-screen staging
-        // element instead of clearing the live, already-visible target
-        // — the current book must stay on screen for the whole retry.
+      const needsFinalRepagination = hadIncompleteImages || overlappingRefs.length > 0;
+
+      if (needsFinalRepagination) {
+        // Exactly one hidden final pass, covering both correction
+        // reasons at once. Render into an off-screen staging element
+        // instead of clearing the live, already-visible target — the
+        // current book must stay on screen for the whole retry, with
+        // no second full-screen loader.
+        const finalSource = overlappingRefs.length > 0
+          ? withForcedBreaksBefore(overlappingRefs)
+          : source.innerHTML;
+
         const staging = document.createElement("div");
         staging.className = target.className;
         staging.style.cssText =
@@ -863,7 +961,7 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         document.body.appendChild(staging);
 
         const retryPreviewer = new Paged.Previewer();
-        await retryPreviewer.preview(withForcedBreaksBefore(overlappingRefs), pageStylesheets, staging);
+        await retryPreviewer.preview(finalSource, pageStylesheets, staging);
 
         // Atomic swap: the corrected pages replace the old ones in one
         // move, no intermediate empty state.

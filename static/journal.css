@@ -124,11 +124,12 @@ html:has(body.page-contents) {
    ========================================================= */
 
 /* Server-rendered on <html> for every paginated page (see pageShell in
-   server.js) and removed by revealPagedReader() only once Paged.js has
-   finished AND the desktop/touch fit code has applied its final state
-   — hides the brief un-fitted single-page flash that would otherwise
-   show before the default double spread. visibility, not display:
-   #pagedjs-target must stay measurable while hidden. */
+   server.js). On desktop this is now short-lived — a MutationObserver
+   removes it (via revealPagedReader()) as soon as the first usable
+   page/pair exists, while Paged.js is still mid-preview() generating
+   the rest; touch waits for setupTouchBook() instead (its own separate
+   gate, below, keyed off .touch-book-ready). Either way: visibility,
+   not display — #pagedjs-target must stay measurable while hidden. */
 html.paged-loading #pagedjs-target {
   visibility: hidden;
 }
@@ -261,6 +262,12 @@ html.paged-loading #paged-loader {
   /* CUSTOMIZABLE STYLE:
      Keep both pages touching at the center seam. */
   gap: 0 !important;
+
+  /* fitSpreadWidth() keeps --spread-zoom in sync and overrides this
+     with an inline zoom once it runs — this is just the approximate
+     scale a page is born at if Paged.js inserts it mid-preview, before
+     fitSpreadWidth has had a chance to measure the finished set. */
+  zoom: var(--spread-zoom, 1);
 }
 
 #pagedjs-target.spread-mode .pagedjs_page {
