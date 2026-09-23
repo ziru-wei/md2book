@@ -222,6 +222,19 @@ function expandInlineRefTokens(markdown) {
   });
 }
 
+// A reference's stored URL sometimes turns out to be a whole markdown
+// link itself (e.g. a browser "copy as markdown link" pasted in whole
+// as the URL half of a %%REF...%% token or [label](url)) — split that
+// back into its title and real URL so the References list can show
+// "Title, https://..." instead of literal brackets/parens.
+const MARKDOWN_LINK_RE = /^\[(.+)\]\((\S+)\)$/s;
+
+function splitEmbeddedMarkdownLink(href) {
+  const match = MARKDOWN_LINK_RE.exec(href.trim());
+  if (!match) return { label: null, url: href };
+  return { label: match[1].trim(), url: match[2].trim() };
+}
+
 function postProcessMarkdown(renderedHtml) {
   // Wrap rendered fragment so Cheerio can safely transform it.
   const $ = cheerio.load(`<main id="root">${renderedHtml}</main>`, null, false);
@@ -453,12 +466,22 @@ function postProcessMarkdown(renderedHtml) {
   });
 
   if (refs.length) {
-    const items = refs.map(ref => `
+    const items = refs.map(ref => {
+      // A pasted URL sometimes turns out to BE a whole markdown link
+      // itself — e.g. "[GitHub - foo/bar: ...](https://github.com/foo/bar)"
+      // copied in whole as the URL half of a %%REF...%% token or
+      // [label](url) — which otherwise renders here as literal
+      // brackets/parens and points nowhere useful. Unwrap it into
+      // "Title, https://..." instead, linking to the real URL.
+      const { label, url } = splitEmbeddedMarkdownLink(ref.href);
+      const display = label ? `${escapeHtml(label)}, ${escapeHtml(url)}` : escapeHtml(url);
+      return `
       <li id="ref-${ref.number}">
         <span class="reference-number">[${ref.number}]</span>
-        <a href="${escapeHtml(ref.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(ref.href)}</a>
+        <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${display}</a>
       </li>
-    `).join("");
+    `;
+    }).join("");
 
     root.append(`
       <section class="references">
