@@ -93,6 +93,12 @@ body.page-index {
 body.page-entry,
 body.page-contents {
   background: var(--entry-bg);
+
+  /* Less desk above/below the paper than the index page gets — the
+     entry page is already a fixed, zoomed-to-fit book; a lot of extra
+     top/bottom padding just means more empty scroll before/after it. */
+  padding-top: 8px;
+  padding-bottom: 4px;
 }
 
 /* Overscroll ("rubber-band") bounce shows the ROOT element's own
@@ -1234,8 +1240,12 @@ html:has(body.page-contents) {
 
 /* =========================================================
    Touch e-reader (phones, tablets): see setupTouchBook in
-   server.js. One zoomed page per screen, pages side by side in a
-   horizontal scroll-snap track — swipe to turn a page.
+   server.js. Pages are always paginated at the same fixed 850x1100
+   size as desktop (see @page above); a horizontal scroll-snap track
+   of full-viewport ".touch-slide"s — one per screen, swipe to turn —
+   each center a ".touch-slide-inner" holding one page (or, on a
+   landscape tablet, a page pair) transform:scale()'d to fit. The
+   slide itself is never scaled, only that inner wrapper.
    ========================================================= */
 
 html.touch-book,
@@ -1256,8 +1266,9 @@ html {
   text-size-adjust: 100%;
 }
 
-/* Hidden while Paged.js renders the unzoomed 850px pages and until
-   setupTouchBook has zoomed them to fit — no visible jumping. */
+/* Hidden while Paged.js renders the unscaled 850px pages and until
+   setupTouchBook has grouped and scaled them to fit — no visible
+   jumping. */
 html.touch-book:not(.touch-book-ready) #pagedjs-target {
   visibility: hidden;
 }
@@ -1289,10 +1300,40 @@ html.touch-book .pagedjs_pages::-webkit-scrollbar {
   display: none;
 }
 
-html.touch-book .pagedjs_page {
-  flex: 0 0 auto;
-  scroll-snap-align: center;
+/* One full-viewport slide per screen — the scroll-snap unit. Never
+   scaled itself; centers its (fixed-size) .touch-slide-inner. */
+html.touch-book .touch-slide {
+  flex: 0 0 100vw;
+  width: 100vw;
+  height: 100svh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  scroll-snap-align: start;
   scroll-snap-stop: always;
+}
+
+/* Holds one page (or, paired, two side by side at their real
+   850x1100 / 1700x1100 size) — JS sets its transform:scale() in
+   setupTouchBook. transform (not zoom) so the slide around it stays
+   a fixed, unscaled 100vw/100svh regardless of the scale factor. */
+html.touch-book .touch-slide-inner {
+  flex: 0 0 auto;
+  transform-origin: center center;
+}
+
+html.touch-book .touch-slide-inner.is-spread {
+  display: flex;
+}
+
+/* .pagedjs_page keeps its own margin only in the desktop stacked
+   view; nested in a touch slide it's already centered/spaced by the
+   slide and inner wrapper above, so both the plain and (higher-
+   specificity, desktop) spread-mode margins need clearing here. */
+html.touch-book .pagedjs_page,
+html.touch-book #pagedjs-target.spread-mode .pagedjs_page {
+  margin: 0 !important;
 }
 
 /* Nothing outside the paper on touch devices — no back link, no
@@ -1303,9 +1344,11 @@ html.touch-book .edge-controls {
 }
 
 /* Landscape tablets reuse the desktop spread styling (center gutter,
-   odd/even pairing) — but inside the swipe track, not the desktop
-   grid. Start-aligned: a centered overflowing flex row would leave
-   its first pages unreachable by scrolling. */
+   odd/even pairing on whichever page is nth-child(odd)/(even) within
+   its own .touch-slide-inner) — but the outer track stays this flex
+   swipe row, not the desktop grid. Start-aligned: a centered
+   overflowing flex row would leave its first slides unreachable by
+   scrolling. */
 html.touch-book #pagedjs-target.spread-mode .pagedjs_pages {
   display: flex !important;
   justify-content: flex-start !important;

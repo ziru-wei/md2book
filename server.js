@@ -483,12 +483,13 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         matchMedia("(pointer: coarse)").matches ||
         matchMedia("(hover: none)").matches ||
         navigator.maxTouchPoints > 1;
-      // Tablets keep Letter-proportioned pages (one in portrait, a
-      // two-page spread in landscape); phones get pages shaped exactly
-      // like their screen instead. Split by the device's short side —
-      // every iPad is >= 744 CSS px there, every phone well under 600.
+      // Tablets show a two-page spread in landscape, one page in
+      // portrait; phones always show one. Split by the device's short
+      // side — every iPad is >= 744 CSS px there, every phone well
+      // under 600. Pages themselves stay the same fixed 850x1100 shape
+      // on every device (see @page in journal.css) — only how many fit
+      // per screen, and how much they're visually scaled to fit, differ.
       const isTablet = isTouchBook && Math.min(screen.width, screen.height) >= 600;
-      const isPhone = isTouchBook && !isTablet;
 
       // Switched on BEFORE rendering: the touch layout clips the page
       // track, so the 850px-wide pages Paged.js produces never make the
@@ -598,89 +599,99 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         return h;
       }
 
-      // Phones: the page itself is shaped like the screen. Paged.js
-      // reads @page size from the stylesheet text and can't take CSS
-      // variables there, so journal.css's one literal @page size is
-      // swapped in a fetched copy before pagination. Width stays the
-      // 850px design width (same typography-to-page-width proportions
-      // as everywhere else); height follows the screen's aspect ratio.
-      // Content is then paginated INTO that shape, so nothing can spill
-      // past the page — it just flows onto the next one.
-      async function phonePageStylesheet() {
-        const w = viewportWidth();
-        const h = stableViewportHeight();
-        const pageHeight = Math.round(NOMINAL_WIDTH * h / w);
-        const css = await (await fetch("/static/journal.css")).text();
-        const patched = css.replace(
-          /size:\\s*[\\d.]+px\\s+[\\d.]+px\\s*;/,
-          \`size: \${NOMINAL_WIDTH}px \${pageHeight}px;\`
-        );
-        return URL.createObjectURL(new Blob([patched], { type: "text/css" }));
-      }
-
-      // Pages laid side by side in a horizontal scroll-snap track: a
-      // swipe turns exactly one screen (one page, or a two-page spread
-      // on a landscape tablet) with the browser's own native gesture
-      // and momentum — no custom touch code. Each page is zoomed as a
-      // whole (text, images, margins together) to fit the screen.
+      // Pages are laid out in full-viewport "slides" inside a horizontal
+      // scroll-snap track: a swipe turns exactly one screen (one page,
+      // or a two-page spread on a landscape tablet) with the browser's
+      // own native gesture and momentum — no custom touch code. The
+      // slide (100vw x 100svh) is never itself scaled; only an inner
+      // wrapper holding the page(s) at their real, fixed 850x1100 (or
+      // 1700x1100 for a pair) size is transform:scale()'d to fit —
+      // pagination always runs against that one fixed page size (see
+      // @page in journal.css), on every device, so nothing about the
+      // document itself changes with screen shape.
       function setupTouchBook() {
         const track = target.querySelector(".pagedjs_pages");
         if (!track) return;
-        const pages = Array.from(target.querySelectorAll(".pagedjs_page"));
-        let perScreen = 1;
+        const pages = Array.from(track.querySelectorAll(".pagedjs_page"));
 
-        function fit() {
+        function currentPerScreen() {
+          return isTablet && viewportWidth() > stableViewportHeight() ? 2 : 1;
+        }
+
+        // (Re)groups the flat list of pages into slide wrappers of
+        // \`perScreen\` pages each. Pure DOM wrapping — Paged.js has
+        // already paginated the content and is never touched again.
+        function layoutSlides(perScreen) {
+          track.querySelectorAll(".touch-slide-inner").forEach(inner => {
+            while (inner.firstChild) track.appendChild(inner.firstChild);
+          });
+          track.querySelectorAll(".touch-slide").forEach(slide => slide.remove());
+
+          for (let i = 0; i < pages.length; i += perScreen) {
+            const group = pages.slice(i, i + perScreen);
+            const slide = document.createElement("div");
+            slide.className = "touch-slide";
+            const inner = document.createElement("div");
+            inner.className = "touch-slide-inner" + (group.length === 2 ? " is-spread" : "");
+            slide.appendChild(inner);
+            group.forEach(page => inner.appendChild(page));
+            track.appendChild(slide);
+          }
+        }
+
+        // Fixed logical page size the whole document is paginated
+        // against, regardless of device — see @page in journal.css.
+        function applyScale() {
           const w = viewportWidth();
           const h = stableViewportHeight();
-          perScreen = isTablet && w > h ? 2 : 1;
-          // Reuses the desktop spread styling (center-gutter shadow,
-          // odd/even pairing) for the landscape tablet spread.
-          target.classList.toggle("spread-mode", perScreen === 2);
-
-          const scale = isPhone
-            ? w / NOMINAL_WIDTH
-            : Math.min(w / (NOMINAL_WIDTH * perScreen), h / NOMINAL_HEIGHT);
-
-          // Side padding (in the page's own zoomed coordinates) so every
-          // screen-sized slot is filled exactly: one centered page, or
-          // two touching pages centered as a pair — no neighbor peeking.
-          const side = (w - NOMINAL_WIDTH * perScreen * scale) / 2 / scale;
-
-          pages.forEach((page, i) => {
-            page.style.zoom = scale;
-            let left = side;
-            let right = side;
-            if (perScreen === 2) {
-              const isLeftPage = i % 2 === 0;
-              const aloneAtEnd = isLeftPage && i === pages.length - 1;
-              left = isLeftPage ? side : 0;
-              right = isLeftPage ? (aloneAtEnd ? side + NOMINAL_WIDTH : 0) : side;
-            }
-            page.style.setProperty("margin", \`0 \${right}px 0 \${left}px\`, "important");
-            page.style.scrollSnapAlign = perScreen === 1 || i % 2 === 0 ? "start" : "none";
+          track.querySelectorAll(".touch-slide-inner").forEach(inner => {
+            const isSpread = inner.classList.contains("is-spread");
+            const scale = isSpread
+              ? Math.min(w / (NOMINAL_WIDTH * 2), h / NOMINAL_HEIGHT)
+              : Math.min(w / NOMINAL_WIDTH, h / NOMINAL_HEIGHT);
+            inner.style.transform = \`scale(\${scale})\`;
           });
         }
 
-        fit();
-        // Pages are zoomed now — safe to show (see journal.css).
+        // Reuses the desktop spread styling (center-gutter shadow,
+        // odd/even pairing) for the landscape tablet spread.
+        let perScreen = currentPerScreen();
+        target.classList.toggle("spread-mode", perScreen === 2);
+        layoutSlides(perScreen);
+        applyScale();
+        // Slides are placed and scaled now — safe to show (see journal.css).
         document.documentElement.classList.add("touch-book-ready");
 
-        // Only a WIDTH change (rotating the device) is a real resize —
-        // the height changing alone is the address bar sliding, which
-        // must not trigger anything (that was the old jitter loop).
+        // Current position tracked as a logical slide INDEX, not a
+        // pixel offset — slides are always exactly one viewport wide,
+        // so it survives a rescale (or a tablet regrouping) untouched.
+        let currentSlide = 0;
         let lastWidth = viewportWidth();
         window.addEventListener("resize", () => {
-          if (viewportWidth() === lastWidth) return;
-          if (isPhone) {
-            // Page shape follows the screen, so a rotated phone needs
-            // its content re-paginated into the new shape.
-            location.reload();
+          const w = viewportWidth();
+          if (w === lastWidth) {
+            // Height-only change (mobile address bar sliding) — just
+            // rescale in place, no reflow, no repagination.
+            applyScale();
             return;
           }
-          const firstPageShown = Math.round(track.scrollLeft / lastWidth) * perScreen;
-          lastWidth = viewportWidth();
-          fit();
-          track.scrollLeft = Math.floor(firstPageShown / perScreen) * lastWidth;
+
+          currentSlide = Math.round(track.scrollLeft / lastWidth);
+          lastWidth = w;
+
+          const nextPerScreen = currentPerScreen();
+          if (nextPerScreen !== perScreen) {
+            // Tablet rotated between portrait/landscape: regroup pages
+            // into the new slide size, converting the index across the
+            // grouping change so the same page stays in view.
+            currentSlide = Math.floor((currentSlide * perScreen) / nextPerScreen);
+            perScreen = nextPerScreen;
+            target.classList.toggle("spread-mode", perScreen === 2);
+            layoutSlides(perScreen);
+          }
+
+          applyScale();
+          track.scrollLeft = currentSlide * viewportWidth();
         });
       }
 
@@ -795,7 +806,9 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // only ever made off-screen/hidden ones stall (notably on iOS).
       source.innerHTML = source.innerHTML.replace(/ loading="lazy"/g, "");
 
-      const pageStylesheets = [isPhone ? await phonePageStylesheet() : "/static/journal.css"];
+      // Same fixed 850x1100 @page stylesheet on every device — pagination
+      // geometry never changes with screen shape (see setupTouchBook).
+      const pageStylesheets = ["/static/journal.css"];
 
       const previewer = new Paged.Previewer();
       await previewer.preview(source.innerHTML, pageStylesheets, target)
