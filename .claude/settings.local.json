@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node __test-ref.mjs)",
+      "Bash(node __test-ref2.mjs)",
+      "Bash(node __test-ref3.mjs)",
+      "Bash(node --check server.js)",
+      "Bash(rm -f __test-ref*.mjs)",
+      "Read(//private/tmp/**)",
+      "Bash(curl -s http://localhost:3999/)",
+      "Bash(curl -s http://localhost:3999/entry/87479d392572)",
+      "Bash(kill %1)",
+      "Bash(rm -rf /tmp/md2book-test-entries /tmp/md2book-server.log)",
+      "Bash(vercel --version)",
+      "Bash(vercel deploy *)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(curl -s http://localhost:3999/contents)",
+      "Bash(grep -oE '<p>[^<]*<span class=\"reference-marker-group\">.*?</span>[^<]*</p>|proactivities.{0,300}')",
+      "Bash(grep -o 'reference-marker-group.\\\\{0,200\\\\}')",
+      "Bash(pkill -f \"node server.js\")",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'Initial commit *)"
+    ],
+    "additionalDirectories": [
+      "/tmp/md2book-test-entries"
+    ]
+  }
+}

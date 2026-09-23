@@ -1,0 +1,1085 @@
+import express from "express";
+import chokidar from "chokidar";
+import matter from "gray-matter";
+import MarkdownIt from "markdown-it";
+import markdownItMark from "markdown-it-mark";
+import * as cheerio from "cheerio";
+import path from "node:path";
+import crypto from "node:crypto";
+import { fileURLToPath } from "node:url";
+import { exec } from "node:child_process";
+import { createEntrySource } from "./lib/source.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+
+const PORT = Number(process.env.PORT || 3000);
+const LOCAL_ENTRIES_DIR = path.resolve(
+  process.cwd(),
+  process.argv[2] || process.env.JOURNAL_DIR || "entries"
+);
+
+const entrySource = createEntrySource(LOCAL_ENTRIES_DIR);
+
+// Where the entry-listing pages actually live. Defaults to "/" for
+// local dev; set HOME_PATH (e.g. "/pw") on a public deployment so
+// the real "/" reveals nothing and only whoever knows this path can
+// browse the journal. A single entry's own /entry/<hash> link never
+// depends on this.
+const HOME_PATH = process.env.HOME_PATH || "/";
+const CONTENTS_PATH = HOME_PATH === "/" ? "/contents" : `${HOME_PATH}/contents`;
+
+// Built-in metadata: does not need to exist in Markdown.
+const AUTHOR = "Ziru Wei";
+
+const md = new MarkdownIt({
+  html: true,
+  linkify: false,
+  typographer: true
+}).use(markdownItMark);
+
+// This is a low-traffic personal tool where content and styles change
+// often; always serve fresh bytes rather than risk a stale cached CSS/JS
+// file silently mismatching newly-changed markup.
+app.use("/static", express.static(path.join(__dirname, "static"), {
+  etag: false,
+  lastModified: false,
+  setHeaders: res => res.set("Cache-Control", "no-store")
+}));
+
+const clients = new Set();
+
+app.get("/events", (req, res) => {
+  res.set({
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive"
+  });
+  res.flushHeaders();
+  res.write("event: ready\ndata: ok\n\n");
+
+  clients.add(res);
+  req.on("close", () => clients.delete(res));
+});
+
+function notifyReload() {
+  for (const res of clients) {
+    res.write("event: reload\ndata: changed\n\n");
+  }
+}
+
+function escapeHtml(value = "") {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function normalizeDate(value) {
+  if (!value) return "";
+  if (value instanceof Date && !Number.isNaN(value.valueOf())) {
+    return value.toISOString().slice(0, 10);
+  }
+  return String(value);
+}
+
+// Opaque per-file identifier, not a readable slug: a note's URL
+// shouldn't hint at its title or filename (e.g. for a link shared on
+// its own, out of the journal's context). Stable across requests/
+// restarts since it's derived only from the file's own path.
+function slugify(id) {
+  return crypto.createHash("sha256").update(id).digest("hex").slice(0, 12);
+}
+
+// One frontmatter field instead of two: `publishID: <anything>` both
+// marks the note published AND supplies the stable id its URL hash is
+// derived from (so renaming the file or moving it in Obsidian doesn't
+// change the URL). Missing/empty means unpublished.
+function getPublishId(value) {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number") return String(value);
+  return null;
+}
+
+// Inline citation tokens: %%REF{>>{"author":"...","time":...}@@URL<<}%%
+// The JSON blob is metadata only (author/time) and is discarded here —
+// only the URL after "@@" feeds the reference system. Turned into a
+// bare, label-less <a> before Markdown parsing so it flows through the
+// same [label](url) -> reference machinery in postProcessMarkdown,
+// which also groups adjacent ones like "(%%REF..%%, %%REF..%%)" into
+// a single [1, 2] instead of [1][2].
+const REF_TOKEN_RE = /%%REF\{>>(\{[^{}]*\})@@(.*?)<<\}%%/g;
+
+function expandInlineRefTokens(markdown) {
+  return markdown.replace(REF_TOKEN_RE, (_match, _meta, url) => {
+    const trimmed = url.trim();
+    return trimmed ? `<a class="citation-ref" href="${escapeHtml(trimmed)}"></a>` : "";
+  });
+}
+
+function postProcessMarkdown(renderedHtml) {
+  // Wrap rendered fragment so Cheerio can safely transform it.
+  const $ = cheerio.load(`<main id="root">${renderedHtml}</main>`, null, false);
+  const root = $("#root");
+
+  // First H1 becomes the publication title and is removed from body flow.
+  const firstH1 = root.find("h1").first();
+  const title = firstH1.length ? firstH1.text().trim() : "Untitled";
+  if (firstH1.length) firstH1.remove();
+
+  // Turn standalone Markdown images into figures. A "//teaser" marker
+  // promotes one image under the metadata; either form (marker, and/or
+  // a "(caption)") can be soft-wrapped into the image's own paragraph,
+  // or written as its own separate paragraph(s) (blank line before):
+  //
+  // ![alt](https://...)      ![alt](https://...)
+  // //teaser
+  // (some caption)     or    //teaser
+  //
+  //                          (some caption)
+  function parseFigureMarker(text) {
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+    const teaserMatch = /^\/\/\s*teaser\s*(?:\((.+)\))?$/is.exec(trimmed);
+    if (teaserMatch) {
+      return { isTeaser: true, caption: teaserMatch[1] ? teaserMatch[1].trim() : null };
+    }
+    const captionMatch = /^\((.+)\)$/s.exec(trimmed);
+    if (captionMatch) {
+      return { isTeaser: false, caption: captionMatch[1].trim() };
+    }
+    return null;
+  }
+
+  // Pass 1: wrap every standalone image into a figure, picking up any
+  // marker/caption soft-wrapped into its own paragraph. Teaser
+  // promotion itself happens in pass 2, so a bare "//teaser" here can
+  // still pick up a caption from a separate following paragraph.
+  root.find("p").each((_, p) => {
+    const $p = $(p);
+    const contents = $p.contents().toArray();
+    const imgNodes = contents.filter(node => node.type === "tag" && node.name === "img");
+
+    if (imgNodes.length !== 1) return;
+
+    const img = $(imgNodes[0]);
+    const trailingText = contents
+      .filter(node => node !== imgNodes[0])
+      .map(node => $(node).text())
+      .join(" ")
+      .trim();
+
+    let marker = { isTeaser: false, caption: null };
+    if (trailingText) {
+      const parsed = parseFigureMarker(trailingText);
+      if (!parsed) return;
+      marker = parsed;
+    }
+
+    img.attr("loading", "lazy");
+    img.attr("decoding", "async");
+
+    const figure = $("<figure class='md-figure'></figure>");
+    figure.append(img.clone());
+    if (marker.isTeaser) figure.attr("data-teaser-pending", "1");
+    if (marker.caption) {
+      figure.append(`<figcaption data-caption="${escapeHtml(marker.caption)}"></figcaption>`);
+    }
+
+    $p.replaceWith(figure);
+  });
+
+  // Pass 2: pick up a marker/caption from following sibling
+  // paragraph(s) written on their own line, then finalize teaser
+  // promotion (first "//teaser" found wins). Left in place in `root`
+  // for now — pulled out after captions are numbered, below.
+  root.find("figure.md-figure").each((_, figure) => {
+    const $figure = $(figure);
+    let isTeaser = $figure.attr("data-teaser-pending") === "1";
+
+    if (!isTeaser && !$figure.find("figcaption").length) {
+      const next = $figure.next();
+      if (next.length && next.is("p")) {
+        const parsed = parseFigureMarker(next.text());
+        if (parsed) {
+          next.remove();
+          isTeaser = parsed.isTeaser;
+          if (parsed.caption) {
+            $figure.append(`<figcaption data-caption="${escapeHtml(parsed.caption)}"></figcaption>`);
+          }
+        }
+      }
+    }
+
+    // A bare "//teaser" (no caption yet) may still have its caption on
+    // the very next paragraph after it.
+    if (isTeaser && !$figure.find("figcaption").length) {
+      const next = $figure.next();
+      if (next.length && next.is("p")) {
+        const capMatch = /^\((.+)\)$/s.exec(next.text().trim());
+        if (capMatch) {
+          next.remove();
+          $figure.append(`<figcaption data-caption="${escapeHtml(capMatch[1].trim())}"></figcaption>`);
+        }
+      }
+    }
+
+    $figure.removeAttr("data-teaser-pending");
+    if (isTeaser) $figure.addClass("is-teaser-candidate");
+  });
+
+  // Number every figure caption in final document order — done before
+  // the teaser is pulled out below, so its caption (if any) is
+  // numbered like any other.
+  let figureNumber = 0;
+  root.find("figcaption[data-caption]").each((_, caption) => {
+    figureNumber += 1;
+    const $caption = $(caption);
+    $caption.text(`Figure ${figureNumber}. ${$caption.attr("data-caption")}`);
+    $caption.removeAttr("data-caption");
+  });
+
+  // First "//teaser" candidate (in document order) is promoted under
+  // the metadata; the rest just stay regular in-article figures.
+  let teaserHtml = "";
+  const $teaser = root.find("figure.is-teaser-candidate").first();
+  if ($teaser.length) {
+    $teaser.removeClass("md-figure is-teaser-candidate").addClass("teaser-figure");
+    $teaser.find("img").removeAttr("loading");
+    teaserHtml = $.html($teaser);
+    $teaser.remove();
+  }
+  root.find(".is-teaser-candidate").removeClass("is-teaser-candidate");
+
+  // Publication-style references:
+  // [label](url) -> label [N]
+  // %%REF{...}@@url<<}%% -> bare [N] (no label), sharing the same
+  // numbering/dedup-by-URL as ordinary links.
+  // References are appended at the end of the same two-column flow.
+  const refs = [];
+  const byUrl = new Map();
+
+  root.find("a[href]").each((_, anchor) => {
+    const $a = $(anchor);
+    const href = $a.attr("href");
+
+    if (!href || href.startsWith("#")) return;
+
+    let ref = byUrl.get(href);
+    if (!ref) {
+      ref = { number: refs.length + 1, href };
+      refs.push(ref);
+      byUrl.set(href, ref);
+    }
+
+    if ($a.hasClass("citation-ref")) {
+      $a.replaceWith(
+        `<a class="citation-marker" href="#ref-${ref.number}" aria-label="Reference ${ref.number}">${ref.number}</a>`
+      );
+      return;
+    }
+
+    const labelHtml = $a.html() || escapeHtml(href);
+    $a.replaceWith(
+      `<span class="link-label">${labelHtml}</span>` +
+      `<a class="reference-marker" href="#ref-${ref.number}" aria-label="Reference ${ref.number}">[${ref.number}]</a>`
+    );
+  });
+
+  // Bare citation markers written back-to-back — e.g.
+  // "(%%REF..%%, %%REF..%%)" — collapse into one bracketed,
+  // comma-separated group: [1, 2] instead of [1][2]. A lone marker
+  // still gets its own brackets, just like an ordinary link reference.
+  root.find("a.citation-marker").each((_, marker) => {
+    const $marker = $(marker);
+    if (!$marker.parent().length) return; // already absorbed into an earlier group
+
+    // Cheerio's `.next()` skips straight to the next element, ignoring
+    // text nodes in between — walk the raw sibling pointer instead so a
+    // ", " separator (or its absence) can actually be inspected.
+    const group = [$marker];
+    let node = marker.next;
+    while (node) {
+      if (node.type === "tag" && node.name === "a" && $(node).hasClass("citation-marker")) {
+        group.push($(node));
+        node = node.next;
+        continue;
+      }
+      if (node.type === "text" && /^\s*,\s*$/.test(node.data)) {
+        const after = node.next;
+        if (after && after.type === "tag" && after.name === "a" && $(after).hasClass("citation-marker")) {
+          group.push($(after));
+          $(node).remove();
+          node = after.next;
+          continue;
+        }
+      }
+      break;
+    }
+
+    // A "(" immediately before the group and a ")" immediately after it
+    // — e.g. "spatially(%%REF..%%, %%REF..%%)" — are just the author's
+    // hand-typed wrapper around the token(s) and read as noise once the
+    // token renders as "[N, M]" on its own; strip them.
+    const prev = marker.prev;
+    if (prev && prev.type === "text" && /\($/.test(prev.data)) {
+      prev.data = prev.data.replace(/\($/, "");
+    }
+    if (node && node.type === "text" && /^\)/.test(node.data)) {
+      node.data = node.data.replace(/^\)/, "");
+    }
+
+    const inner = group
+      .map($m => `<a class="reference-marker citation-marker" href="${$m.attr("href")}" aria-label="${$m.attr("aria-label")}">${$m.text()}</a>`)
+      .join(", ");
+
+    $marker.replaceWith(`<span class="reference-marker-group">[${inner}]</span>`);
+    group.slice(1).forEach($m => $m.remove());
+  });
+
+  if (refs.length) {
+    const items = refs.map(ref => `
+      <li id="ref-${ref.number}">
+        <span class="reference-number">[${ref.number}]</span>
+        <a href="${escapeHtml(ref.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(ref.href)}</a>
+      </li>
+    `).join("");
+
+    root.append(`
+      <section class="references">
+        <h2>References</h2>
+        <ol class="reference-list">${items}</ol>
+      </section>
+    `);
+  }
+
+  // Plain-text excerpt for card previews on the list page: the first
+  // remaining text paragraph (image-only paragraphs became figures above
+  // and don't count).
+  const excerpt = root.find("p").first().text().trim();
+
+  return {
+    title,
+    teaserHtml,
+    excerpt,
+    bodyHtml: root.html() || ""
+  };
+}
+
+// Cache keyed by file id (path), invalidated by version (mtime locally,
+// blob sha on GitHub) and, for local files, by the chokidar watcher
+// too. Keyed by id rather than slug because the slug itself can depend
+// on frontmatter we haven't read yet (see below).
+const entryCache = new Map();
+
+async function loadEntry({ id, version }) {
+  const cached = entryCache.get(id);
+  if (cached && cached.version === version) {
+    return cached;
+  }
+
+  const raw = await entrySource.readFile(id);
+  const { data, content } = matter(raw);
+  const rendered = md.render(expandInlineRefTokens(content));
+  const { title, teaserHtml, excerpt, bodyHtml } = postProcessMarkdown(rendered);
+
+  // Renaming a file or moving it to a different folder in Obsidian
+  // changes its path — and hashing the path (the fallback below) would
+  // silently break any /entry/<hash> link already shared for it.
+  // publishID, once written in frontmatter, survives renames/moves, so
+  // it's used instead whenever present; it's still hashed like the
+  // path would be, so the URL stays just as opaque either way.
+  const publishId = getPublishId(data.publishID);
+  const slug = slugify(publishId || id);
+
+  const entry = {
+    slug,
+    id,
+    version,
+    title: title !== "Untitled" ? title : path.basename(id, path.extname(id)),
+    teaserHtml,
+    excerpt,
+    bodyHtml,
+    published: publishId !== null,
+    created: normalizeDate(data.created),
+    updated: normalizeDate(data.updated)
+  };
+
+  entryCache.set(id, entry);
+  return entry;
+}
+
+function sortByDateDesc(entries, field) {
+  const other = field === "created" ? "updated" : "created";
+  return [...entries].sort((a, b) => {
+    const aKey = a[field] || a[other] || "";
+    const bKey = b[field] || b[other] || "";
+    if (aKey && bKey) return bKey.localeCompare(aKey);
+    if (aKey) return -1;
+    if (bKey) return 1;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+async function listEntries() {
+  const files = await entrySource.listFiles();
+
+  return (await Promise.all(files.map(loadEntry)))
+    .filter(entry => entry.published);
+}
+
+function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="${paginated
+    ? "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    : "width=device-width, initial-scale=1"}" />
+  <title>${escapeHtml(title)}</title>
+  <link rel="stylesheet" href="/static/journal.css" />
+  ${paginated ? `<script>window.PagedConfig = { auto: false };</script>
+  <script src="https://unpkg.com/pagedjs/dist/paged.polyfill.js"></script>` : ""}
+</head>
+<body class="${escapeHtml(bodyClass)}">
+  ${bodyHtml}
+
+  <script>
+    function attachImageFallback(root) {
+      (root || document).querySelectorAll("img").forEach((img) => {
+        img.addEventListener("error", () => {
+          const placeholder = document.createElement("div");
+          placeholder.className = "image-placeholder";
+          placeholder.textContent = img.alt || "image unavailable";
+          img.replaceWith(placeholder);
+        }, { once: true });
+      });
+    }
+
+    ${entrySource.liveReload ? `
+    // Live reload when Markdown/CSS in the watched folder changes.
+    const events = new EventSource("/events");
+    events.addEventListener("reload", () => location.reload());
+    ` : ""}
+
+    ${paginated ? `
+    // Each md file's content lives in this <template> unrendered; Paged.js
+    // slices it into fixed-size page boxes, overflowing into as many
+    // pages as the content needs.
+    (async function () {
+      const source = document.getElementById("pagedjs-source");
+      const target = document.getElementById("pagedjs-target");
+      const toggle = document.getElementById("spread-toggle");
+      if (!source || !target) return;
+
+      // Touch devices (phones, iPads) get an e-reader instead: one page
+      // per screen, swipe sideways to turn. Detected by the primary
+      // pointer being a finger rather than by screen width, so a
+      // landscape iPad (wider than any "mobile" breakpoint) counts too.
+      // navigator.maxTouchPoints also catches iPadOS, whose Safari
+      // presents itself as a desktop Mac by default.
+      const isTouchBook =
+        matchMedia("(pointer: coarse)").matches ||
+        matchMedia("(hover: none)").matches ||
+        navigator.maxTouchPoints > 1;
+      // Tablets keep Letter-proportioned pages (one in portrait, a
+      // two-page spread in landscape); phones get pages shaped exactly
+      // like their screen instead. Split by the device's short side —
+      // every iPad is >= 744 CSS px there, every phone well under 600.
+      const isTablet = isTouchBook && Math.min(screen.width, screen.height) >= 600;
+      const isPhone = isTouchBook && !isTablet;
+
+      // Switched on BEFORE rendering: the touch layout clips the page
+      // track, so the 850px-wide pages Paged.js produces never make the
+      // document wider than the screen. Otherwise iOS Safari zooms the
+      // whole page out to fit them, and everything measured afterwards
+      // is off.
+      if (isTouchBook) {
+        document.documentElement.classList.add("touch-book");
+        // Safety net: pages are hidden until fitted — if anything in
+        // the render/fit chain fails, show them anyway after a while
+        // rather than leave a blank screen.
+        setTimeout(() => document.documentElement.classList.add("touch-book-ready"), 10000);
+      }
+
+      // Screen width in CSS px. NOT window.innerWidth: on iOS that is
+      // the visual viewport, which shrinks/grows with pinch/auto zoom —
+      // it read ~850 on a phone that had zoomed out, so pages weren't
+      // scaled down at all (and each zoom change looked like a resize).
+      function viewportWidth() {
+        return document.documentElement.clientWidth || window.innerWidth;
+      }
+
+      // @page's own size is a FIXED, literal design size (850x1100 —
+      // see journal.css) and never changes at runtime: it's the basis
+      // every font-size/margin/image-max-height in journal.css was
+      // authored against, so scaling it dynamically (tried previously)
+      // scales the page box but not those values, leaving text looking
+      // bigger or smaller *relative to the page* depending on the
+      // viewer's screen. Filling the viewport is instead done with
+      // \`zoom\` on the whole rendered page — zoom scales a box AND
+      // everything inside it together, uniformly, so the text-to-page
+      // ratio is identical for every viewer no matter the absolute
+      // size it ends up rendered at.
+      const NOMINAL_WIDTH = 850;
+      const NOMINAL_HEIGHT = 1100;
+
+      // Single-page mode: each page individually zoomed to fill the
+      // viewport's height.
+      function applySinglePageZoom() {
+        const scale = window.innerHeight / NOMINAL_HEIGHT;
+        target.querySelectorAll(".pagedjs_page").forEach(page => {
+          page.style.zoom = scale;
+        });
+      }
+
+      // Double-page mode: the pair zoomed together (not per-page — they
+      // need to shrink/grow as one unit to stay the same size as each
+      // other) to fill the available width.
+      function fitSpreadWidth() {
+        const pages = target.querySelector(".pagedjs_pages");
+        if (!pages) return;
+
+        // Per-page zoom from single-page mode would otherwise compound
+        // with the spread's own zoom below.
+        target.querySelectorAll(".pagedjs_page").forEach(page => {
+          page.style.zoom = "";
+        });
+
+        if (!target.classList.contains("spread-mode")) {
+          pages.style.zoom = "";
+          applySinglePageZoom();
+          return;
+        }
+
+        // journal.css's grid-template-columns still reads the static
+        // --paper-width variable — override it inline, at !important
+        // priority so it actually beats that rule, to keep the two
+        // columns sized to the fixed nominal page width (the zoom
+        // below is what actually scales them, same as single-page).
+        pages.style.setProperty(
+          "grid-template-columns",
+          \`repeat(2, \${NOMINAL_WIDTH}px)\`,
+          "important"
+        );
+        // No upper cap: when there's more than enough room for both
+        // pages at their natural size, scale UP to actually fill it
+        // instead of leaving the extra space as centered padding.
+        pages.style.zoom = target.clientWidth / (NOMINAL_WIDTH * 2);
+      }
+
+      if (toggle && !isTouchBook) {
+        toggle.addEventListener("click", () => {
+          const isOn = toggle.classList.toggle("is-on");
+          target.classList.toggle("spread-mode", isOn);
+          fitSpreadWidth();
+        });
+        window.addEventListener("resize", () => {
+          if (target.classList.contains("spread-mode")) {
+            fitSpreadWidth();
+          } else {
+            applySinglePageZoom();
+          }
+        });
+      }
+
+      // Height the book is fitted into. 100svh ("small viewport height")
+      // is the height with the mobile address bar SHOWN — it stays put
+      // as the bar slides in and out, unlike window.innerHeight, whose
+      // constant changes previously fed a resize -> re-zoom -> resize
+      // loop (text starting tiny, jumping around, ending up huge).
+      function stableViewportHeight() {
+        const probe = document.createElement("div");
+        probe.style.cssText = "position:fixed;top:0;height:100svh;width:0;visibility:hidden;";
+        document.body.appendChild(probe);
+        const h = probe.offsetHeight || document.documentElement.clientHeight || window.innerHeight;
+        probe.remove();
+        return h;
+      }
+
+      // Phones: the page itself is shaped like the screen. Paged.js
+      // reads @page size from the stylesheet text and can't take CSS
+      // variables there, so journal.css's one literal @page size is
+      // swapped in a fetched copy before pagination. Width stays the
+      // 850px design width (same typography-to-page-width proportions
+      // as everywhere else); height follows the screen's aspect ratio.
+      // Content is then paginated INTO that shape, so nothing can spill
+      // past the page — it just flows onto the next one.
+      async function phonePageStylesheet() {
+        const w = viewportWidth();
+        const h = stableViewportHeight();
+        const pageHeight = Math.round(NOMINAL_WIDTH * h / w);
+        const css = await (await fetch("/static/journal.css")).text();
+        const patched = css.replace(
+          /size:\\s*[\\d.]+px\\s+[\\d.]+px\\s*;/,
+          \`size: \${NOMINAL_WIDTH}px \${pageHeight}px;\`
+        );
+        return URL.createObjectURL(new Blob([patched], { type: "text/css" }));
+      }
+
+      // Pages laid side by side in a horizontal scroll-snap track: a
+      // swipe turns exactly one screen (one page, or a two-page spread
+      // on a landscape tablet) with the browser's own native gesture
+      // and momentum — no custom touch code. Each page is zoomed as a
+      // whole (text, images, margins together) to fit the screen.
+      function setupTouchBook() {
+        const track = target.querySelector(".pagedjs_pages");
+        if (!track) return;
+        const pages = Array.from(target.querySelectorAll(".pagedjs_page"));
+        let perScreen = 1;
+
+        function fit() {
+          const w = viewportWidth();
+          const h = stableViewportHeight();
+          perScreen = isTablet && w > h ? 2 : 1;
+          // Reuses the desktop spread styling (center-gutter shadow,
+          // odd/even pairing) for the landscape tablet spread.
+          target.classList.toggle("spread-mode", perScreen === 2);
+
+          const scale = isPhone
+            ? w / NOMINAL_WIDTH
+            : Math.min(w / (NOMINAL_WIDTH * perScreen), h / NOMINAL_HEIGHT);
+
+          // Side padding (in the page's own zoomed coordinates) so every
+          // screen-sized slot is filled exactly: one centered page, or
+          // two touching pages centered as a pair — no neighbor peeking.
+          const side = (w - NOMINAL_WIDTH * perScreen * scale) / 2 / scale;
+
+          pages.forEach((page, i) => {
+            page.style.zoom = scale;
+            let left = side;
+            let right = side;
+            if (perScreen === 2) {
+              const isLeftPage = i % 2 === 0;
+              const aloneAtEnd = isLeftPage && i === pages.length - 1;
+              left = isLeftPage ? side : 0;
+              right = isLeftPage ? (aloneAtEnd ? side + NOMINAL_WIDTH : 0) : side;
+            }
+            page.style.setProperty("margin", \`0 \${right}px 0 \${left}px\`, "important");
+            page.style.scrollSnapAlign = perScreen === 1 || i % 2 === 0 ? "start" : "none";
+          });
+        }
+
+        fit();
+        // Pages are zoomed now — safe to show (see journal.css).
+        document.documentElement.classList.add("touch-book-ready");
+
+        // Only a WIDTH change (rotating the device) is a real resize —
+        // the height changing alone is the address bar sliding, which
+        // must not trigger anything (that was the old jitter loop).
+        let lastWidth = viewportWidth();
+        window.addEventListener("resize", () => {
+          if (viewportWidth() === lastWidth) return;
+          if (isPhone) {
+            // Page shape follows the screen, so a rotated phone needs
+            // its content re-paginated into the new shape.
+            location.reload();
+            return;
+          }
+          const firstPageShown = Math.round(track.scrollLeft / lastWidth) * perScreen;
+          lastWidth = viewportWidth();
+          fit();
+          track.scrollLeft = Math.floor(firstPageShown / perScreen) * lastWidth;
+        });
+      }
+
+      function finishUp() {
+        attachImageFallback(target);
+
+        if (isTouchBook) {
+          setupTouchBook();
+          return;
+        }
+
+        const pageCount = target.querySelectorAll(".pagedjs_page").length;
+        if (pageCount <= 1) {
+          // Nothing to spread — a single page has no facing page to
+          // sit beside, so default to single-page regardless of the
+          // toggle's usual default state.
+          if (toggle) {
+            toggle.classList.remove("is-on");
+            toggle.disabled = true;
+          }
+          target.classList.remove("spread-mode");
+          applySinglePageZoom();
+          return;
+        }
+
+        // Double-page is the default view otherwise: apply it once the
+        // pages that just got rendered actually exist to measure/zoom.
+        if (toggle && toggle.classList.contains("is-on")) {
+          target.classList.add("spread-mode");
+          fitSpreadWidth();
+        } else {
+          applySinglePageZoom();
+        }
+      }
+
+      // Extra clearance required beyond a bare touch — both because a
+      // late-loading image can still nudge layout a little after this
+      // check runs (waitForImages below covers the common case, this
+      // is backup margin for anything that slips past it), and because
+      // "just barely not touching" still reads as cramped.
+      const OVERLAP_MARGIN_PX = 24;
+
+      // Paged.js's own promise resolves once layout is done, but an
+      // <img> that hadn't finished loading/decoding yet can still
+      // resize afterwards and shift content down — right into
+      // territory the overlap checks below already cleared. Wait for
+      // every image actually inserted by this render before measuring
+      // anything.
+      async function waitForImages() {
+        const images = Array.from(target.querySelectorAll("img"));
+        // loading="lazy" images that are hidden or off-screen (every
+        // page but the first in the touch swipe track) never start
+        // loading on iOS — waiting on them hung the reader forever.
+        images.forEach(img => { img.loading = "eager"; });
+        const allLoaded = Promise.all(images.map(img => {
+          if (img.complete) return Promise.resolve();
+          return new Promise(resolve => {
+            img.addEventListener("load", resolve, { once: true });
+            img.addEventListener("error", resolve, { once: true });
+          });
+        }));
+        // Never let one slow image block the whole book.
+        await Promise.race([allLoaded, new Promise(r => setTimeout(r, 5000))]);
+      }
+
+      // References are pinned absolute (bottom-right of whatever page
+      // they land on), so nothing reserves space for them — if that
+      // page's normal content already runs close to the bottom, they
+      // can visually collide. Detect that after the first render and,
+      // for just the entries where it actually happened, insert a page
+      // break before their References and re-paginate once.
+      function findOverlappingReferenceSlugs() {
+        const slugs = [];
+        target.querySelectorAll(".references[data-ref-for]").forEach(ref => {
+          const prev = ref.previousElementSibling;
+          if (!prev) return;
+          const refRect = ref.getBoundingClientRect();
+          const prevRect = prev.getBoundingClientRect();
+          if (prevRect.bottom + OVERLAP_MARGIN_PX > refRect.top) {
+            slugs.push(ref.getAttribute("data-ref-for"));
+          }
+        });
+        return slugs;
+      }
+
+      // .byline-footer no longer needs any detection on /contents — it's
+      // plain in-flow content there now (see renderByline's "plain"
+      // mode), which can never overlap anything because normal document
+      // flow guarantees whatever follows it comes after, not because
+      // something measured it and hoped for the best. That JS approach
+      // was tried twice (once with an absolute-position + negative
+      // offset, once with absolute-position + overlap-detected forced
+      // breaks) and both times corrupted pagination across the whole
+      // multi-entry flow instead of just fixing the footer.
+
+      function withForcedBreaksBefore(refSlugs) {
+        const scratch = document.createElement("div");
+        scratch.innerHTML = source.innerHTML;
+
+        refSlugs.forEach(slug => {
+          const ref = scratch.querySelector(\`.references[data-ref-for="\${slug}"]\`);
+          if (!ref) return;
+          const breaker = document.createElement("div");
+          breaker.className = "force-page-break";
+          ref.parentNode.insertBefore(breaker, ref);
+        });
+
+        return scratch.innerHTML;
+      }
+
+      // Paginated pages hold every image up front anyway; lazy loading
+      // only ever made off-screen/hidden ones stall (notably on iOS).
+      source.innerHTML = source.innerHTML.replace(/ loading="lazy"/g, "");
+
+      const pageStylesheets = [isPhone ? await phonePageStylesheet() : "/static/journal.css"];
+
+      const previewer = new Paged.Previewer();
+      await previewer.preview(source.innerHTML, pageStylesheets, target)
+        .then(async () => {
+          await waitForImages();
+          const overlappingRefs = findOverlappingReferenceSlugs();
+          if (overlappingRefs.length === 0) {
+            finishUp();
+            return;
+          }
+
+          target.innerHTML = "";
+          const retryPreviewer = new Paged.Previewer();
+          await retryPreviewer
+            .preview(withForcedBreaksBefore(overlappingRefs), pageStylesheets, target)
+            .then(finishUp);
+        });
+    })();
+    ` : `attachImageFallback();`}
+  </script>
+</body>
+</html>`;
+}
+
+function truncate(text, max = 160) {
+  if (!text) return "";
+  if (text.length <= max) return text;
+  return `${text.slice(0, max).trimEnd()}…`;
+}
+
+// Back link + double-page checkbox, both hidden by default and revealed
+// on hover near the left edge of the viewport — kept out of the way of
+// a full-width double-page spread. Shared by the entry page and the
+// contents (reading mode) page.
+function renderEdgeControls({ href, showBack = true, showToggle }) {
+  return `
+  <div class="edge-controls">
+    ${showBack ? `<nav class="entry-nav"><a href="${href}">Back</a></nav>` : ""}
+    ${showToggle ? `<button type="button" id="spread-toggle" class="mode-toggle is-on">Double</button>` : ""}
+  </div>`;
+}
+
+function renderLogo(href) {
+  return `
+    <a href="${href}" class="index-logo" aria-label="Journal">
+      <img src="/static/owl.png" alt="Journal" />
+    </a>
+    <div class="index-author">${escapeHtml(AUTHOR)}</div>
+  `;
+}
+
+function renderWaterfallCards(entries) {
+  return sortByDateDesc(entries, "updated").map(entry => {
+    const date = entry.updated || entry.created || "";
+
+    // Cards with a teaser image show the image plus title/date; text-only
+    // entries show a truncated first-paragraph preview instead of a thumb.
+    const inner = `
+      ${entry.teaserHtml ? `<div class="wf-thumb">${entry.teaserHtml}</div>` : ""}
+      <div class="wf-card-body">
+        <h2 class="wf-card-title">${escapeHtml(entry.title)}</h2>
+        ${!entry.teaserHtml && entry.excerpt ? `<p class="wf-card-excerpt">${escapeHtml(truncate(entry.excerpt))}</p>` : ""}
+        ${date ? `<div class="wf-card-date">${escapeHtml(date)}</div>` : ""}
+      </div>
+    `;
+
+    return `
+      <a id="card-${entry.slug}" class="wf-card ${entry.teaserHtml ? "wf-card-image" : "wf-card-text"}" href="/entry/${entry.slug}">
+        ${inner}
+      </a>
+    `;
+  }).join("");
+}
+
+function renderEmptyState(entries) {
+  return entries.length
+    ? ""
+    : `<p class="index-empty">No published entries yet. Add <code>publishID: ...</code> to a Markdown file's frontmatter (source: ${escapeHtml(entrySource.label)}).</p>`;
+}
+
+// Home page ("/"): logo + author + a plain waterfall feed, no TOC.
+// Clicking the logo goes into the "contents" view below.
+function renderHomePage(entries) {
+  const bodyHtml = `
+  <div class="journal-home">
+    <header class="index-header index-header-home">
+      ${renderLogo(CONTENTS_PATH)}
+    </header>
+
+    <div class="journal-waterfall">
+      ${renderEmptyState(entries)}
+      ${renderWaterfallCards(entries)}
+    </div>
+  </div>`;
+
+  return pageShell({ title: "Journal", bodyHtml, bodyClass: "page-index" });
+}
+
+// Contents view ("/contents"): the reading mode. Dark background, no
+// logo, a left sidebar table of contents (date + title, sorted by created
+// date), and every entry rendered in full as a stacked "spread" — the
+// same two-column paper look as the single entry page, with a faint
+// inner gutter shadow standing in for a book's spine. Order matches the
+// TOC (by created date) so scrolling down tracks the sidebar top to
+// bottom.
+function renderContentsPage(entries) {
+  const orderedEntries = sortByDateDesc(entries, "created");
+
+  const toc = orderedEntries.map(entry => {
+    const date = entry.created || entry.updated || "";
+    return `
+      <li class="toc-item">
+        <a href="#card-${entry.slug}">
+          ${date ? `<span class="toc-date">${escapeHtml(date)}</span>` : ""}
+          <span class="toc-title">${escapeHtml(entry.title)}</span>
+        </a>
+      </li>
+    `;
+  }).join("");
+
+  const spreads = orderedEntries.map(entry => `
+    <article class="paper spread" id="card-${entry.slug}">
+      ${renderEntryBody(entry, { mode: "plain" })}
+    </article>
+  `).join("");
+
+  const bodyHtml = `
+  ${renderEdgeControls({ href: HOME_PATH, showToggle: orderedEntries.length > 0 })}
+
+  ${orderedEntries.length ? `
+  <div class="toc-panel">
+    <ul class="toc-list">${toc}</ul>
+  </div>` : ""}
+
+  <div class="entry-page${orderedEntries.length ? " has-toc" : ""}">
+    ${orderedEntries.length
+      ? `<template id="pagedjs-source">${spreads}</template>
+         <div id="pagedjs-target" class="journal-spreads"></div>`
+      : `<div class="journal-spreads">${renderEmptyState(entries)}</div>`}
+  </div>`;
+
+  return pageShell({ title: "Journal", bodyHtml, bodyClass: "page-contents", paginated: orderedEntries.length > 0 });
+}
+
+function renderByline(entry, { mode }) {
+  // "This article is written on <created>, and updated <updated> by
+  // <author>." — degrades gracefully if either date is missing.
+  const parts = [];
+  if (entry.created) parts.push(`is written on ${escapeHtml(entry.created)}`);
+  if (entry.updated) parts.push(`updated ${escapeHtml(entry.updated)}`);
+
+  const clause = parts.length
+    ? `This article ${parts.join(", and ")} by ${escapeHtml(AUTHOR)}.`
+    : `This article is written by ${escapeHtml(AUTHOR)}.`;
+
+  // "running" (/entry): pulled out of the flow entirely by CSS
+  // (position: running()) into page 1's margin box — real reserved
+  // layout space, can't overlap body text, no JS involved.
+  //
+  // "plain" (/contents): every entry is concatenated into ONE shared
+  // Paged.js document there, so a per-entry "pin to the bottom of
+  // THIS entry's first page" has no reliable implementation — the
+  // native trick above only ever matches the very first page of the
+  // WHOLE flow (no "first page of this section" selector exists in
+  // the spec), and the JS alternative (absolutely position it, detect
+  // overlap after the fact, insert a forced page-break to dodge it)
+  // was tried and repeatedly corrupted pagination across the whole
+  // multi-entry flow — the same failure mode a negative CSS offset
+  // caused earlier, just from a different angle. Plain in-flow content
+  // is what's actually reliable: it sits under the title instead of at
+  // the page bottom, a real (visible) difference from /entry, traded
+  // for /contents' column/page breaks staying correct.
+  const modeClass = mode === "running" ? "byline-footer--running" : "";
+  return `<p class="byline-footer ${modeClass}">${clause}</p>`;
+}
+
+function renderEntryBody(entry, { mode }) {
+  const byline = renderByline(entry, { mode });
+  const bodyMain = `
+    <main class="body">
+      ${entry.bodyHtml.replace(
+        '<section class="references"',
+        `<section class="references" data-ref-for="${escapeHtml(entry.slug)}"`
+      )}
+    </main>
+  `;
+
+  return `
+    <h1 class="title">${escapeHtml(entry.title)}</h1>
+
+    ${mode === "running" ? byline : ""}
+
+    ${entry.teaserHtml ? `<div class="teaser-slot">${entry.teaserHtml}</div>` : ""}
+
+    ${bodyMain}
+
+    ${mode === "running" ? "" : byline}
+  `;
+}
+
+function renderEntryPage(entry) {
+  const bodyHtml = `
+  ${renderEdgeControls({ href: HOME_PATH, showBack: false, showToggle: true })}
+
+  <div class="entry-page">
+    <template id="pagedjs-source">
+      <article class="paper">
+        ${renderEntryBody(entry, { mode: "running" })}
+      </article>
+    </template>
+    <div id="pagedjs-target"></div>
+  </div>`;
+
+  return pageShell({ title: entry.title, bodyHtml, bodyClass: "page-entry", paginated: true });
+}
+
+// "/" and "/contents" are the only routes that let someone browse
+// every published entry — that's why they live at HOME_PATH instead
+// of a guessable path. A single entry's own /entry/:hash link (and
+// /static/*) is unaffected either way.
+app.get(HOME_PATH, async (_req, res) => {
+  try {
+    const entries = await listEntries();
+    res.type("html").send(renderHomePage(entries));
+  } catch (error) {
+    res.status(500).type("text").send(`Could not list entries from ${entrySource.label}\n\n${error.stack || error}`);
+  }
+});
+
+app.get(CONTENTS_PATH, async (_req, res) => {
+  try {
+    const entries = await listEntries();
+    res.type("html").send(renderContentsPage(entries));
+  } catch (error) {
+    res.status(500).type("text").send(`Could not list entries from ${entrySource.label}\n\n${error.stack || error}`);
+  }
+});
+
+app.get("/entry/:slug", async (req, res) => {
+  try {
+    const entries = await listEntries();
+    const entry = entries.find(e => e.slug === req.params.slug);
+    if (!entry) {
+      res.status(404).type("text").send(`No entry found for "${req.params.slug}"`);
+      return;
+    }
+    res.type("html").send(renderEntryPage(entry));
+  } catch (error) {
+    res.status(500).type("text").send(`Could not render entry\n\n${error.stack || error}`);
+  }
+});
+
+if (entrySource.liveReload) {
+  const watchTargets = [
+    entrySource.rootDir,
+    path.join(__dirname, "static", "journal.css")
+  ];
+
+  chokidar.watch(watchTargets, { ignoreInitial: true }).on("all", (_event, filePath) => {
+    if (filePath && filePath.endsWith(".md")) {
+      entryCache.delete(path.relative(entrySource.rootDir, filePath));
+    }
+    notifyReload();
+  });
+}
+
+// Running directly (`node server.js` / `npm run dev`) starts a local
+// server. Deployed on Vercel, `api/index.js` imports `app` instead and
+// Vercel handles listening, so this block never runs there.
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+if (isMain) {
+  app.listen(PORT, () => {
+    const url = `http://localhost:${PORT}${HOME_PATH}`;
+    console.log(`Journal: ${url}`);
+    console.log(`Source:  ${entrySource.label}`);
+    if (HOME_PATH !== "/") console.log(`(HOME_PATH set — plain "/" won't show the journal)`);
+
+    if (process.env.NO_OPEN !== "1") {
+      const opener = process.platform === "darwin" ? "open"
+        : process.platform === "win32" ? "start \"\""
+        : "xdg-open";
+      exec(`${opener} ${url}`);
+    }
+  });
+}
+
+export default app;
