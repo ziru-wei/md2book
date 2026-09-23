@@ -732,8 +732,14 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // overlap retry are left to resolve visibly afterward instead of
       // blocking first paint.
       function revealPagedReader() {
+        console.log("[paged-debug] revealPagedReader() called at", performance.now());
         requestAnimationFrame(() => {
           document.documentElement.classList.remove("paged-loading");
+          console.log(
+            "[paged-debug] reveal rAF ran at", performance.now(),
+            "html.className=", document.documentElement.className,
+            "target visibility=", getComputedStyle(target).visibility
+          );
         });
       }
 
@@ -886,20 +892,29 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // Desktop progressive reveal: rather than waiting for the whole
       // \`preview()\` promise (which only resolves once EVERY page has
       // been generated) a target-scoped MutationObserver reveals the
-      // reader as soon as the first usable state exists — the first
-      // page pair for the default spread, since revealing a lone page
-      // that's about to become a pair would just be a different flash.
-      // Paged.js keeps appending later pages into the now-visible
-      // \`.pagedjs_pages\` underneath. Scoped to \`target\` (not a global
-      // Paged.Handler) so it can never fire for the hidden retry/staging
-      // Previewer below.
+      // reader as soon as the FIRST page exists — spread-mode and the
+      // explicit two-column grid are already primed above, so page 1
+      // lands in the left spread slot with an empty right slot, and
+      // page 2 (and beyond) fill in progressively as Paged.js keeps
+      // appending them into the now-visible \`.pagedjs_pages\` — no
+      // waiting for a full pair before the reader is shown at all.
+      // Scoped to \`target\` (not a global Paged.Handler) so it can never
+      // fire for the hidden retry/staging Previewer below.
       let progressiveRevealed = false;
 
       function revealProgressiveDesktop() {
+        const pageCount = target.querySelectorAll(".pagedjs_page").length;
+        console.log(
+          "[paged-debug] observer callback at", performance.now(),
+          "pageCount=", pageCount,
+          "wantsSpread=", wantsSpread,
+          "progressiveRevealed=", progressiveRevealed,
+          "isTouchBook=", isTouchBook
+        );
+
         if (progressiveRevealed || isTouchBook) return;
 
-        const pageCount = target.querySelectorAll(".pagedjs_page").length;
-        if (wantsSpread && pageCount < 2) return;
+        if (pageCount < 1) return;
 
         progressiveRevealed = true;
 
@@ -917,9 +932,18 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         ? new MutationObserver(() => revealProgressiveDesktop())
         : null;
       progressiveObserver?.observe(target, { childList: true, subtree: true });
+      console.log(
+        "[paged-debug] observer attached, calling preview() at", performance.now(),
+        "isTouchBook=", isTouchBook, "wantsSpread=", wantsSpread
+      );
 
       const previewer = new Paged.Previewer();
       await previewer.preview(source.innerHTML, pageStylesheets, target);
+      console.log(
+        "[paged-debug] preview() resolved at", performance.now(),
+        "pageCount=", target.querySelectorAll(".pagedjs_page").length,
+        "progressiveRevealed=", progressiveRevealed
+      );
       progressiveObserver?.disconnect();
 
       // A real one-page document (or touch, where the observer never
