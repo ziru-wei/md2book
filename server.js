@@ -232,6 +232,16 @@ function postProcessMarkdown(renderedHtml) {
   const title = firstH1.length ? firstH1.text().trim() : "Untitled";
   if (firstH1.length) firstH1.remove();
 
+  // A "## Note" heading (any letter case) marks a private end-of-file
+  // scratchpad — that heading and everything after it in the document
+  // is stripped entirely here, before figures/references/excerpt are
+  // computed, so none of it is ever rendered, numbered, or previewed.
+  const noteHeading = root.find("h2").filter((_, h) => $(h).text().trim().toLowerCase() === "note").first();
+  if (noteHeading.length) {
+    noteHeading.nextAll().remove();
+    noteHeading.remove();
+  }
+
   // Turn standalone Markdown images into figures. A "//teaser" marker
   // promotes one image under the metadata; either form (marker, and/or
   // a "(caption)") can be soft-wrapped into the image's own paragraph,
