@@ -795,10 +795,16 @@ html.paged-loading #paged-loader {
    sits at the right point in the two-column text; .comment-margin-
    marker is its only positioned child, offset sideways by CSS alone
    (no JS measurement) so it keeps that exact vertical position for
-   free. Kept narrow enough to fit inside the inter-column gutter
-   without ever overlapping the next column's own text — for a
-   right-column comment this also comfortably fits within the page's
-   own (wider) right margin.
+   free — but being absolutely positioned, it does NOT reserve space
+   in normal flow, so a note taller than one line can visually sit on
+   top of whatever body content follows below its anchor. Widened (and
+   given an opaque background) specifically to keep most short
+   comments to 1–2 lines and stay legible even where that overlap does
+   happen — a real residual risk for longer comments or ones anchored
+   right before a heading, given the column layout leaves no reliable
+   room to guarantee zero overlap without JS measurement (deliberately
+   avoided here — see the note about this app's pagination-corruption
+   history elsewhere in this file/server.js).
    ========================================================= */
 
 .comment-marker {
@@ -812,13 +818,16 @@ html.paged-loading #paged-loader {
 
 .comment-margin-marker {
   position: absolute;
-  top: 0;
-  right: -36px;
+  top: -.2em;
+  right: -14px;
+  z-index: 1;
 
   /* CUSTOMIZABLE STYLE: margin note text */
-  width: 34px;
-  font-size: 8px;
-  line-height: 1.3;
+  width: 118px;
+  padding: .2em .4em;
+  background: var(--paper);
+  font-size: 8.5px;
+  line-height: 1.35;
   font-style: italic;
   color: var(--muted);
   text-align: left;
