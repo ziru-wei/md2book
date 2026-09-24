@@ -62,6 +62,7 @@ Rules:
 - adjacent `%%REF...%%` citations (e.g. written back-to-back as `(%%REF..%%, %%REF..%%)`) collapse into a single group like `[1, 2]` instead of `[1][2]`
 - References are generated automatically and pinned to the bottom-right of whichever page ends up being the last one
 - repeated URLs reuse the same reference number, whether written as `[label](url)` or `%%REF...%%`
+- `<annotated text>%%<annotated text>{>>{"author":"...","time":...}@@<comment><<}%%` — same envelope as `%%REF...%%`, but the part before `{>>` is a copy of the text being annotated (left as plain Markdown) rather than the literal word `REF`. Renders a small superscript after that text plus a matching marker in the page's outer margin (hover it to read the comment); numbered independently from References, with no bottom list. `author`/`time` are accepted but ignored.
 
 ## Images
 

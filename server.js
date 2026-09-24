@@ -222,6 +222,28 @@ function expandInlineRefTokens(markdown) {
   });
 }
 
+// Inline margin-comment tokens:
+// %%<annotated text>{>>{"author":"...","time":...}@@<comment><<}%%
+// Same {>>{json}@@...<<}%% envelope as the %%REF...%% citation token,
+// but the part before "{>>" is the text being annotated (left exactly
+// as-is, still plain Markdown) rather than a fixed "REF" keyword — so
+// this only ever runs AFTER expandInlineRefTokens has already replaced
+// every %%REF...%% occurrence, or it would swallow those too. The
+// JSON blob is metadata only (author/time) and is discarded, same as
+// for citations. Numbered independently from References (superscript,
+// own counter) in postProcessMarkdown, with a small matching marker
+// placed in the page's outer margin — see .comment-marker/
+// .comment-margin-marker in journal.css.
+const COMMENT_TOKEN_RE = /%%(.+?)\{>>(\{[^{}]*\})@@(.*?)<<\}%%/gs;
+
+function expandInlineCommentTokens(markdown) {
+  return markdown.replace(COMMENT_TOKEN_RE, (_match, text, _meta, comment) => {
+    const trimmedComment = comment.trim();
+    if (!trimmedComment) return text;
+    return `${text}<sup class="comment-marker"><span class="comment-number"></span><span class="comment-margin-marker" data-comment="${escapeHtml(trimmedComment)}" title="${escapeHtml(trimmedComment)}"></span></sup>`;
+  });
+}
+
 // A reference's stored URL sometimes turns out to be a whole markdown
 // link itself (e.g. a browser "copy as markdown link" pasted in whole
 // as the URL half of a %%REF...%% token or [label](url)) — split that
@@ -518,6 +540,23 @@ function postProcessMarkdown(renderedHtml) {
     `);
   }
 
+  // Margin comments (%%text{>>{...}@@comment<<}%%): numbered
+  // independently from References, in document order — each gets a
+  // small superscript in the flowing text plus a matching marker
+  // pinned to the page's outer margin (positioned via CSS relative to
+  // the <sup> itself, not JS-measured, since the latter has a history
+  // of corrupting Paged.js pagination in this app — see setupTouchBook/
+  // the References-overlap comments elsewhere). No bottom list; the
+  // margin marker's title attribute already carries the comment text.
+  let commentNumber = 0;
+  root.find("sup.comment-marker").each((_, marker) => {
+    commentNumber += 1;
+    const $marker = $(marker);
+    $marker.find(".comment-number, .comment-margin-marker").each((_, el) => {
+      $(el).text(String(commentNumber));
+    });
+  });
+
   // Plain-text excerpt for card previews on the list page: the first
   // remaining text paragraph (image-only paragraphs became figures above
   // and don't count).
@@ -545,7 +584,7 @@ async function loadEntry({ id, version }) {
 
   const raw = await entrySource.readFile(id);
   const { data, content } = matter(raw);
-  const rendered = md.render(expandInlineRefTokens(content));
+  const rendered = md.render(expandInlineCommentTokens(expandInlineRefTokens(content)));
   const { title, teaserHtml, excerpt, bodyHtml } = postProcessMarkdown(rendered);
 
   // Renaming a file or moving it to a different folder in Obsidian

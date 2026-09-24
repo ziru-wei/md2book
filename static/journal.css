@@ -766,6 +766,42 @@ html.paged-loading #paged-loader {
 }
 
 /* =========================================================
+   Margin comments
+   %%text{>>{...}@@comment<<}%% — numbered independently from
+   References (own counter, superscript, no bottom list). The
+   in-flow <sup> is a normal inline element so it naturally sits at
+   the right point in the two-column text; .comment-margin-marker is
+   its only positioned child, offset sideways by CSS alone (no JS
+   measurement) so it keeps that exact vertical position for free.
+   Pushed just far enough to clear a column's own text — lands in the
+   inter-column gutter for the left column, and in the page's own
+   right margin for the right column.
+   ========================================================= */
+
+.comment-marker {
+  position: relative;
+}
+
+.comment-number {
+  /* CUSTOMIZABLE STYLE: in-text superscript marker */
+  color: var(--muted);
+}
+
+.comment-margin-marker {
+  position: absolute;
+  top: 0;
+  right: -32px;
+
+  /* CUSTOMIZABLE STYLE: margin marker */
+  width: 18px;
+  font-size: 9px;
+  line-height: 1.2;
+  color: var(--muted);
+  text-align: center;
+  cursor: help;
+}
+
+/* =========================================================
    References
    Taken out of the normal two-column flow entirely (position:
    absolute) and pinned to the bottom-right of whichever page it
