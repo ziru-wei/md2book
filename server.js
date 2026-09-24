@@ -638,6 +638,55 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       const toggle = document.getElementById("spread-toggle");
       if (!source || !target) return;
 
+      // Opt-in overlay for diagnosing pagination/teaser lifecycle bugs
+      // — only active with ?debugPaged=1 in the URL, otherwise a no-op.
+      // Not wired into any behavior; purely observational.
+      const debugPaged = new URLSearchParams(location.search).has("debugPaged");
+
+      function pagedDebug(label) {
+        if (!debugPaged) return;
+
+        const pages = [...document.querySelectorAll(".pagedjs_page")];
+        const teasers = [...document.querySelectorAll(".teaser-figure")];
+
+        const lines = [
+          \`\${label}\`,
+          \`pages=\${pages.length}\`,
+          \`teasers=\${teasers.length}\`,
+          ...teasers.map((el, i) => {
+            const page = el.closest(".pagedjs_page");
+            const slide = el.closest(".touch-slide");
+            return \`teaser\${i}: page=\${pages.indexOf(page)} slide=\${slide ? slide.dataset.slideIndex ?? "?" : "-"}\`;
+          })
+        ];
+
+        let box = document.getElementById("paged-debug-overlay");
+        if (!box) {
+          box = document.createElement("pre");
+          box.id = "paged-debug-overlay";
+          Object.assign(box.style, {
+            position: "fixed",
+            top: "8px",
+            left: "8px",
+            zIndex: 99999,
+            maxWidth: "90vw",
+            maxHeight: "40vh",
+            overflow: "auto",
+            margin: 0,
+            padding: "8px",
+            background: "rgba(0,0,0,.8)",
+            color: "#fff",
+            font: "11px/1.35 monospace",
+            whiteSpace: "pre-wrap"
+          });
+          document.body.appendChild(box);
+        }
+
+        box.textContent += \`\n\n\${lines.join("\n")}\`;
+      }
+
+      pagedDebug("source");
+
       // Touch devices (phones, iPads) get an e-reader instead: one page
       // per screen, swipe sideways to turn. Detected by the primary
       // pointer being a finger rather than by screen width, so a
@@ -821,6 +870,9 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
             const group = pages.slice(i, i + perScreen);
             const slide = document.createElement("div");
             slide.className = "touch-slide";
+            // Debug-only bookkeeping (see pagedDebug above) — not read
+            // by any layout/scroll logic here.
+            slide.dataset.slideIndex = String(i / perScreen);
             const inner = document.createElement("div");
             inner.className = "touch-slide-inner" + (group.length === 2 ? " is-spread" : "");
             slide.appendChild(inner);
@@ -905,6 +957,7 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
 
         document.documentElement.classList.add("touch-book");
         setupTouchBook();
+        pagedDebug("after setupTouchBook");
         document.documentElement.classList.remove("touch-pending");
       }
 
@@ -1148,6 +1201,7 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       const previewer = new Paged.Previewer();
       await previewer.preview(source.innerHTML, pageStylesheets, target);
       progressiveObserver?.disconnect();
+      pagedDebug("after first preview");
 
       // A real one-page document (or touch, where the observer never
       // runs) never got progressively revealed above — reveal it now
@@ -1204,6 +1258,7 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         // move, no intermediate empty state.
         target.replaceChildren(...staging.childNodes);
         staging.remove();
+        pagedDebug("after staging swap");
 
         finishUp();
       }
