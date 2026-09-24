@@ -1609,15 +1609,14 @@ function splitTitleSubtitle(title) {
 }
 
 function renderByline(entry, { mode }) {
-  // "This article is written on <created>, and updated <updated> by
-  // <author>." — degrades gracefully if either date is missing.
+  // "written on <created>, and updated <updated>" — degrades to just
+  // whichever date is present, or nothing at all if neither is.
   const parts = [];
-  if (entry.created) parts.push(`is written on ${escapeHtml(entry.created)}`);
+  if (entry.created) parts.push(`written on ${escapeHtml(entry.created)}`);
   if (entry.updated) parts.push(`updated ${escapeHtml(entry.updated)}`);
+  if (!parts.length) return "";
 
-  const clause = parts.length
-    ? `This article ${parts.join(", and ")} by ${escapeHtml(AUTHOR)}.`
-    : `This article is written by ${escapeHtml(AUTHOR)}.`;
+  const clause = parts.join(", and ");
 
   // "running" (/entry): pulled out of the flow entirely by CSS
   // (position: running()) into page 1's margin box — real reserved

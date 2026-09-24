@@ -469,14 +469,14 @@ html.paged-loading #paged-loader {
    — roughly under the first column, since the left page margin lines
    up with where that column starts. No JS, no overlap possible. */
 .byline-footer {
-  /* CUSTOMIZABLE STYLE: roughly 1.5 columns wide, not the full
-     two-column width — this sits outside .body's column-count context
-     (a plain sibling block), so without a width cap it would span the
-     whole page instead of reading like part of the two-column layout */
-  width: 74%;
-  margin: 1.4em 0 0;
+  /* CUSTOMIZABLE STYLE: short text now ("written on ..., and updated
+     ..."), so a narrow box — right-aligned within it, and the
+     border-top line above shrinks to match since it's the same width. */
+  width: 45%;
+  margin: 1.4em 0 0 auto;
   padding-top: .6em;
   border-top: 1px solid var(--rule);
+  text-align: right;
 
   color: var(--muted);
   font-family: var(--serif);
@@ -889,7 +889,7 @@ html.paged-loading #paged-loader {
 
   /* CUSTOMIZABLE STYLE: smaller than a normal body H2 — this is a
      footer label, not a section heading */
-  font-size: 13px;
+  font-size: 10.5px;
 }
 
 .reference-list {
@@ -898,7 +898,7 @@ html.paged-loading #paged-loader {
   list-style: none;
 
   /* CUSTOMIZABLE STYLE: reference typography */
-  font-size: 12.5px;
+  font-size: 9.5px;
   line-height: 1.30;
 }
 
