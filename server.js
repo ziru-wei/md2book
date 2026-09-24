@@ -338,22 +338,26 @@ function expandInlineRefTokens(markdown) {
   });
 }
 
-// Inline margin-comment tokens:
-// %%<annotated text>{>>{"author":"...","time":...}@@<comment><<}%%
-// Same {>>{json}@@...<<}%% envelope as the %%REF...%% citation token,
-// but the part before "{>>" is the text being annotated (left exactly
-// as-is, still plain Markdown) rather than a fixed "REF" keyword — so
-// this only ever runs AFTER expandInlineRefTokens has already replaced
-// every %%REF...%% occurrence, or it would swallow those too. The
-// JSON blob is metadata only (author/time) and is discarded, same as
-// for citations. Numbered independently from References (own counter)
-// in postProcessMarkdown; the comment's own text renders directly,
-// small, in the page's outer margin — no hover needed to read it. See
+// Inline margin-comment tokens. The annotated text can sit on EITHER
+// side of the {>>{json}@@comment<<} envelope — both are written in
+// the wild:
+//   %%<annotated text>{>>{"author":"...","time":...}@@<comment><<}%%
+//   %%{>>{"author":"...","time":...}@@<comment><<}<annotated text>%%
+// Same envelope as the %%REF...%% citation token, but with real text
+// (left exactly as-is, still plain Markdown) on one side instead of a
+// fixed "REF" keyword — so this only ever runs AFTER
+// expandInlineRefTokens has already replaced every %%REF...%%
+// occurrence, or it would swallow those too. The JSON blob is metadata
+// only (author/time) and is discarded, same as for citations.
+// Numbered independently from References (own counter) in
+// postProcessMarkdown; the comment's own text renders directly, small,
+// in the page's outer margin — no hover needed to read it. See
 // .comment-marker/.comment-margin-marker in journal.css.
-const COMMENT_TOKEN_RE = /%%(.+?)\{>>(\{[^{}]*\})@@(.*?)<<\}%%/gs;
+const COMMENT_TOKEN_RE = /%%(.*?)\{>>(\{[^{}]*\})@@(.*?)<<\}(.*?)%%/gs;
 
 function expandInlineCommentTokens(markdown) {
-  return markdown.replace(COMMENT_TOKEN_RE, (_match, text, _meta, comment) => {
+  return markdown.replace(COMMENT_TOKEN_RE, (_match, textBefore, _meta, comment, textAfter) => {
+    const text = textBefore + textAfter;
     const trimmedComment = comment.trim();
     if (!trimmedComment) return text;
     return `${text}<sup class="comment-marker"><span class="comment-number"></span><span class="comment-margin-marker" data-comment="${escapeHtml(trimmedComment)}"></span></sup>`;
