@@ -1338,13 +1338,16 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
 
       await waitForImages();
       const overlappingRefs = findOverlappingReferenceSlugs();
-      // DIAGNOSTIC ONLY — desktop staging/final repagination forced off
-      // too, so the known second-preview corruption can't contaminate
-      // this zoom:1 geometry test. overlappingRefs is still computed
-      // above, just unused here. Normal desktop condition (revert once
-      // diagnosed):
-      //   const needsFinalRepagination = !isTouchBook && overlappingRefs.length > 0;
-      const needsFinalRepagination = false;
+      // Desktop-only: the second/staging Paged.Previewer().preview()
+      // pass is confirmed to corrupt touch/WebKit pagination (title-
+      // only page, duplicated teaser, blank pages), so touch never runs
+      // it — instead every References section is forced onto its own
+      // fresh page up front, in touch's one and only preview (see the
+      // force-page-break insertion before the first preview(), above).
+      // Managed PNG geometry no longer needs a corrective pass either —
+      // placeholders already fix it — so hadIncompleteImages isn't part
+      // of this condition.
+      const needsFinalRepagination = !isTouchBook && overlappingRefs.length > 0;
 
       if (needsFinalRepagination) {
         // Exactly one hidden final pass, covering both correction
