@@ -779,7 +779,7 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
   <title>${escapeHtml(title)}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400..700;1,400..700&family=Source+Serif+4:ital,opsz,wght@0,8..60,200..900;1,8..60,200..900&display=swap" rel="stylesheet" />
   <script>
     (function(d) {
       var config = {
@@ -1667,7 +1667,7 @@ async function renderContentsPage(entries) {
 
   const spreads = orderedEntries.map(entry => `
     <article class="paper spread" id="card-${entry.slug}">
-      ${renderEntryBody(entry, { mode: "plain" })}
+      ${renderEntryBody(entry, { mode: "plain", showByline: !isDateFilename(entry.id) })}
     </article>
   `).join("");
 
@@ -1705,6 +1705,16 @@ function splitTitleSubtitle(title) {
   return { main: match[1].trim(), sub: match[2].trim() };
 }
 
+// A source filename that's just a date (e.g. "2026-09-21.md") reads as
+// its own label already on /contents' shared TOC/flow — the "written
+// on/updated" footnote there is redundant for those entries (but still
+// shown on that entry's own standalone /entry page, where there's no
+// surrounding date context).
+function isDateFilename(id) {
+  const base = path.basename(id, path.extname(id));
+  return /^\d{4}-\d{2}-\d{2}$/.test(base);
+}
+
 function renderByline(entry, { mode }) {
   // "written on <created>, and updated <updated>" — degrades to just
   // whichever date is present, or nothing at all if neither is.
@@ -1736,8 +1746,8 @@ function renderByline(entry, { mode }) {
   return `<p class="byline-footer ${modeClass}">${clause}</p>`;
 }
 
-function renderEntryBody(entry, { mode }) {
-  const byline = renderByline(entry, { mode });
+function renderEntryBody(entry, { mode, showByline = true }) {
+  const byline = showByline ? renderByline(entry, { mode }) : "";
   const bodyMain = `
     <main class="body">
       ${entry.bodyHtml.replace(
