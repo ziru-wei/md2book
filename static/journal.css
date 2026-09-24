@@ -33,8 +33,13 @@
   /* CUSTOMIZABLE STYLE: two-column geometry */
   --column-gap: 38px;
 
-  /* CUSTOMIZABLE STYLE: typography */
-  --serif: Georgia, "Times New Roman", Times, serif;
+  /* CUSTOMIZABLE STYLE: typography — Libre Baskerville (Google Fonts)
+     for Latin text; Source Han Serif SC (Adobe Fonts kit vlg3xva, 400/
+     700/900) covers Chinese glyphs Libre Baskerville has none of, so
+     the browser falls through to it automatically per-character in
+     mixed 中文/English text. Georgia etc. stay as the pre-webfont-load
+     fallback. */
+  --serif: "Libre Baskerville", "source-han-serif-sc", Georgia, "Times New Roman", Times, serif;
   --body-size: 14px;
   --body-leading: 1.10;
 
