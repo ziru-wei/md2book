@@ -230,17 +230,17 @@ function expandInlineRefTokens(markdown) {
 // this only ever runs AFTER expandInlineRefTokens has already replaced
 // every %%REF...%% occurrence, or it would swallow those too. The
 // JSON blob is metadata only (author/time) and is discarded, same as
-// for citations. Numbered independently from References (superscript,
-// own counter) in postProcessMarkdown, with a small matching marker
-// placed in the page's outer margin — see .comment-marker/
-// .comment-margin-marker in journal.css.
+// for citations. Numbered independently from References (own counter)
+// in postProcessMarkdown; the comment's own text renders directly,
+// small, in the page's outer margin — no hover needed to read it. See
+// .comment-marker/.comment-margin-marker in journal.css.
 const COMMENT_TOKEN_RE = /%%(.+?)\{>>(\{[^{}]*\})@@(.*?)<<\}%%/gs;
 
 function expandInlineCommentTokens(markdown) {
   return markdown.replace(COMMENT_TOKEN_RE, (_match, text, _meta, comment) => {
     const trimmedComment = comment.trim();
     if (!trimmedComment) return text;
-    return `${text}<sup class="comment-marker"><span class="comment-number"></span><span class="comment-margin-marker" data-comment="${escapeHtml(trimmedComment)}" title="${escapeHtml(trimmedComment)}"></span></sup>`;
+    return `${text}<sup class="comment-marker"><span class="comment-number"></span><span class="comment-margin-marker" data-comment="${escapeHtml(trimmedComment)}"></span></sup>`;
   });
 }
 
@@ -542,19 +542,19 @@ function postProcessMarkdown(renderedHtml) {
 
   // Margin comments (%%text{>>{...}@@comment<<}%%): numbered
   // independently from References, in document order — each gets a
-  // small superscript in the flowing text plus a matching marker
-  // pinned to the page's outer margin (positioned via CSS relative to
-  // the <sup> itself, not JS-measured, since the latter has a history
-  // of corrupting Paged.js pagination in this app — see setupTouchBook/
-  // the References-overlap comments elsewhere). No bottom list; the
-  // margin marker's title attribute already carries the comment text.
+  // small superscript in the flowing text, plus its own comment text
+  // rendered directly (small, no hover needed) in the page's outer
+  // margin, both pinned via CSS relative to the <sup> itself (not
+  // JS-measured, since the latter has a history of corrupting Paged.js
+  // pagination in this app — see setupTouchBook/the References-overlap
+  // comments elsewhere). No bottom list.
   let commentNumber = 0;
   root.find("sup.comment-marker").each((_, marker) => {
     commentNumber += 1;
     const $marker = $(marker);
-    $marker.find(".comment-number, .comment-margin-marker").each((_, el) => {
-      $(el).text(String(commentNumber));
-    });
+    $marker.find(".comment-number").text(String(commentNumber));
+    const $margin = $marker.find(".comment-margin-marker");
+    $margin.text(`${commentNumber}. ${$margin.attr("data-comment") || ""}`);
   });
 
   // Plain-text excerpt for card previews on the list page: the first
