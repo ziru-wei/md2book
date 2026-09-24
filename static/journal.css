@@ -25,8 +25,10 @@
   --page-height: 1100px;
 
   /* CUSTOMIZABLE STYLE: page margins (become each page's inner
-     content inset via the @page rule below) */
-  --pad-x: 94px;
+     content inset via the @page rule below — that rule uses a literal
+     copy of this value since Paged.js's @page parser can't resolve
+     CSS custom properties; keep both in sync by hand) */
+  --pad-x: 116px;
   --pad-top: 84px;
   --pad-bottom: 160px;
 
@@ -40,7 +42,7 @@
      mixed 中文/English text. Georgia etc. stay as the pre-webfont-load
      fallback. */
   --serif: "Libre Baskerville", "source-han-serif-sc", Georgia, "Times New Roman", Times, serif;
-  --body-size: 14px;
+  --body-size: 12.5px;
   --body-leading: 1.10;
 
   /* CUSTOMIZABLE STYLE: width of the left (back link/toggle) and right
@@ -184,7 +186,7 @@ html.paged-loading #paged-loader {
      custom properties here, so this was silently falling back to its
      own default margin no matter what the variables were set to.
      Update this by hand if those variables ever change. */
-  margin: 84px 94px 160px;
+  margin: 84px 116px 160px;
 
   /* CUSTOMIZABLE STYLE: page number. Bottom-center, not bottom-right,
      so it doesn't collide with .references pinned in that corner. */
