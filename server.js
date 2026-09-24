@@ -1149,6 +1149,31 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         }
       }
 
+      // Collects every margin comment on each page into one top-
+      // aligned stack in that page's own right margin (.page-comments,
+      // positioned the same way .references reaches a page's true
+      // edges — see that section of journal.css). Moves the actual
+      // .comment-margin-marker nodes (not clones) out of their in-text
+      // position, so each one keeps its own comment text but no longer
+      // tries to align with its exact anchor line — normal block flow
+      // inside the shared stack means entries can never overlap each
+      // other or following body content. Called once, after the final
+      // page DOM is fully settled (same point as hydratePagedImages/
+      // activateTouchBook), so it can never run mid-pagination.
+      function layoutPageComments(root) {
+        root.querySelectorAll(".pagedjs_page").forEach(page => {
+          const markers = page.querySelectorAll(".comment-margin-marker");
+          if (!markers.length) return;
+
+          const stack = document.createElement("div");
+          stack.className = "page-comments";
+          markers.forEach(marker => stack.appendChild(marker));
+
+          const host = page.querySelector(".pagedjs_page_content") || page;
+          host.appendChild(stack);
+        });
+      }
+
       // Extra clearance required beyond a bare touch — both because a
       // late-loading image can still nudge layout a little after this
       // check runs (waitForImages below covers the common case, this
@@ -1391,6 +1416,7 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // boxes from here on, visibly, without affecting page geometry.
       hydratePagedImages(target);
       attachImageFallback(target);
+      layoutPageComments(target);
 
       // The final page DOM is now fully known — safe to turn on the
       // touch viewer (a no-op on desktop). Never earlier than this.

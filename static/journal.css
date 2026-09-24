@@ -789,43 +789,43 @@ html.paged-loading #paged-loader {
 /* =========================================================
    Margin comments
    %%text{>>{...}@@comment<<}%% — numbered independently from
-   References (own counter, no bottom list). The comment's own text
-   renders directly in the margin, small — no hover required to read
-   it. The in-flow <sup> is a normal inline element so it naturally
-   sits at the right point in the two-column text; .comment-margin-
-   marker is its only positioned child, offset sideways by CSS alone
-   (no JS measurement) so it keeps that exact vertical position for
-   free — but being absolutely positioned, it does NOT reserve space
-   in normal flow, so a note taller than one line can visually sit on
-   top of whatever body content follows below its anchor. Widened (and
-   given an opaque background) specifically to keep most short
-   comments to 1–2 lines and stay legible even where that overlap does
-   happen — a real residual risk for longer comments or ones anchored
-   right before a heading, given the column layout leaves no reliable
-   room to guarantee zero overlap without JS measurement (deliberately
-   avoided here — see the note about this app's pagination-corruption
-   history elsewhere in this file/server.js).
+   References (own counter, no bottom list). Per-line alignment with
+   each comment's own anchor was tried and abandoned: an absolutely-
+   positioned note doesn't reserve space in normal flow, so anything
+   taller than one line ends up visually sitting on top of whatever
+   body content follows its anchor. Every comment on a given page now
+   collects instead into one .page-comments stack in that page's own
+   right margin, top-aligned — server.js's layoutPageComments() moves
+   each .comment-margin-marker there (by reference, not cloned) once
+   the final page DOM is settled, same as hydratePagedImages/
+   activateTouchBook. Individual entries stack in plain normal flow
+   inside that shared container, so they can never overlap each other
+   or anything else. The short left rule on each entry matches
+   .byline-footer's border-top exactly (color + weight), just rotated.
    ========================================================= */
-
-.comment-marker {
-  position: relative;
-}
 
 .comment-number {
   /* CUSTOMIZABLE STYLE: in-text superscript marker */
   color: var(--muted);
 }
 
-.comment-margin-marker {
+.page-comments {
   position: absolute;
-  top: -.2em;
-  right: -14px;
-  z-index: 1;
+  top: 0;
+  right: -140px;
+
+  /* CUSTOMIZABLE STYLE: margin comment stack */
+  width: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: .9em;
+}
+
+.comment-margin-marker {
+  padding-left: .55em;
+  border-left: 1px solid var(--rule);
 
   /* CUSTOMIZABLE STYLE: margin note text */
-  width: 118px;
-  padding: .2em .4em;
-  background: var(--paper);
   font-size: 8.5px;
   line-height: 1.35;
   font-style: italic;
