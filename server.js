@@ -1235,15 +1235,16 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // only ever made off-screen/hidden ones stall (notably on iOS).
       source.innerHTML = source.innerHTML.replace(/ loading="lazy"/g, "");
 
-      // Touch never gets a second/staging preview to correct a
-      // References overlap after the fact (see needsFinalRepagination
-      // below), so it has to avoid the overlap up front instead: every
-      // References section is forced onto its own fresh page before
-      // touch's one and only preview() even runs. Same mechanism
-      // (.force-page-break) the desktop corrective pass uses, just
-      // applied unconditionally here rather than only where an overlap
-      // was actually measured.
-      if (isTouchBook) {
+      // No device ever gets a second/staging Paged.Previewer().preview()
+      // pass to correct a References overlap after the fact (see
+      // needsFinalRepagination below) — confirmed (iPad debugPaged
+      // evidence) that a second preview() pass corrupts Paged.js's
+      // output (title-only page, duplicated teaser, blank pages).
+      // Since Mac/iPad Safari share the same WebKit engine, this is
+      // NOT assumed to be a touch-only risk — every References section
+      // is forced onto its own fresh page up front, before the one and
+      // only preview() any device ever runs, instead.
+      {
         const scratch = document.createElement("div");
         scratch.innerHTML = source.innerHTML;
         scratch.querySelectorAll(".references").forEach(ref => {
@@ -1337,17 +1338,20 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         .some(img => !img.complete);
 
       await waitForImages();
+      // Kept computed (findOverlappingReferenceSlugs still measures the
+      // real thing) even though nothing acts on it below — every
+      // References section already got an unconditional fresh page up
+      // front, above, so there's nothing left to correct. Left in place
+      // rather than removed in case it's useful again if that upfront
+      // strategy is ever revisited.
       const overlappingRefs = findOverlappingReferenceSlugs();
-      // Desktop-only: the second/staging Paged.Previewer().preview()
-      // pass is confirmed to corrupt touch/WebKit pagination (title-
-      // only page, duplicated teaser, blank pages), so touch never runs
-      // it — instead every References section is forced onto its own
-      // fresh page up front, in touch's one and only preview (see the
-      // force-page-break insertion before the first preview(), above).
-      // Managed PNG geometry no longer needs a corrective pass either —
-      // placeholders already fix it — so hadIncompleteImages isn't part
-      // of this condition.
-      const needsFinalRepagination = !isTouchBook && overlappingRefs.length > 0;
+      // No second/staging Paged.Previewer().preview() pass on ANY
+      // device, permanently — confirmed to corrupt WebKit's pagination
+      // output (title-only page, duplicated teaser, blank pages), and
+      // Mac/iPad Safari share that engine, so this isn't scoped to
+      // touch. hadIncompleteImages was already excluded before this
+      // (managed PNG geometry is fixed by placeholders).
+      const needsFinalRepagination = false;
 
       if (needsFinalRepagination) {
         // Exactly one hidden final pass, covering both correction
