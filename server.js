@@ -682,7 +682,8 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
           document.body.appendChild(box);
         }
 
-        box.textContent += \`\n\n\${lines.join("\n")}\`;
+        box.textContent += String.fromCharCode(10, 10) +
+          lines.join(String.fromCharCode(10));
       }
 
       pagedDebug("source");
