@@ -775,9 +775,20 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       const NOMINAL_WIDTH = 850;
       const NOMINAL_HEIGHT = 1100;
 
+      // DIAGNOSTIC ONLY — desktop scaling (CSS zoom) disabled entirely,
+      // to test whether it's contaminating Paged.js's own layout/
+      // pagination in Safari (viewport-width-dependent .body height,
+      // footer cutoff). Guards both zoom functions below AND the
+      // pre-preview --spread-zoom priming, so pages stay at native
+      // 850x1100 before, during, and after preview() on desktop. Touch
+      // is untouched — this flag is never consulted there. Not a fix;
+      // revert once diagnosed.
+      const DIAGNOSTIC_NO_DESKTOP_ZOOM = true;
+
       // Single-page mode: each page individually zoomed to fill the
       // viewport's height.
       function applySinglePageZoom() {
+        if (DIAGNOSTIC_NO_DESKTOP_ZOOM) return;
         const scale = window.innerHeight / NOMINAL_HEIGHT;
         target.querySelectorAll(".pagedjs_page").forEach(page => {
           page.style.zoom = scale;
@@ -788,6 +799,7 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // need to shrink/grow as one unit to stay the same size as each
       // other) to fill the available width.
       function fitSpreadWidth() {
+        if (DIAGNOSTIC_NO_DESKTOP_ZOOM) return;
         const pages = target.querySelector(".pagedjs_pages");
         if (!pages) return;
 
@@ -1208,7 +1220,8 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // \`--spread-zoom\` already exist the moment the first \`.pagedjs_pages\`
       // grid is born mid-preview — pages arrive already close to their
       // final scale instead of at 1:1 before fitSpreadWidth() can run.
-      if (!isTouchBook && wantsSpread) {
+      // (DIAGNOSTIC_NO_DESKTOP_ZOOM: skipped entirely for this test.)
+      if (!DIAGNOSTIC_NO_DESKTOP_ZOOM && !isTouchBook && wantsSpread) {
         target.classList.add("spread-mode");
         target.style.setProperty("--spread-zoom", target.clientWidth / (NOMINAL_WIDTH * 2));
       }
