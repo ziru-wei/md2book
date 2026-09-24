@@ -694,7 +694,11 @@ function postProcessMarkdown(renderedHtml) {
     const $marker = $(marker);
     $marker.find(".comment-number").text(String(commentNumber));
     const $margin = $marker.find(".comment-margin-marker");
-    $margin.text(`${commentNumber}. ${$margin.attr("data-comment") || ""}`);
+    const rawComment = $margin.attr("data-comment") || "";
+    // Use renderInline so inline markdown in the comment text (bold, italic,
+    // book-title marks like 「**_text_**」) renders as HTML rather than
+    // appearing as literal syntax.
+    $margin.html(`${commentNumber}. ${md.renderInline(rawComment)}`);
   });
 
   // Drop cap: if the body opens directly with a paragraph (not a heading
