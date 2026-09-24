@@ -1527,6 +1527,17 @@ async function renderContentsPage(entries) {
   return pageShell({ title: "Journal", bodyHtml, bodyClass: "page-contents", paginated: orderedEntries.length > 0 });
 }
 
+// A title containing "/" or ":" (either half- or full-width — "/",
+// "／", ":", "：") is split at the FIRST such character into a main
+// title and a subtitle, rendered as two separate lines (see .title-
+// main/.title-sub in journal.css). No delimiter present just means no
+// subtitle.
+function splitTitleSubtitle(title) {
+  const match = /^(.*?)[/／:：]\s*(.+)$/s.exec(title);
+  if (!match) return { main: title, sub: null };
+  return { main: match[1].trim(), sub: match[2].trim() };
+}
+
 function renderByline(entry, { mode }) {
   // "This article is written on <created>, and updated <updated> by
   // <author>." — degrades gracefully if either date is missing.
@@ -1570,8 +1581,13 @@ function renderEntryBody(entry, { mode }) {
     </main>
   `;
 
+  const { main, sub } = splitTitleSubtitle(entry.title);
+  const titleHtml = sub
+    ? `<span class="title-main">${escapeHtml(main)}</span><span class="title-sub">${escapeHtml(sub)}</span>`
+    : escapeHtml(main);
+
   return `
-    <h1 class="title">${escapeHtml(entry.title)}</h1>
+    <h1 class="title">${titleHtml}</h1>
 
     ${mode === "running" ? byline : ""}
 

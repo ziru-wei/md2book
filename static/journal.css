@@ -28,7 +28,7 @@
      content inset via the @page rule below — that rule uses a literal
      copy of this value since Paged.js's @page parser can't resolve
      CSS custom properties; keep both in sync by hand) */
-  --pad-x: 132px;
+  --pad-x: 150px;
   --pad-top: 84px;
   --pad-bottom: 160px;
 
@@ -186,7 +186,7 @@ html.paged-loading #paged-loader {
      custom properties here, so this was silently falling back to its
      own default margin no matter what the variables were set to.
      Update this by hand if those variables ever change. */
-  margin: 84px 132px 160px;
+  margin: 84px 150px 160px;
 
   /* CUSTOMIZABLE STYLE: page number. Bottom-center, not bottom-right,
      so it doesn't collide with .references pinned in that corner. */
@@ -418,11 +418,30 @@ html.paged-loading #paged-loader {
   font-family: var(--serif);
 
   /* CUSTOMIZABLE STYLE: title typography */
-  font-size: 43px;
+  font-size: 31px;
   line-height: 1.03;
   font-weight: 400;
   letter-spacing: -0.028em;
   text-wrap: balance;
+}
+
+/* A title with "/" or ":" (half- or full-width) splits into these two
+   — see splitTitleSubtitle() in server.js. .title-main just inherits
+   .title's own size; .title-sub is deliberately smaller/italic and
+   forced onto its own line. */
+.title-main {
+  display: inline;
+}
+
+.title-sub {
+  display: block;
+  margin-top: .25em;
+
+  /* CUSTOMIZABLE STYLE: subtitle typography */
+  font-size: .55em;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.01em;
 }
 
 /* =========================================================
