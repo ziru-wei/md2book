@@ -90,6 +90,8 @@ The marker must be the immediately following paragraph and must match exactly, i
 
 If a remote image cannot load, the page shows a local placeholder instead of a broken-image icon.
 
+Any `raw.githubusercontent.com` image URL is proxied through this app's own `/img/<id>` route instead of being sent to the browser as-is — a visitor never sees the real GitHub URL (owner, repo, path), in page source, the Network tab, or after the browser loads the image. See `IMAGE_GITHUB_TOKEN` in `.env.example` if that image repo needs authentication (it can be a completely different GitHub account/repo from the one the Markdown content itself comes from).
+
 ## Styling
 
 Edit:

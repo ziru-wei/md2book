@@ -32,6 +32,12 @@ const CONTENTS_PATH = HOME_PATH === "/" ? "/contents" : `${HOME_PATH}/contents`;
 // Built-in metadata: does not need to exist in Markdown.
 const AUTHOR = "Ziru Wei";
 
+// Optional PAT for a private image-hosting repo (may be a different
+// GitHub account/repo entirely from GITHUB_TOKEN's content repo — see
+// /img/:id below). Unset means unauthenticated fetches, which only
+// works for images that are actually public.
+const IMAGE_GITHUB_TOKEN = process.env.IMAGE_GITHUB_TOKEN || "";
+
 const md = new MarkdownIt({
   html: true,
   linkify: false,
@@ -67,6 +73,39 @@ function notifyReload() {
     res.write("event: reload\ndata: changed\n\n");
   }
 }
+
+// Proxies a private-repo image by opaque id — see "Private image
+// proxy" further down for how ids get registered. The real GitHub URL
+// never reaches the client: this fetches it server-side (with
+// IMAGE_GITHUB_TOKEN, if the image repo needs auth) and streams the
+// bytes back under this app's own domain instead.
+app.get("/img/:id", async (req, res) => {
+  const entry = imageProxyMap.get(req.params.id);
+  if (!entry) {
+    res.status(404).type("text").send("Not found");
+    return;
+  }
+
+  try {
+    const upstream = await fetch(entry.url, {
+      headers: IMAGE_GITHUB_TOKEN ? { Authorization: `token ${IMAGE_GITHUB_TOKEN}` } : {}
+    });
+    if (!upstream.ok) {
+      res.status(upstream.status).type("text").send("Upstream image fetch failed");
+      return;
+    }
+
+    res.set({
+      "Content-Type": upstream.headers.get("content-type") || "application/octet-stream",
+      // Immutable: the id is a hash of the real URL, so the same id
+      // always means the same bytes — safe to cache indefinitely.
+      "Cache-Control": "public, max-age=31536000, immutable"
+    });
+    res.send(Buffer.from(await upstream.arrayBuffer()));
+  } catch (error) {
+    res.status(502).type("text").send(`Could not fetch image\n\n${error.stack || error}`);
+  }
+});
 
 function escapeHtml(value = "") {
   return String(value)
@@ -134,30 +173,65 @@ function getPublishId(value) {
   return null;
 }
 
-// --- Managed remote PNG placeholders for Paged.js pagination ---------
+// --- Private image proxy ----------------------------------------------
 //
-// Paged.js can stall generating a page while an <img> on it still has
-// unknown/unfinished layout, and a raw.githubusercontent.com PNG can
-// take a while to arrive. Rather than let pagination wait on the
-// network, matching <img>s get swapped — only in the HTML handed to
-// Paged.js, never in the Markdown renderer's own output or the home
-// page's waterfall thumbnails — for a same-aspect-ratio inline SVG
-// placeholder with the real, pre-resolved width/height already set, so
-// pagination only ever waits on a local, instantly-resolving image. The
-// real URL (kept on data-real-src) is restored client-side once
-// pagination has fully settled — see hydratePagedImages in pageShell's
-// script below.
+// Every raw.githubusercontent.com <img src> is swapped, in
+// postProcessMarkdown below, for an opaque same-origin URL
+// (/img/<id>) — the point being that a visitor should never see
+// "github.com", an owner name, or a repo name anywhere: not in page
+// source, not in the Network tab, not after the browser actually
+// fetches the image. imageProxyMap remembers id -> the real URL (and
+// whether it's a PNG, for the pagination-placeholder machinery below)
+// for the lifetime of the process; the /img/:id route fetches the real
+// bytes server-side — authenticated with IMAGE_GITHUB_TOKEN, which may
+// be a completely different GitHub account/repo than GITHUB_TOKEN's
+// content repo — and streams them back under this app's own domain.
+const imageProxyMap = new Map();
 
-const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-
-function isManagedPngUrl(rawUrl) {
-  let url;
+function isGithubRawUrl(rawUrl) {
   try {
-    url = new URL(rawUrl);
+    return new URL(rawUrl).hostname === "raw.githubusercontent.com";
   } catch {
     return false;
   }
-  return url.hostname === "raw.githubusercontent.com" && url.pathname.toLowerCase().endsWith(".png");
+}
+
+function registerImageProxy(realUrl) {
+  const id = crypto.createHash("sha256").update(realUrl).digest("hex").slice(0, 20);
+  if (!imageProxyMap.has(id)) {
+    imageProxyMap.set(id, {
+      url: realUrl,
+      isPng: /\.png$/i.test(new URL(realUrl).pathname)
+    });
+  }
+  return `/img/${id}`;
+}
+
+const IMAGE_PROXY_PATH_RE = /^\/img\/([0-9a-f]+)$/;
+
+// --- Managed remote PNG placeholders for Paged.js pagination ---------
+//
+// Paged.js can stall generating a page while an <img> on it still has
+// unknown/unfinished layout, and a raw-GitHub PNG can take a while to
+// arrive. Rather than let pagination wait on the network, matching
+// <img>s get swapped — only in the HTML handed to Paged.js, never in
+// the Markdown renderer's own output or the home page's waterfall
+// thumbnails — for a same-aspect-ratio inline SVG placeholder with the
+// real, pre-resolved width/height already set, so pagination only ever
+// waits on a local, instantly-resolving image. The proxy URL (kept on
+// data-real-src, NOT the real GitHub one — that never reaches the
+// client at all) is restored client-side once pagination has fully
+// settled — see hydratePagedImages in pageShell's script below.
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+// `src` here is always one of OUR OWN /img/<id> proxy URLs by this
+// point (postProcessMarkdown already swapped every raw-GitHub <img>
+// before this ever runs) — never a real raw.githubusercontent.com one.
+function isManagedPngUrl(src) {
+  const match = IMAGE_PROXY_PATH_RE.exec(src || "");
+  const entry = match && imageProxyMap.get(match[1]);
+  return !!entry && entry.isPng;
 }
 
 function parsePngHeader(buf) {
@@ -170,23 +244,32 @@ function parsePngHeader(buf) {
   return { width, height };
 }
 
-// Cached by URL — both in-flight promises (so concurrent requests for
-// the same image share one fetch) and resolved results, for the
-// lifetime of the process. Only the PNG header is ever requested
-// (Range: bytes=0-23, exactly the signature + IHDR's width/height);
-// if the remote server doesn't honor Range and answers with a full 200
-// instead, the body is cancelled unread rather than downloaded.
+// Cached by proxy URL — both in-flight promises (so concurrent
+// requests for the same image share one fetch) and resolved results,
+// for the lifetime of the process. Only the PNG header is ever
+// requested (Range: bytes=0-23, exactly the signature + IHDR's width/
+// height); if the remote server doesn't honor Range and answers with a
+// full 200 instead, the body is cancelled unread rather than
+// downloaded.
 const pngDimensionCache = new Map();
 
-async function resolvePngDimensions(rawUrl) {
-  if (pngDimensionCache.has(rawUrl)) return pngDimensionCache.get(rawUrl);
+async function resolvePngDimensions(proxySrc) {
+  if (pngDimensionCache.has(proxySrc)) return pngDimensionCache.get(proxySrc);
+
+  const match = IMAGE_PROXY_PATH_RE.exec(proxySrc || "");
+  const entry = match && imageProxyMap.get(match[1]);
+  if (!entry) return null;
+  const rawUrl = entry.url;
 
   const promise = (async () => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 4000);
     try {
       const res = await fetch(rawUrl, {
-        headers: { Range: "bytes=0-23" },
+        headers: {
+          Range: "bytes=0-23",
+          ...(IMAGE_GITHUB_TOKEN ? { Authorization: `token ${IMAGE_GITHUB_TOKEN}` } : {})
+        },
         signal: controller.signal
       });
       if (res.status !== 206) {
@@ -202,7 +285,7 @@ async function resolvePngDimensions(rawUrl) {
     }
   })();
 
-  pngDimensionCache.set(rawUrl, promise);
+  pngDimensionCache.set(proxySrc, promise);
   return promise;
 }
 
@@ -211,12 +294,13 @@ function pngPlaceholderDataUri(width, height) {
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
-// Swaps every matching raw-GitHub PNG <img src> in `html` for a local,
-// same-aspect-ratio, visually-transparent SVG placeholder — used only
-// on the HTML assembled for Paged.js on paginated /entry and /contents
-// views (see renderEntryPage/renderContentsPage). Images whose
-// dimensions can't be resolved (non-PNG, non-raw-GitHub, network
-// failure) are left completely unchanged.
+// Swaps every managed PNG <img src> (already one of our own /img/<id>
+// proxy URLs by this point — see isGithubRawUrl/registerImageProxy) in
+// `html` for a local, same-aspect-ratio, visually-transparent SVG
+// placeholder — used only on the HTML assembled for Paged.js on
+// paginated /entry and /contents views (see renderEntryPage/
+// renderContentsPage). Images whose dimensions can't be resolved
+// (non-PNG, unmanaged, network failure) are left completely unchanged.
 async function preparePagedImagePlaceholders(html) {
   const $ = cheerio.load(`<div id="__wrap">${html}</div>`, null, false);
   const wrap = $("#__wrap");
@@ -314,6 +398,19 @@ function postProcessMarkdown(renderedHtml) {
   root.find("h2, h3, h4, h5, h6").each((_, h) => {
     const $h = $(h);
     $h.text(toTitleCase($h.text()));
+  });
+
+  // Every raw-GitHub <img src> becomes an opaque /img/<id> proxy URL
+  // here, before anything else touches images (figure-wrapping, teaser
+  // promotion, the PNG-placeholder pass) — so every downstream use
+  // (body, teaser, waterfall thumbnails) only ever sees the proxy path,
+  // never the real GitHub URL. See "Private image proxy" above.
+  root.find("img[src]").each((_, img) => {
+    const $img = $(img);
+    const src = $img.attr("src");
+    if (src && isGithubRawUrl(src)) {
+      $img.attr("src", registerImageProxy(src));
+    }
   });
 
   // Turn standalone Markdown images into figures. A "//teaser" marker
