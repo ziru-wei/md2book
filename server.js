@@ -1275,16 +1275,15 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         return slugs;
       }
 
-      // .byline-footer needs no detection here at all (unlike
-      // References above) — it's pinned via plain CSS position:absolute
-      // to a fixed spot on whichever page it naturally lands on (see
-      // renderByline in this file / .byline-footer in journal.css), the
-      // same technique .page-comments uses. Two earlier JS approaches —
-      // absolute-position + a negative offset, and absolute-position +
-      // overlap-detected forced breaks — both corrupted pagination
-      // across the whole multi-entry /contents flow instead of just
-      // fixing the footer; a fixed-percentage position needs no
-      // measurement at all, so that failure mode doesn't apply.
+      // .byline-footer no longer needs any detection on /contents — it's
+      // plain in-flow content there now (see renderByline's "plain"
+      // mode), which can never overlap anything because normal document
+      // flow guarantees whatever follows it comes after, not because
+      // something measured it and hoped for the best. That JS approach
+      // was tried twice (once with an absolute-position + negative
+      // offset, once with absolute-position + overlap-detected forced
+      // breaks) and both times corrupted pagination across the whole
+      // multi-entry flow instead of just fixing the footer.
 
       function withForcedBreaksBefore(refSlugs) {
         const scratch = document.createElement("div");
@@ -1571,7 +1570,7 @@ async function renderContentsPage(entries) {
 
   const spreads = orderedEntries.map(entry => `
     <article class="paper spread" id="card-${entry.slug}">
-      ${renderEntryBody(entry)}
+      ${renderEntryBody(entry, { mode: "plain" })}
     </article>
   `).join("");
 
@@ -1609,7 +1608,7 @@ function splitTitleSubtitle(title) {
   return { main: match[1].trim(), sub: match[2].trim() };
 }
 
-function renderByline(entry) {
+function renderByline(entry, { mode }) {
   // "This article is written on <created>, and updated <updated> by
   // <author>." — degrades gracefully if either date is missing.
   const parts = [];
@@ -1620,24 +1619,29 @@ function renderByline(entry) {
     ? `This article ${parts.join(", and ")} by ${escapeHtml(AUTHOR)}.`
     : `This article is written by ${escapeHtml(AUTHOR)}.`;
 
-  // Pinned via plain CSS position:absolute to a fixed spot on its own
-  // entry's first page (see .byline-footer in journal.css) — same
-  // technique as .page-comments: escapes to the nearest positioned
-  // ancestor, which is .pagedjs_page itself, so it always lands on
-  // whichever physical page actually holds this DOM position (placed
-  // right after the title below, in renderEntryBody, which always
-  // opens a fresh page — see .spread's break-before:page). Uniform for
-  // both /entry (already its own single first page) and /contents
-  // (many entries sharing one flow): no more running()/@page:first,
-  // which only ever matched the flow's overall first page, not each
-  // entry's own — and no JS-measured overlap detection, which
-  // previously corrupted pagination across the whole /contents flow
-  // when tried.
-  return `<p class="byline-footer">${clause}</p>`;
+  // "running" (/entry): pulled out of the flow entirely by CSS
+  // (position: running()) into page 1's margin box — real reserved
+  // layout space, can't overlap body text, no JS involved.
+  //
+  // "plain" (/contents): every entry is concatenated into ONE shared
+  // Paged.js document there, so a per-entry "pin to the bottom of
+  // THIS entry's first page" has no reliable implementation — the
+  // native trick above only ever matches the very first page of the
+  // WHOLE flow (no "first page of this section" selector exists in
+  // the spec), and the JS alternative (absolutely position it, detect
+  // overlap after the fact, insert a forced page-break to dodge it)
+  // was tried and repeatedly corrupted pagination across the whole
+  // multi-entry flow — the same failure mode a negative CSS offset
+  // caused earlier, just from a different angle. Plain in-flow content
+  // is what's actually reliable: it sits under the title instead of at
+  // the page bottom, a real (visible) difference from /entry, traded
+  // for /contents' column/page breaks staying correct.
+  const modeClass = mode === "running" ? "byline-footer--running" : "";
+  return `<p class="byline-footer ${modeClass}">${clause}</p>`;
 }
 
-function renderEntryBody(entry) {
-  const byline = renderByline(entry);
+function renderEntryBody(entry, { mode }) {
+  const byline = renderByline(entry, { mode });
   const bodyMain = `
     <main class="body">
       ${entry.bodyHtml.replace(
@@ -1655,18 +1659,20 @@ function renderEntryBody(entry) {
   return `
     <h1 class="title">${titleHtml}</h1>
 
-    ${byline}
+    ${mode === "running" ? byline : ""}
 
     ${entry.teaserHtml ? `<div class="teaser-slot">${entry.teaserHtml}</div>` : ""}
 
     ${bodyMain}
+
+    ${mode === "running" ? "" : byline}
   `;
 }
 
 async function renderEntryPage(entry) {
   const articleHtml = `
       <article class="paper">
-        ${renderEntryBody(entry)}
+        ${renderEntryBody(entry, { mode: "running" })}
       </article>
     `;
   // Only the HTML actually handed to Paged.js gets its raw-GitHub PNGs

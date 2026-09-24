@@ -198,6 +198,14 @@ html.paged-loading #paged-loader {
   }
 }
 
+/* Page 1 only — the byline (see .byline-footer's position: running())
+   lands here, in the reserved bottom margin, never in the content
+   area body text can reach. */
+@page :first {
+  @bottom-left {
+    content: element(byline);
+  }
+}
 
 .pagedjs_page {
   /* CUSTOMIZABLE STYLE: the physical page sheet — no outer shadow by
@@ -225,10 +233,11 @@ html.paged-loading #paged-loader {
   break-before: page;
 }
 
-/* Injected by JS, before every References section, to push it onto
-   its own fresh page — see server.js. (.byline-footer no longer needs
-   this: it's pinned via plain CSS position:absolute, not overlap
-   detection — see .byline-footer below.) */
+/* Injected by JS only when the first render finds an overlap — either
+   References colliding with the content before it (pushes References
+   to a fresh page), or body content running into the byline-footer
+   pinned to the bottom of page 1 (pushes that content to page 2
+   instead, leaving the footer's spot clear). */
 .force-page-break {
   break-before: page;
   height: 0;
@@ -442,34 +451,30 @@ html.paged-loading #paged-loader {
 
 /* =========================================================
    Byline footer
-   A small italic note, fixed to the same geometric spot on every
-   entry's own first page — under column 1, in the page's lower area.
-   Same technique .page-comments uses: position:absolute escapes to
-   the nearest positioned ancestor, .pagedjs_page (position:relative —
-   see that rule), which this element always finds correctly because
-   renderEntryBody places it right after the title, and every entry
-   always opens on a fresh page (.spread's break-before:page /
-   .entry-page's own single article) — so "wherever this DOM node
-   lands" and "this entry's first page" are always the same page.
-   Deliberately a fixed point on the page, not flow-reserved space:
-   it does NOT try to detect/avoid overlapping body content (that
-   failure mode — JS-measured overlap detection corrupting pagination
-   across a whole /contents flow — is exactly what this replaced).
-   Accepted tradeoff, not a bug: a page whose column 1 runs unusually
-   long could have this overlap it.
+   Replaces the old Author/Created/Updated grid — a small italic
+   note instead, pinned to the bottom-left of page 1's first column
+   (mirrors .references, which pins to the bottom-right — the two
+   share a page without colliding since each is capped to ~45% width
+   on opposite sides). Same escape-past-.spread/.paper trick applies.
    ========================================================= */
 
+/* Native CSS Paged Media running-element mechanism — the same
+   machinery the @bottom-center page number below uses, which is why
+   that one never had any overlap problem: margin-box content lives in
+   space the page layout already reserves and body text is laid out to
+   never reach, by spec, not by JS measuring things after the fact.
+   position: running() pulls this element out of the normal flow
+   entirely (Paged.js hides the original in place) and @page :first's
+   @bottom-left (below) clones it into page 1's bottom-left margin box
+   — roughly under the first column, since the left page margin lines
+   up with where that column starts. No JS, no overlap possible. */
 .byline-footer {
-  position: absolute;
-  /* CUSTOMIZABLE STYLE: fixed page position — 1100px page height, this
-     lands at (881-74)/881 of the way down (~91.6%, i.e. ~1008px) */
-  top: 1008px;
-  /* CUSTOMIZABLE STYLE: aligned under column 1 — left/width match
-     --pad-x and the computed column width (paper-width minus both
-     pad-x's and the column-gap, halved) exactly */
-  left: 150px;
-  width: 256px;
-
+  /* CUSTOMIZABLE STYLE: roughly 1.5 columns wide, not the full
+     two-column width — this sits outside .body's column-count context
+     (a plain sibling block), so without a width cap it would span the
+     whole page instead of reading like part of the two-column layout */
+  width: 74%;
+  margin: 1.4em 0 0;
   padding-top: .6em;
   border-top: 1px solid var(--rule);
 
@@ -481,6 +486,27 @@ html.paged-loading #paged-loader {
   font-style: italic;
   line-height: 1.3;
 }
+
+/* /entry/:hash: each entry is its own standalone Paged.js document, so
+   @page :first correctly means "this entry's first page" — use the
+   native running-element mechanism (element(byline) above). Class is
+   on the element itself, not an ancestor "body.page-entry" selector —
+   Paged.js paginates a detached content fragment with no real <body>
+   in it, so an ancestor selector like that never matches there. */
+.byline-footer--running {
+  position: running(byline);
+}
+
+/* /contents has no ".byline-footer--absolute": every entry there is
+   concatenated into ONE shared document, so :first only ever matches
+   the very first page of the WHOLE flow — there's no "first page of
+   this entry's section" selector in the spec for the trick above to
+   extend to. An absolute-positioned + JS-detected-overlap version was
+   tried and repeatedly corrupted pagination across the whole flow
+   instead of just fixing the footer, so /contents just leaves this
+   element in plain normal flow (no extra class, no position) — visibly
+   under the title there instead of pinned to the page bottom, but
+   reliable. */
 
 /* =========================================================
    Teaser figure
