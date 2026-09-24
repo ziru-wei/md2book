@@ -775,20 +775,9 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       const NOMINAL_WIDTH = 850;
       const NOMINAL_HEIGHT = 1100;
 
-      // DIAGNOSTIC ONLY — desktop scaling (CSS zoom) disabled entirely,
-      // to test whether it's contaminating Paged.js's own layout/
-      // pagination in Safari (viewport-width-dependent .body height,
-      // footer cutoff). Guards both zoom functions below AND the
-      // pre-preview --spread-zoom priming, so pages stay at native
-      // 850x1100 before, during, and after preview() on desktop. Touch
-      // is untouched — this flag is never consulted there. Not a fix;
-      // revert once diagnosed.
-      const DIAGNOSTIC_NO_DESKTOP_ZOOM = true;
-
       // Single-page mode: each page individually zoomed to fill the
       // viewport's height.
       function applySinglePageZoom() {
-        if (DIAGNOSTIC_NO_DESKTOP_ZOOM) return;
         const scale = window.innerHeight / NOMINAL_HEIGHT;
         target.querySelectorAll(".pagedjs_page").forEach(page => {
           page.style.zoom = scale;
@@ -799,7 +788,6 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // need to shrink/grow as one unit to stay the same size as each
       // other) to fill the available width.
       function fitSpreadWidth() {
-        if (DIAGNOSTIC_NO_DESKTOP_ZOOM) return;
         const pages = target.querySelector(".pagedjs_pages");
         if (!pages) return;
 
@@ -825,10 +813,14 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
           \`repeat(2, \${NOMINAL_WIDTH}px)\`,
           "important"
         );
-        // No upper cap: when there's more than enough room for both
-        // pages at their natural size, scale UP to actually fill it
-        // instead of leaving the extra space as centered padding.
-        const scale = target.clientWidth / (NOMINAL_WIDTH * 2);
+        // DIAGNOSTIC ONLY — scale forced to a constant 1 (never
+        // recomputed from target.clientWidth) instead of the usual
+        // fill-available-width math below, to test whether fixed
+        // zoom:1 makes page/body geometry invariant while resizing
+        // Safari. Not a fix; revert to the clientWidth-based scale
+        // once diagnosed:
+        //   const scale = target.clientWidth / (NOMINAL_WIDTH * 2);
+        const scale = 1;
         // Kept in sync so pages Paged.js is still inserting mid-preview
         // (see the spread-mode CSS's \`zoom: var(--spread-zoom, 1)\`)
         // are born at approximately the right scale before this ever
@@ -1216,14 +1208,14 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       const pageStylesheets = ["/static/journal.css"];
 
       // Desktop only: prime the spread presentation BEFORE Paged.js
-      // inserts anything, so \`.spread-mode\` and an approximate
-      // \`--spread-zoom\` already exist the moment the first \`.pagedjs_pages\`
-      // grid is born mid-preview — pages arrive already close to their
-      // final scale instead of at 1:1 before fitSpreadWidth() can run.
-      // (DIAGNOSTIC_NO_DESKTOP_ZOOM: skipped entirely for this test.)
-      if (!DIAGNOSTIC_NO_DESKTOP_ZOOM && !isTouchBook && wantsSpread) {
+      // inserts anything, so \`.spread-mode\` already exists the moment
+      // the first \`.pagedjs_pages\` grid is born mid-preview.
+      // DIAGNOSTIC ONLY — --spread-zoom forced to a constant 1 here too
+      // (was: target.clientWidth / (NOMINAL_WIDTH * 2)), matching
+      // fitSpreadWidth()'s forced scale above, for the same test.
+      if (!isTouchBook && wantsSpread) {
         target.classList.add("spread-mode");
-        target.style.setProperty("--spread-zoom", target.clientWidth / (NOMINAL_WIDTH * 2));
+        target.style.setProperty("--spread-zoom", 1);
       }
 
       // Desktop progressive reveal: rather than waiting for the whole
@@ -1294,16 +1286,13 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
 
       await waitForImages();
       const overlappingRefs = findOverlappingReferenceSlugs();
-      // Desktop-only: the second/staging Paged.Previewer().preview()
-      // pass is confirmed to corrupt touch/WebKit pagination (title-
-      // only page, duplicated teaser, blank pages), so touch never runs
-      // it — instead every References section is forced onto its own
-      // fresh page up front, in touch's one and only preview (see the
-      // force-page-break insertion before the first preview(), below).
-      // Managed PNG geometry no longer needs a corrective pass either —
-      // placeholders already fix it — so hadIncompleteImages isn't part
-      // of this condition.
-      const needsFinalRepagination = !isTouchBook && overlappingRefs.length > 0;
+      // DIAGNOSTIC ONLY — desktop staging/final repagination forced off
+      // too, so the known second-preview corruption can't contaminate
+      // this zoom:1 geometry test. overlappingRefs is still computed
+      // above, just unused here. Normal desktop condition (revert once
+      // diagnosed):
+      //   const needsFinalRepagination = !isTouchBook && overlappingRefs.length > 0;
+      const needsFinalRepagination = false;
 
       if (needsFinalRepagination) {
         // Exactly one hidden final pass, covering both correction
