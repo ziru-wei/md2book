@@ -1261,7 +1261,13 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
 
       await waitForImages();
       const overlappingRefs = findOverlappingReferenceSlugs();
-      const needsFinalRepagination = hadIncompleteImages || overlappingRefs.length > 0;
+      // DIAGNOSTIC ONLY — staging/final repagination forced off to test
+      // whether the second Paged.Previewer().preview() pass is what's
+      // corrupting the touch DOM (title-only/teaser-only/duplicated-
+      // teaser pages seen on iPad). overlappingRefs is still computed
+      // above (left in place, unused otherwise) so this stays a single,
+      // easily-revertable line. Not a fix — revert once diagnosed.
+      const needsFinalRepagination = false;
 
       if (needsFinalRepagination) {
         // Exactly one hidden final pass, covering both correction
