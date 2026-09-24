@@ -670,12 +670,6 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // final page DOM is fully known.
       if (isTouchBook) {
         document.documentElement.classList.add("touch-pending");
-        // Safety net: if anything in the render/fit chain fails before
-        // the normal end-of-flow activation, activate anyway after a
-        // while — through the same activateTouchBook() path (grouped +
-        // scaled), never by exposing raw ungrouped pages — rather than
-        // leave the screen hidden forever.
-        setTimeout(() => activateTouchBook(), 10000);
       }
 
       // Screen width in CSS px. NOT window.innerWidth: on iOS that is
