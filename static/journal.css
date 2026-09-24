@@ -1055,6 +1055,93 @@ html.paged-loading #paged-loader {
   color: var(--muted);
 }
 
+/* Owl button: reset all button chrome so it looks identical to the
+   <a class="index-logo"> it replaces. */
+button.owl-trigger {
+  display: inline-block;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0 0 10px;
+  cursor: pointer;
+}
+
+button.owl-trigger img {
+  display: block;
+  width: 140px;
+  margin: 0 auto;
+  filter: grayscale(100%) brightness(1.35) contrast(1.5);
+  mix-blend-mode: multiply;
+}
+
+/* Tag picker dialog */
+dialog.tag-dialog {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  padding: 2em 2.6em 2.2em;
+  min-width: 220px;
+  max-width: 340px;
+  font-family: var(--serif);
+  box-shadow: 0 8px 32px rgba(0,0,0,.18);
+}
+
+dialog.tag-dialog::backdrop {
+  background: rgba(0,0,0,.45);
+}
+
+.tag-dialog-prompt {
+  margin: 0 0 1.1em;
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tag-dialog-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .5em;
+}
+
+.tag-dialog-item {
+  display: block;
+  font-size: 16px;
+  color: var(--ink);
+  text-decoration: none;
+  padding: .3em 0;
+  border-bottom: 1px solid var(--rule);
+  transition: opacity .15s;
+}
+
+.tag-dialog-item:last-child {
+  border-bottom: none;
+}
+
+.tag-dialog-item:hover {
+  opacity: .6;
+}
+
+/* TOC tag label above the list */
+.toc-tag-label {
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 0 .6em;
+  margin-bottom: .4em;
+  border-bottom: 1px solid var(--rule);
+  opacity: 0;
+  transition: opacity .2s;
+}
+
+.toc-panel:hover .toc-tag-label {
+  opacity: 1;
+}
+
 /* =========================================================
    Contents / reading mode ("/contents"): dark background. The
    table of contents (date + title, sorted by created date) mirrors

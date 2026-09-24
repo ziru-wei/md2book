@@ -754,7 +754,10 @@ async function loadEntry({ id, version }) {
     bodyHtml,
     published: publishId !== null,
     created: normalizeDate(data.created),
-    updated: normalizeDate(data.updated)
+    updated: normalizeDate(data.updated),
+    tags: data.publishTag
+      ? (Array.isArray(data.publishTag) ? data.publishTag : [data.publishTag]).map(String).filter(Boolean)
+      : []
   };
 
   entryCache.set(id, entry);
@@ -1608,6 +1611,17 @@ function renderLogo(href) {
   `;
 }
 
+// Home-page variant: owl is a button that opens the tag picker dialog
+// instead of a direct link to /contents.
+function renderOwlButton() {
+  return `
+    <button type="button" class="index-logo owl-trigger" aria-haspopup="dialog" aria-label="Browse collections">
+      <img src="/static/owl.png" alt="Journal" />
+    </button>
+    <div class="index-author">${escapeHtml(AUTHOR)}</div>
+  `;
+}
+
 function renderWaterfallCards(entries) {
   return sortByDateDesc(entries, "updated").map(entry => {
     const date = entry.updated || entry.created || "";
@@ -1638,32 +1652,77 @@ function renderEmptyState(entries) {
 }
 
 // Home page ("/"): logo + author + a plain waterfall feed, no TOC.
-// Clicking the logo goes into the "contents" view below.
+// Clicking the owl opens a tag-picker dialog; choosing a tag loads that
+// collection's /contents/<tag> page. Falls back to /contents (all) when
+// there are no tags at all.
 function renderHomePage(entries) {
+  // Collect unique tags in sorted order for the picker.
+  const allTags = [...new Set(entries.flatMap(e => e.tags))].sort();
+
+  // If there's only one natural destination, make the owl a plain link
+  // (no popup needed). Zero tags → link to /contents; one+ tag → popup.
+  const needsPicker = allTags.length > 0;
+
+  const headerInner = needsPicker
+    ? renderOwlButton()
+    : renderLogo(CONTENTS_PATH);
+
+  const dialogHtml = needsPicker ? `
+  <dialog class="tag-dialog" id="tag-dialog">
+    <p class="tag-dialog-prompt">choose a collection</p>
+    <ul class="tag-dialog-list" id="tag-list"></ul>
+  </dialog>
+  <script>
+  (function() {
+    var TAGS = ${JSON.stringify(allTags)};
+    var BASE = ${JSON.stringify(CONTENTS_PATH)};
+    var dialog = document.getElementById('tag-dialog');
+    var list = document.getElementById('tag-list');
+    TAGS.forEach(function(tag) {
+      var li = document.createElement('li');
+      var a = document.createElement('a');
+      a.href = BASE + '/' + encodeURIComponent(tag);
+      a.className = 'tag-dialog-item';
+      a.textContent = tag;
+      li.appendChild(a);
+      list.appendChild(li);
+    });
+    document.querySelector('.owl-trigger').addEventListener('click', function() {
+      dialog.showModal();
+    });
+    dialog.addEventListener('click', function(e) {
+      var r = dialog.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
+        dialog.close();
+      }
+    });
+  })();
+  </script>` : "";
+
   const bodyHtml = `
   <div class="journal-home">
     <header class="index-header index-header-home">
-      ${renderLogo(CONTENTS_PATH)}
+      ${headerInner}
     </header>
 
     <div class="journal-waterfall">
       ${renderEmptyState(entries)}
       ${renderWaterfallCards(entries)}
     </div>
-  </div>`;
+  </div>
+  ${dialogHtml}`;
 
   return pageShell({ title: "Journal", bodyHtml, bodyClass: "page-index" });
 }
 
-// Contents view ("/contents"): the reading mode. Dark background, no
-// logo, a left sidebar table of contents (date + title, sorted by created
-// date), and every entry rendered in full as a stacked "spread" — the
-// same two-column paper look as the single entry page, with a faint
-// inner gutter shadow standing in for a book's spine. Order matches the
-// TOC (by created date) so scrolling down tracks the sidebar top to
-// bottom.
-async function renderContentsPage(entries) {
-  const orderedEntries = sortByDateDesc(entries, "created");
+// Contents view ("/contents" or "/contents/:tag"): the reading mode.
+// When `tag` is provided, only entries with that tag are shown and the
+// TOC panel gets a small label. Otherwise all entries are shown.
+async function renderContentsPage(entries, tag) {
+  const orderedEntries = sortByDateDesc(
+    tag ? entries.filter(e => e.tags.includes(tag)) : entries,
+    "created"
+  );
 
   const toc = orderedEntries.map(entry => {
     const date = entry.created || entry.updated || "";
@@ -1693,6 +1752,7 @@ async function renderContentsPage(entries) {
 
   ${orderedEntries.length ? `
   <div class="toc-panel">
+    ${tag ? `<div class="toc-tag-label">${escapeHtml(tag)}</div>` : ""}
     <ul class="toc-list">${toc}</ul>
   </div>` : ""}
 
@@ -1838,6 +1898,16 @@ app.get(CONTENTS_PATH, async (_req, res) => {
   try {
     const entries = await listEntries();
     res.type("html").send(await renderContentsPage(entries));
+  } catch (error) {
+    res.status(500).type("text").send(`Could not list entries from ${entrySource.label}\n\n${error.stack || error}`);
+  }
+});
+
+app.get(`${CONTENTS_PATH}/:tag`, async (req, res) => {
+  try {
+    const tag = req.params.tag;
+    const entries = await listEntries();
+    res.type("html").send(await renderContentsPage(entries, tag));
   } catch (error) {
     res.status(500).type("text").send(`Could not list entries from ${entrySource.label}\n\n${error.stack || error}`);
   }
