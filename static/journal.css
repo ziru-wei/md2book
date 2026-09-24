@@ -1314,14 +1314,27 @@ html.paged-loading #paged-loader {
   }
 }
 
+/* Touch devices get this the instant they're detected, BEFORE
+   Paged.js paginates anything — deliberately visibility-only. Actual
+   touch viewer presentation (.touch-book, below) must not exist yet
+   while pagination is still running: Paged.js has to see the exact
+   same neutral 850x1100 layout desktop does, or its output gets
+   corrupted (a page/teaser landing alone, content breaking too early,
+   duplicated figures). Swapped for real touch-book presentation only
+   once activateTouchBook() runs, after the final page DOM is known —
+   see server.js. */
+html.touch-pending #pagedjs-target {
+  visibility: hidden;
+}
+
 /* =========================================================
-   Touch e-reader (phones, tablets): see setupTouchBook in
-   server.js. Pages are always paginated at the same fixed 850x1100
-   size as desktop (see @page above); a horizontal scroll-snap track
-   of full-viewport ".touch-slide"s — one per screen, swipe to turn —
-   each center a ".touch-slide-inner" holding one page (or, on a
-   landscape tablet, a page pair) transform:scale()'d to fit. The
-   slide itself is never scaled, only that inner wrapper.
+   Touch e-reader (phones, tablets): see setupTouchBook/
+   activateTouchBook in server.js. Pages are always paginated at the
+   same fixed 850x1100 size as desktop (see @page above); a horizontal
+   scroll-snap track of full-viewport ".touch-slide"s — one per
+   screen, swipe to turn — each center a ".touch-slide-inner" holding
+   one page (or, on a landscape tablet, a page pair) transform:scale()'d
+   to fit. The slide itself is never scaled, only that inner wrapper.
    ========================================================= */
 
 html.touch-book,

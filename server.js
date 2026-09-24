@@ -656,17 +656,26 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // per screen, and how much they're visually scaled to fit, differ.
       const isTablet = isTouchBook && Math.min(screen.width, screen.height) >= 600;
 
-      // Switched on BEFORE rendering: the touch layout clips the page
-      // track, so the 850px-wide pages Paged.js produces never make the
-      // document wider than the screen. Otherwise iOS Safari zooms the
-      // whole page out to fit them, and everything measured afterwards
-      // is off.
+      // Layout-neutral pending gate, switched on BEFORE rendering —
+      // visibility-only (see html.touch-pending in journal.css), never
+      // touch viewer presentation. Adding .touch-book itself this
+      // early used to actively corrupt Paged.js's output: its CSS
+      // (flex/width/margin overrides on .pagedjs_pages, #pagedjs-target,
+      // .pagedjs_page) was live while pagination was still running, so
+      // Paged.js was pagination against a moving target instead of the
+      // same neutral 850x1100 layout desktop gets — the actual cause of
+      // titles/teasers landing on their own page, duplicated figures,
+      // and breaks happening too early on touch. .touch-book is now
+      // only ever added once by activateTouchBook(), below, after the
+      // final page DOM is fully known.
       if (isTouchBook) {
-        document.documentElement.classList.add("touch-book");
-        // Safety net: pages are hidden until fitted — if anything in
-        // the render/fit chain fails, show them anyway after a while
-        // rather than leave a blank screen.
-        setTimeout(() => document.documentElement.classList.add("touch-book-ready"), 10000);
+        document.documentElement.classList.add("touch-pending");
+        // Safety net: if anything in the render/fit chain fails before
+        // the normal end-of-flow activation, activate anyway after a
+        // while — through the same activateTouchBook() path (grouped +
+        // scaled), never by exposing raw ungrouped pages — rather than
+        // leave the screen hidden forever.
+        setTimeout(() => activateTouchBook(), 10000);
       }
 
       // Screen width in CSS px. NOT window.innerWidth: on iOS that is
@@ -887,6 +896,24 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         };
       }
 
+      // Activates the touch viewer exactly once, only after the final
+      // page DOM is fully installed in \`target\` (i.e. after any
+      // corrective/staging repagination has already landed) — never
+      // from an intermediate finishUp() call. Adds .touch-book (which
+      // is what actually switches on the touch viewer's presentation
+      // CSS) and runs setupTouchBook() together, synchronously, so
+      // .touch-book is never present without a grouped/scaled result
+      // right behind it, then finally lifts .touch-pending.
+      let touchActivated = false;
+      function activateTouchBook() {
+        if (!isTouchBook || touchActivated) return;
+        touchActivated = true;
+
+        document.documentElement.classList.add("touch-book");
+        setupTouchBook();
+        document.documentElement.classList.remove("touch-pending");
+      }
+
       // Removes the loading gate on the next animation frame. Called
       // once, right after the FIRST preview()'s pages get their final
       // layout applied (see finishUp/applyDesktopPageLayout below) —
@@ -943,13 +970,17 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // the reference-overlap check), and again, idempotently, after an
       // overlap retry swaps in corrected pages. Does NOT itself decide
       // when to reveal — see revealPagedReader, called once by the
-      // caller right after the first call to this.
+      // caller right after the first call to this. Desktop-only:
+      // touch's own layout (setupTouchBook, via activateTouchBook) is
+      // deliberately NOT run from here, since finishUp() can run before
+      // the final page DOM is known — touch stays under .touch-pending
+      // (target hidden, no touch-book presentation CSS active) through
+      // every intermediate call, and is activated exactly once, at the
+      // very end of the whole flow.
       function finishUp() {
         attachImageFallback(target);
 
-        if (isTouchBook) {
-          setupTouchBook();
-        } else {
+        if (!isTouchBook) {
           applyDesktopPageLayout();
         }
       }
@@ -1162,8 +1193,12 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
           ? withForcedBreaksBefore(overlappingRefs)
           : source.innerHTML;
 
+        // Deliberately NOT copying target's current className here —
+        // that could carry over spread-mode or (were it ever present)
+        // touch viewer state, none of which staging needs: Paged.js
+        // only needs a plain, neutral mount point, and it must see the
+        // exact same 850x1100 layout the very first preview did.
         const staging = document.createElement("div");
-        staging.className = target.className;
         staging.style.cssText =
           "position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;";
         document.body.appendChild(staging);
@@ -1185,6 +1220,10 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // boxes from here on, visibly, without affecting page geometry.
       hydratePagedImages(target);
       attachImageFallback(target);
+
+      // The final page DOM is now fully known — safe to turn on the
+      // touch viewer (a no-op on desktop). Never earlier than this.
+      activateTouchBook();
     })();
     ` : `attachImageFallback();`}
   </script>
