@@ -643,20 +643,51 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // Not wired into any behavior; purely observational.
       const debugPaged = new URLSearchParams(location.search).has("debugPaged");
 
-      function pagedDebug(label) {
+      function pagedDebug(label, root) {
         if (!debugPaged) return;
 
-        const pages = [...document.querySelectorAll(".pagedjs_page")];
-        const teasers = [...document.querySelectorAll(".teaser-figure")];
+        // For the "source" stage, the caller passes source.content —
+        // <template> contents live in their own DocumentFragment and
+        // are invisible to a normal document.querySelectorAll(). Every
+        // other stage queries the live document (default), where the
+        // generated .pagedjs_page nodes actually live.
+        const scope = root || document;
+        const pages = [...scope.querySelectorAll(".pagedjs_page")];
+        const teasers = [...scope.querySelectorAll(".teaser-figure")];
+        const teaserImgs = [...scope.querySelectorAll(".teaser-figure img")];
 
         const lines = [
           \`\${label}\`,
           \`pages=\${pages.length}\`,
           \`teasers=\${teasers.length}\`,
-          ...teasers.map((el, i) => {
-            const page = el.closest(".pagedjs_page");
-            const slide = el.closest(".touch-slide");
-            return \`teaser\${i}: page=\${pages.indexOf(page)} slide=\${slide ? slide.dataset.slideIndex ?? "?" : "-"}\`;
+          \`teaserImgs=\${teaserImgs.length}\`,
+          ...pages.map((page, i) => {
+            const titleCount = page.querySelectorAll(".title").length;
+            const pageTeasers = page.querySelectorAll(".teaser-figure").length;
+            const pageTeaserImgs = page.querySelectorAll(".teaser-figure img").length;
+            const bodyEls = page.querySelectorAll("main.body, .body");
+            const bodyH = bodyEls[0]
+              ? String(Math.round(bodyEls[0].getBoundingClientRect().height))
+              : "-";
+            const contentEl = page.querySelector(".pagedjs_page_content");
+            const contentH = contentEl
+              ? String(Math.round(contentEl.getBoundingClientRect().height))
+              : "-";
+            const splitEl = page.querySelector("[data-split-from], [data-split-to]");
+            const splitFrom = splitEl ? splitEl.getAttribute("data-split-from") : null;
+            const splitTo = splitEl ? splitEl.getAttribute("data-split-to") : null;
+            const split = (splitFrom || splitTo) ? \`\${splitFrom || "-"}->\${splitTo || "-"}\` : "-";
+            // No regex here on purpose — a backslash-escape sequence
+            // like \\s written directly in this file would be consumed
+            // by the OUTER server-side template literal's own escaping
+            // (the same class of bug \\n caused earlier) before the
+            // client ever sees it. split/join sidesteps that entirely.
+            const normalized = (page.textContent || "")
+              .split(String.fromCharCode(10)).join(" ")
+              .split(String.fromCharCode(9)).join(" ")
+              .trim();
+            const text = normalized.slice(0, 80);
+            return \`page=\${i} title=\${titleCount} teaser=\${pageTeasers} teaserImgs=\${pageTeaserImgs} body=\${bodyEls.length} bodyH=\${bodyH} contentH=\${contentH} split=\${split} text="\${text}"\`;
           })
         ];
 
@@ -686,7 +717,7 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
           lines.join(String.fromCharCode(10));
       }
 
-      pagedDebug("source");
+      pagedDebug("source", source.content);
 
       // Touch devices (phones, iPads) get an e-reader instead: one page
       // per screen, swipe sideways to turn. Detected by the primary

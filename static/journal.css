@@ -1327,15 +1327,6 @@ html.touch-pending #pagedjs-target {
   visibility: hidden;
 }
 
-/* DIAGNOSTIC ONLY — NOT final design. Forces single-column pagination
-   on iOS/Safari for the duration of touch pagination (html.touch-pending
-   is only present while Paged.js is actually running for touch — see
-   server.js), to isolate whether two-column layout is contributing to
-   the touch pagination corruption. Remove once diagnosis is done. */
-html.touch-pending .body {
-  column-count: 1 !important;
-}
-
 /* =========================================================
    Touch e-reader (phones, tablets): see setupTouchBook/
    activateTouchBook in server.js. Pages are always paginated at the
