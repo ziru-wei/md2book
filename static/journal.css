@@ -470,14 +470,8 @@ html.paged-loading #paged-loader {
    — roughly under the first column, since the left page margin lines
    up with where that column starts. No JS, no overlap possible. */
 .byline-footer {
-  /* CUSTOMIZABLE STYLE: short text now ("written on ..., and updated
-     ..."), so a narrow box — right-aligned within it, and the
-     border-top line above shrinks to match since it's the same width. */
-  width: 45%;
-  margin: 1.4em 0 0 auto;
   padding-top: .6em;
   border-top: 1px solid var(--rule);
-  text-align: right;
 
   color: inherit;
   font-family: var(--serif);
@@ -488,14 +482,29 @@ html.paged-loading #paged-loader {
   line-height: 1.3;
 }
 
+/* /contents only (no --running modifier — see below): short text now
+   ("written on ..., and updated ..."), so a narrow box — right-aligned
+   within it, and the border-top line above shrinks to match since
+   it's the same width. */
+.byline-footer:not(.byline-footer--running) {
+  width: 45%;
+  margin: 1.4em 0 0 auto;
+  text-align: right;
+}
+
 /* /entry/:hash: each entry is its own standalone Paged.js document, so
    @page :first correctly means "this entry's first page" — use the
    native running-element mechanism (element(byline) above). Class is
    on the element itself, not an ancestor "body.page-entry" selector —
    Paged.js paginates a detached content fragment with no real <body>
-   in it, so an ancestor selector like that never matches there. */
+   in it, so an ancestor selector like that never matches there.
+   CUSTOMIZABLE STYLE: original wider, left-aligned layout — kept as
+   it was, distinct from /contents' narrower right-aligned one above. */
 .byline-footer--running {
   position: running(byline);
+  width: 74%;
+  margin: 1.4em 0 0;
+  text-align: left;
 }
 
 /* /contents has no ".byline-footer--absolute": every entry there is
@@ -564,6 +573,17 @@ html.paged-loading #paged-loader {
 .body p {
   /* CUSTOMIZABLE STYLE: paragraph spacing */
   margin: 0 0 1em;
+}
+
+/* Drop cap: first letter of the opening paragraph when the body starts
+   directly with text (no preceding heading). Server adds .drop-cap class
+   only when the first child element is a <p>, not a heading or figure. */
+.body p.drop-cap::first-letter {
+  font-size: 3.2em;
+  font-weight: 700;
+  float: left;
+  line-height: .78;
+  margin: .04em .07em 0 0;
 }
 
 /* =========================================================
@@ -839,9 +859,8 @@ html.paged-loading #paged-loader {
 
   /* CUSTOMIZABLE STYLE: margin note text — same color as body text,
      not muted/gray */
-  font-size: 8.5px;
+  font-size: 7.5px;
   line-height: 1.35;
-  font-style: italic;
   color: inherit;
   text-align: left;
 }

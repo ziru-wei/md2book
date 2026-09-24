@@ -697,6 +697,14 @@ function postProcessMarkdown(renderedHtml) {
     $margin.text(`${commentNumber}. ${$margin.attr("data-comment") || ""}`);
   });
 
+  // Drop cap: if the body opens directly with a paragraph (not a heading
+  // or figure), mark it so CSS can enlarge and float the first letter.
+  // Only the very first child matters — a heading first means "no drop cap."
+  const firstChild = root.children().first();
+  if (firstChild.is("p") && !firstChild.find("img").length) {
+    firstChild.addClass("drop-cap");
+  }
+
   // Plain-text excerpt for card previews on the list page: the first
   // remaining text paragraph (image-only paragraphs became figures above
   // and don't count).
@@ -724,7 +732,7 @@ async function loadEntry({ id, version }) {
 
   const raw = await entrySource.readFile(id);
   const { data, content } = matter(raw);
-  const rendered = md.render(expandInlineCommentTokens(expandInlineRefTokens(content)));
+  const rendered = md.render(expandInlineCommentTokens(expandInlineRefTokens(expandBookTitles(content))));
   const { title, teaserHtml, excerpt, bodyHtml } = postProcessMarkdown(rendered);
 
   // Renaming a file or moving it to a different folder in Obsidian
@@ -1709,6 +1717,16 @@ function splitTitleSubtitle(title) {
   return { main: match[1].trim(), sub: match[2].trim() };
 }
 
+// Chinese book-title marks: 《text》 → 「**_text_**」 (corner brackets,
+// bold-italic content). Applied to raw Markdown before rendering so
+// markdown-it handles the **_ nesting naturally. Outer 「」 are plain
+// Unicode pass-through; inner bold-italic is standard Markdown syntax.
+const BOOK_TITLE_RE = /《([^《》]+)》/g;
+
+function expandBookTitles(markdown) {
+  return markdown.replace(BOOK_TITLE_RE, (_, title) => `「**_${title}_**」`);
+}
+
 // A source filename that's just a date (e.g. "2026-09-21.md") reads as
 // its own label already on /contents' shared TOC/flow — the "written
 // on/updated" footnote there is redundant for those entries (but still
@@ -1762,8 +1780,11 @@ function renderEntryBody(entry, { mode, showByline = true }) {
   `;
 
   const { main, sub } = splitTitleSubtitle(entry.title);
-  const titleHtml = sub
-    ? `<span class="title-main">${escapeHtml(main)}</span><span class="title-sub">${escapeHtml(sub)}</span>`
+  // Main title: already Title Case from entry.title (toTitleCase in postProcessMarkdown).
+  // Subtitle: sentence case only — first char uppercase, rest unchanged.
+  const subDisplay = sub ? sub.charAt(0).toUpperCase() + sub.slice(1).toLowerCase() : null;
+  const titleHtml = subDisplay
+    ? `<span class="title-main">${escapeHtml(main)}</span><span class="title-sub">${escapeHtml(subDisplay)}</span>`
     : escapeHtml(main);
 
   return `
