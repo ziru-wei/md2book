@@ -76,6 +76,38 @@ function escapeHtml(value = "") {
     .replaceAll('"', "&quot;");
 }
 
+// Title Case for headings: capitalizes the first letter of every word
+// except a fixed list of short prepositions/articles/conjunctions
+// (lowercased instead) — unless that word is the first or last one,
+// which is always capitalized regardless. Only the first letter of a
+// word is touched (the rest is left exactly as typed), so existing
+// internal capitalization — acronyms like "AI", "URL" — survives.
+const TITLE_CASE_SMALL_WORDS = new Set([
+  "a", "an", "the",
+  "and", "but", "or", "nor", "so", "yet",
+  "as", "at", "by", "for", "from", "in", "into", "of", "off", "on",
+  "onto", "out", "over", "per", "to", "up", "via", "with"
+]);
+
+function toTitleCase(text) {
+  const tokens = text.split(/(\s+)/);
+  const wordIndices = [];
+  tokens.forEach((token, i) => {
+    if (token && !/^\s+$/.test(token)) wordIndices.push(i);
+  });
+  if (!wordIndices.length) return text;
+  const firstWordIndex = wordIndices[0];
+  const lastWordIndex = wordIndices[wordIndices.length - 1];
+
+  return tokens.map((token, i) => {
+    if (!token || /^\s+$/.test(token)) return token;
+    const lower = token.toLowerCase();
+    const isEdge = i === firstWordIndex || i === lastWordIndex;
+    if (TITLE_CASE_SMALL_WORDS.has(lower) && !isEdge) return lower;
+    return token.charAt(0).toUpperCase() + token.slice(1);
+  }).join("");
+}
+
 function normalizeDate(value) {
   if (!value) return "";
   if (value instanceof Date && !Number.isNaN(value.valueOf())) {
@@ -264,7 +296,7 @@ function postProcessMarkdown(renderedHtml) {
 
   // First H1 becomes the publication title and is removed from body flow.
   const firstH1 = root.find("h1").first();
-  const title = firstH1.length ? firstH1.text().trim() : "Untitled";
+  const title = firstH1.length ? toTitleCase(firstH1.text().trim()) : "Untitled";
   if (firstH1.length) firstH1.remove();
 
   // A "## Note" heading (any letter case) marks a private end-of-file
@@ -276,6 +308,13 @@ function postProcessMarkdown(renderedHtml) {
     noteHeading.nextAll().remove();
     noteHeading.remove();
   }
+
+  // Every remaining heading in the body (h2–h6 — h1 was already pulled
+  // out above) gets the same Title Case treatment.
+  root.find("h2, h3, h4, h5, h6").each((_, h) => {
+    const $h = $(h);
+    $h.text(toTitleCase($h.text()));
+  });
 
   // Turn standalone Markdown images into figures. A "//teaser" marker
   // promotes one image under the metadata; either form (marker, and/or
@@ -1169,8 +1208,13 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
           stack.className = "page-comments";
           markers.forEach(marker => stack.appendChild(marker));
 
-          const host = page.querySelector(".pagedjs_page_content") || page;
-          host.appendChild(stack);
+          // Appended directly onto .pagedjs_page itself (not a nested
+          // Paged.js-internal box whose own positioning behavior isn't
+          // guaranteed) — journal.css gives .pagedjs_page an explicit
+          // position:relative for exactly this, so .page-comments's
+          // position:absolute is unambiguously anchored to this one
+          // physical page, regardless of how many pages exist.
+          page.appendChild(stack);
         });
       }
 

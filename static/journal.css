@@ -216,6 +216,11 @@ html.paged-loading #paged-loader {
 
   /* CUSTOMIZABLE STYLE: gap between stacked pages */
   margin: 0 auto 40px !important;
+
+  /* Explicit (not relying on whatever Paged.js may or may not set
+     internally) — gives .page-comments an unambiguous, one-page-only
+     positioning anchor. See journal.css's "Margin comments" section. */
+  position: relative;
 }
 
 /* Each md starts on its own fresh page in the "/contents" flow. */
@@ -805,14 +810,20 @@ html.paged-loading #paged-loader {
    ========================================================= */
 
 .comment-number {
-  /* CUSTOMIZABLE STYLE: in-text superscript marker */
-  color: var(--muted);
+  /* CUSTOMIZABLE STYLE: in-text superscript marker — same color as
+     body text, not muted/gray */
+  color: inherit;
 }
 
 .page-comments {
   position: absolute;
-  top: 0;
-  right: -140px;
+  /* Aligned with where the content area itself starts (--pad-top),
+     not the physical page's blank top edge. */
+  top: 84px;
+  /* .pagedjs_page is the full physical page box (position:relative,
+     above) — this inset keeps the stack inside the page's own right
+     margin (--pad-x) rather than flush with the true page edge. */
+  right: 20px;
 
   /* CUSTOMIZABLE STYLE: margin comment stack */
   width: 120px;
@@ -825,11 +836,12 @@ html.paged-loading #paged-loader {
   padding-left: .55em;
   border-left: 1px solid var(--rule);
 
-  /* CUSTOMIZABLE STYLE: margin note text */
+  /* CUSTOMIZABLE STYLE: margin note text — same color as body text,
+     not muted/gray */
   font-size: 8.5px;
   line-height: 1.35;
   font-style: italic;
-  color: var(--muted);
+  color: inherit;
   text-align: left;
 }
 
