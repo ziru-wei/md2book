@@ -508,6 +508,13 @@ html.paged-loading #paged-loader {
   column-count: 2;
   column-gap: var(--column-gap);
 
+  /* Fills the left column completely before starting the right one,
+     instead of the browser default (balance), which tries to equalize
+     both columns' heights within a single page fragment — that was
+     the actual cause of body content stopping halfway down the page
+     instead of using its full height. */
+  column-fill: auto;
+
   font-family: var(--serif);
   font-size: var(--body-size);
   line-height: var(--body-leading);
@@ -836,12 +843,6 @@ html.paged-loading #paged-loader {
 /* =========================================================
    Code
    ========================================================= */
-
-.body {
-  column-count: 2;
-  column-gap: var(--column-gap);
-  /* column-fill: auto; */
-}
 
 .body code {
   font-family: "SFMono-Regular", Consolas, monospace;
