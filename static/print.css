@@ -1,0 +1,165 @@
+/* =========================================================
+   Print (Ctrl+P / Cmd+P)
+
+   Deliberately a SEPARATE file, linked with media="print" (not
+   folded into journal.css or a @media print block there). server.js
+   hands Paged.js an explicit list of stylesheets for its own
+   pagination math (pageStylesheets = ["/static/journal.css"]) — this
+   file is never in that list, so Paged.js never parses it and the
+   on-screen book (page size, margins, spread/touch layout) is
+   provably unaffected by anything below. The browser's native print
+   engine is the only thing that ever applies these rules, exactly
+   when media type is "print".
+
+   Goal: one already-paginated .pagedjs_page (850x1100px) becomes
+   exactly one physical US Letter sheet, regardless of which on-
+   screen view mode (single page, double-page spread, touch swipe)
+   happened to be active — plus stripping screen-only visuals (desk
+   background, page-to-page shadow, hover-only nav chrome, the spread
+   center-seam shadow) that were never meant to survive onto paper.
+   ========================================================= */
+
+@page {
+  size: letter;
+  margin: 0;
+}
+
+html, body {
+  background: #fff !important;
+  margin: 0 !important;
+}
+
+/* Comfortable default margin for the plain (non-paginated) index/
+   waterfall listing — @page itself has zero margin so the paginated
+   book views below can size exactly to Letter with no outer offset. */
+body.page-index {
+  padding: .5in !important;
+}
+
+/* .pagedjs_page already carries its own internal margin (see
+   --pad-x/--pad-top/--pad-bottom in journal.css) baked into its
+   generated layout by Paged.js — no additional outer padding wanted
+   here, or the page's total footprint would exceed one Letter sheet. */
+body.page-entry,
+body.page-contents {
+  padding: 0 !important;
+}
+
+/* Hover-only / interactive chrome — meaningless on paper, and fixed-
+   position elements can otherwise repeat oddly across printed sheets. */
+#paged-loader,
+dialog.tag-dialog,
+dialog.toc-dialog {
+  display: none !important;
+}
+
+/* Desktop pager: only the current page/spread is display:none-free
+   on screen (see activateDesktopPager/showUnit in server.js) — print
+   should still produce every page, not just whichever one happened
+   to be on screen when Ctrl+P was pressed. */
+html.desktop-pager,
+html.desktop-pager body {
+  overflow: visible !important;
+  height: auto !important;
+}
+
+/* Whatever loading/visibility state happened to be on screen when
+   print was triggered, the real content must be visible on paper. */
+html.paged-loading #pagedjs-target,
+html.touch-pending #pagedjs-target,
+html.touch-book:not(.touch-book-ready) #pagedjs-target {
+  visibility: visible !important;
+}
+
+.entry-page {
+  width: auto !important;
+  padding: 0 !important;
+}
+
+#pagedjs-target,
+#pagedjs-target.spread-mode,
+#pagedjs-target:not(.spread-mode) {
+  width: auto !important;
+  margin: 0 !important;
+}
+
+/* Undo the on-screen double-page grid and the touch swipe track —
+   print always falls back to plain single-column stacking so each
+   .pagedjs_page below gets its own physical sheet, one after another. */
+#pagedjs-target.spread-mode .pagedjs_pages,
+html.touch-book .pagedjs_pages {
+  display: block !important;
+  zoom: 1 !important;
+  width: auto !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+
+html.touch-book,
+html.touch-book body {
+  height: auto !important;
+  overflow: visible !important;
+}
+
+html.touch-book .touch-slide {
+  display: block !important;
+  width: auto !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+
+html.touch-book .touch-slide-inner {
+  transform: none !important;
+}
+
+.pagedjs_page,
+html.touch-book .pagedjs_page,
+html.desktop-pager .pagedjs_page,
+#pagedjs-target.spread-mode .pagedjs_page {
+  /* html.desktop-pager .pagedjs_page is listed explicitly, not left to
+     the plain .pagedjs_page branch above, because journal.css's own
+     "html.desktop-pager .pagedjs_page { margin: 0 auto !important; }"
+     has HIGHER specificity (0,2,1) than a bare ".pagedjs_page"
+     (0,1,0) — an !important tie is broken by specificity before
+     source order, so without matching that exact selector here, this
+     rule's margin would silently lose to journal.css's screen-only
+     one on every print (html carries .desktop-pager on every /entry
+     and /contents page, never removed) even though print.css loads
+     later in the document.
+
+     Overrides the desktop pager's inline display:none on every page
+     but the current one (see showUnit in server.js) — print always
+     wants every page, regardless of which one was on screen. */
+  display: block !important;
+
+  margin: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: #fff !important;
+
+  /* 850x1100 and 816x1056 (Letter at 96dpi) share the same 0.7727
+     aspect ratio, so a uniform 0.96 zoom maps one exactly onto the
+     other with no distortion and no browser "shrink to fit" guessing.
+     zoom (not transform: scale) actually shrinks the layout box, so
+     the page's footprint fits the zero-margin Letter @page above
+     instead of overflowing it. */
+  zoom: 0.96 !important;
+
+  break-after: page;
+  break-inside: avoid;
+}
+
+.pagedjs_page:last-child {
+  break-after: auto;
+}
+
+/* Decorative spread-view center-seam shadow only makes sense when two
+   pages sit side by side on screen; each prints on its own sheet now,
+   so it'd just be a stray dark smear across the middle of a page. */
+#pagedjs-target.spread-mode .pagedjs_page::after {
+  display: none !important;
+}
+
+.wf-card {
+  box-shadow: none !important;
+}

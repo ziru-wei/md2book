@@ -30,7 +30,7 @@
      CSS custom properties; keep both in sync by hand) */
   --pad-x: 150px;
   --pad-top: 84px;
-  --pad-bottom: 160px;
+  --pad-bottom: 100px;
 
   /* CUSTOMIZABLE STYLE: two-column geometry */
   --column-gap: 38px;
@@ -45,16 +45,6 @@
   --serif: "Source Serif 4", "Libre Baskerville", "source-han-serif-sc", Georgia, "Times New Roman", Times, serif;
   --body-size: 11.5px;
   --body-leading: 1.22;
-
-  /* CUSTOMIZABLE STYLE: width of the left (back link/toggle) and right
-     (TOC) hover zones — reserved from the middle column so narrowing
-     the window compresses the reading column, not these. Different
-     widths because they hold different content: short labels on the
-     left, wrapped title text on the right — shrinking the padding
-     inside each is the way to make them "tighter", not shrinking the
-     content width itself, which just forces ugly line-wrapping. */
-  --edge-zone-width: 48px;
-  --toc-zone-width: 100px;
 
   /* CUSTOMIZABLE STYLE: per-page-type background colors */
   --index-bg: rgb(245, 245, 245);
@@ -189,14 +179,14 @@ html.paged-loading #paged-loader {
      Update this by hand if those variables ever change. */
   margin: 84px 150px 160px;
 
-  /* CUSTOMIZABLE STYLE: page number. Bottom-center, not bottom-right,
-     so it doesn't collide with .references pinned in that corner. */
-  @bottom-center {
-    content: counter(page);
-    font-family: var(--serif);
-    font-size: 11px;
-    color: var(--muted);
-  }
+  /* No @bottom-center page-number box here anymore: Paged.js's
+     counter(page) is a genuine live CSS counter, recomputed from
+     whichever .pagedjs_page elements are actually rendered — the
+     desktop pager's display:none on every page but the current one
+     (see showUnit in server.js) means it only ever counted the 1-2
+     still-visible pages, so it was stuck showing "1"/"2" regardless
+     of real position in the document. Replaced by real per-page
+     .page-number elements (below) instead. */
 }
 
 /* Page 1 only — the byline (see .byline-footer's position: running())
@@ -224,6 +214,49 @@ html.paged-loading #paged-loader {
   position: relative;
 }
 
+/* Desktop pager (see activateDesktopPager in server.js): exactly one
+   page/spread is ever display:none-free at a time, so there's nothing
+   left to scroll to — overflow:hidden here is belt-and-suspenders on
+   top of that, and the 40px stacking gap above (meant for the page
+   below in the old scrollable view) no longer applies to anything.
+   body's own small top/bottom padding (see body.page-entry/
+   page-contents) is zeroed too — applySinglePageZoom/fitSpreadWidth
+   size the page to exactly fill the viewport height, so any padding
+   on top of that pushes the bottom of the page below the fold with
+   nothing left to scroll it back into view. */
+html.desktop-pager,
+html.desktop-pager body {
+  overflow: hidden;
+  height: 100%;
+  padding: 0 !important;
+}
+
+html.desktop-pager .pagedjs_page {
+  margin: 0 auto !important;
+}
+
+/* Custom "01/09"-style page number, one real element per .pagedjs_page
+   (see createPageIndicators in server.js) instead of a single shared
+   viewport overlay — each page carries its own already-correct label,
+   so it's naturally right for whichever page(s) the pager shows (both
+   halves of a spread included) and naturally survives print's
+   display:block override with no separate print-only rule needed.
+   .pagedjs_page already has position:relative (above), so this anchors
+   to that specific page's own box, roughly where the old @page
+   @bottom-center counter(page) used to sit. */
+.pagedjs_page .page-number {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+
+  font-family: var(--serif);
+  font-size: 8px;
+  letter-spacing: .12em;
+  color: rgba(17, 17, 17);
+  pointer-events: none;
+}
+
 /* Each md starts on its own fresh page in the "/contents" flow. */
 .spread {
   /* No position:relative here (it used to anchor a link that's since
@@ -234,14 +267,24 @@ html.paged-loading #paged-loader {
   break-before: page;
 }
 
-/* Injected by JS only when the first render finds an overlap — either
-   References colliding with the content before it (pushes References
-   to a fresh page), or body content running into the byline-footer
-   pinned to the bottom of page 1 (pushes that content to page 2
-   instead, leaving the footer's spot clear). */
+/* Injected by JS only when the first render finds an overlap — body
+   content running into the byline-footer pinned to the bottom of
+   page 1 (pushes that content to page 2 instead, leaving the footer's
+   spot clear). */
 .force-page-break {
   break-before: page;
   height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+/* Invisible in-flow block whose height matches the absolutely-
+   positioned .references section that follows it.  Prevents Paged.js
+   from placing body text where the references will render, without
+   forcing a page break when there's room. */
+.references-spacer {
+  visibility: hidden;
+  break-inside: avoid;
   margin: 0;
   padding: 0;
 }
@@ -424,11 +467,18 @@ html.paged-loading #paged-loader {
   font-family: var(--serif);
 
   /* CUSTOMIZABLE STYLE: title typography */
-  font-size: 31px;
+  font-size: 24px;
   line-height: 1.03;
-  font-weight: 400;
-  letter-spacing: -0.028em;
+  font-weight: 700;
   text-wrap: balance;
+}
+
+/* Standalone /entry/:slug page for a dream-tagged entry: only drops
+   the bold weight, otherwise identical to a normal entry title (see
+   .page-dream .title below for the fuller dream typographic
+   treatment, which this deliberately does NOT also pull in here). */
+.entry-dream-title .title {
+  font-weight: 400;
 }
 
 /* A title with "/" or ":" (half- or full-width) splits into these two
@@ -447,7 +497,6 @@ html.paged-loading #paged-loader {
   font-size: .55em;
   font-style: italic;
   font-weight: 400;
-  letter-spacing: -0.01em;
 }
 
 /* =========================================================
@@ -482,24 +531,9 @@ html.paged-loading #paged-loader {
   line-height: 1.3;
 }
 
-/* /contents only (no --running modifier — see below): short text now
-   ("written on ..., and updated ..."), so a narrow box — right-aligned
-   within it, and the border-top line above shrinks to match since
-   it's the same width. */
-.byline-footer:not(.byline-footer--running) {
-  width: 45%;
-  margin: 1.4em 0 0 auto;
-  text-align: right;
-}
-
 /* /entry/:hash: each entry is its own standalone Paged.js document, so
    @page :first correctly means "this entry's first page" — use the
-   native running-element mechanism (element(byline) above). Class is
-   on the element itself, not an ancestor "body.page-entry" selector —
-   Paged.js paginates a detached content fragment with no real <body>
-   in it, so an ancestor selector like that never matches there.
-   CUSTOMIZABLE STYLE: original wider, left-aligned layout — kept as
-   it was, distinct from /contents' narrower right-aligned one above. */
+   native running-element mechanism (element(byline) above). */
 .byline-footer--running {
   position: running(byline);
   width: 74%;
@@ -507,16 +541,26 @@ html.paged-loading #paged-loader {
   text-align: left;
 }
 
-/* /contents has no ".byline-footer--absolute": every entry there is
-   concatenated into ONE shared document, so :first only ever matches
-   the very first page of the WHOLE flow — there's no "first page of
-   this entry's section" selector in the spec for the trick above to
-   extend to. An absolute-positioned + JS-detected-overlap version was
-   tried and repeatedly corrupted pagination across the whole flow
-   instead of just fixing the footer, so /contents just leaves this
-   element in plain normal flow (no extra class, no position) — visibly
-   under the title there instead of pinned to the page bottom, but
-   reliable. */
+.byline-footer--inline {
+  width: auto;
+  margin: .8em 0 0;
+  padding: 0;
+  border: none;
+  text-align: right;
+  font-size: 8.5px;
+  font-style: italic;
+  color: inherit;
+  break-inside: avoid;
+
+  /* break-before: avoid-column was tried here and confirmed (via an
+     actual print) NOT to stop the orphan — .body's column-fill:
+     balance overrides it, same as column-fill interfering with the
+     page-level title-orphan case elsewhere. Spanning both columns
+     sidesteps the conflict entirely: a spanning element isn't
+     assigned to either column, so there's no column-break placement
+     decision for "avoid" to lose. */
+  column-span: all;
+}
 
 /* =========================================================
    Teaser figure
@@ -579,11 +623,11 @@ html.paged-loading #paged-loader {
    directly with text (no preceding heading). Server adds .drop-cap class
    only when the first child element is a <p>, not a heading or figure. */
 .body p.drop-cap::first-letter {
-  font-size: 3.2em;
-  font-weight: 700;
+  font-size: 2.5em;
+  font-weight: 400;
   float: left;
   line-height: .78;
-  margin: .04em .07em 0 0;
+  margin: .04em .16em 0 0;
 }
 
 /* =========================================================
@@ -688,7 +732,7 @@ html.paged-loading #paged-loader {
   /* CUSTOMIZABLE STYLE: smaller than surrounding body text — line-height
      left to inherit .body's normal value so quoted lines don't look
      inconsistently spaced next to regular paragraphs */
-  font-size: 12px;
+  font-size: 9.6px;
 }
 
 /* =========================================================
@@ -815,19 +859,22 @@ html.paged-loading #paged-loader {
 /* =========================================================
    Margin comments
    %%text{>>{...}@@comment<<}%% — numbered independently from
-   References (own counter, no bottom list). Per-line alignment with
-   each comment's own anchor was tried and abandoned: an absolutely-
-   positioned note doesn't reserve space in normal flow, so anything
-   taller than one line ends up visually sitting on top of whatever
-   body content follows its anchor. Every comment on a given page now
-   collects instead into one .page-comments stack in that page's own
-   right margin, top-aligned — server.js's layoutPageComments() moves
-   each .comment-margin-marker there (by reference, not cloned) once
-   the final page DOM is settled, same as hydratePagedImages/
-   activateTouchBook. Individual entries stack in plain normal flow
-   inside that shared container, so they can never overlap each other
-   or anything else. The short left rule on each entry matches
-   .byline-footer's border-top exactly (color + weight), just rotated.
+   References (own counter, no bottom list). Each note is positioned
+   at the same height as its own anchor in the text, in whichever
+   margin is nearest — left margin for an anchor in the left column,
+   right margin for the right column — server.js's layoutPageComments()
+   measures every .comment-marker's real position with
+   getBoundingClientRect() once Paged.js's layout is fully settled
+   (same "read the finished output as a plain fact" approach as the
+   page numbers and the title/byline orphan fixes), moves each
+   .comment-margin-marker into .page-comments, and sets its own
+   absolute `top` to match — falling back to nudging a note down just
+   enough to clear whichever one is directly above it IN THE SAME
+   MARGIN if two same-side anchors sit close enough that their notes
+   would otherwise overlap (left- and right-margin notes never compete
+   for space with each other). The short rule on each entry matches
+   .byline-footer's border-top exactly (color + weight), just rotated,
+   and sits on whichever side faces the page's own text block.
    ========================================================= */
 
 .comment-number {
@@ -837,32 +884,45 @@ html.paged-loading #paged-loader {
 }
 
 .page-comments {
+  /* Full-page box — unlike the old single right-margin stack, notes
+     can land on either side now, so this container itself no longer
+     picks a side; each .comment-margin-marker positions itself
+     (left/right + top, all set by JS) within it. .pagedjs_page is
+     position:relative (above), so this inset:0 unambiguously spans
+     just that one physical page, regardless of how many exist. */
   position: absolute;
-  /* Aligned with where the content area itself starts (--pad-top),
-     not the physical page's blank top edge. */
-  top: 84px;
-  /* .pagedjs_page is the full physical page box (position:relative,
-     above) — this inset keeps the stack inside the page's own right
-     margin (--pad-x) rather than flush with the true page edge. */
-  right: 20px;
-
-  /* CUSTOMIZABLE STYLE: margin comment stack */
-  width: 120px;
-  display: flex;
-  flex-direction: column;
-  gap: .9em;
+  inset: 0;
 }
 
 .comment-margin-marker {
-  padding-left: .55em;
-  border-left: 1px solid var(--rule);
+  position: absolute;
+
+  /* CUSTOMIZABLE STYLE: margin note width */
+  width: 120px;
 
   /* CUSTOMIZABLE STYLE: margin note text — same color as body text,
      not muted/gray */
   font-size: 7.5px;
   line-height: 1.35;
   color: inherit;
+}
+
+/* Right-margin note (anchor was in the right column): rule faces
+   inward (left edge, toward the page's text block), same as before. */
+.comment-margin-marker--right {
+  right: 20px;
+  padding-left: .55em;
+  border-left: 1px solid var(--rule);
   text-align: left;
+}
+
+/* Left-margin note (anchor was in the left column): mirrored — rule
+   faces inward (right edge, toward the text block) instead. */
+.comment-margin-marker--left {
+  left: 20px;
+  padding-right: .55em;
+  border-right: 1px solid var(--rule);
+  text-align: right;
 }
 
 /* =========================================================
@@ -900,18 +960,6 @@ html.paged-loading #paged-loader {
   height: 3em;
 }
 
-.references h2 {
-  break-after: avoid;
-}
-
-.references h2 {
-  margin: 0 0 .65em;
-
-  /* CUSTOMIZABLE STYLE: smaller than a normal body H2 — this is a
-     footer label, not a section heading */
-  font-size: 10.5px;
-}
-
 .reference-list {
   margin: 0;
   padding: 0;
@@ -919,13 +967,13 @@ html.paged-loading #paged-loader {
 
   /* CUSTOMIZABLE STYLE: reference typography */
   font-size: 9.5px;
-  line-height: 1.30;
+  line-height: 1;
 }
 
 .reference-list li {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
-  gap: 6px;
+  gap: 4px;
   margin: 0 0 5px;
   padding: 0;
 }
@@ -990,26 +1038,38 @@ html.paged-loading #paged-loader {
 /* Home page: no sidebar, just the logo/author header above a full-width
    waterfall. The logo is the entry point into the contents view. */
 .journal-home {
-  max-width: 1240px;
+  max-width: 1080px;
   margin: 0 auto;
 }
 
 .index-header-home {
   /* CUSTOMIZABLE STYLE: home header spacing/centering */
   text-align: center;
-  margin-bottom: 48px;
+  margin-bottom: 36px;
   padding-bottom: 0;
   border-bottom: none;
 }
 
-.index-header-home .index-logo {
-  margin: 0 0 10px;
+.journal-home .journal-waterfall {
+  column-gap: 18px;
 }
 
-.index-header-home .index-logo img {
-  /* CUSTOMIZABLE STYLE: home logo is a bit larger than the sidebar one */
-  width: 140px;
-  margin: 0 auto;
+.journal-home .wf-card {
+  margin-bottom: 18px;
+}
+
+.journal-home .wf-card-body {
+  padding: 15px 16px 16px;
+}
+
+.journal-home .wf-card-title {
+  font-family: var(--serif);
+  font-size: 16px;
+}
+
+.journal-home .wf-card-excerpt {
+  font-family: var(--serif);
+  font-size: 12px;
 }
 
 .index-header {
@@ -1019,59 +1079,22 @@ html.paged-loading #paged-loader {
   border-bottom: 1px solid var(--rule);
 }
 
-.index-logo {
-  display: inline-block;
-
-  /* CUSTOMIZABLE STYLE: logo size */
-  margin: 0 0 10px;
-}
-
-.index-logo img {
-  display: block;
-
-  /* CUSTOMIZABLE STYLE: logo width */
-  width: 96px;
-  height: auto;
-
-  /* Desaturate + multiply blend so the illustration's light background
-     disappears into the page background, leaving just the line art.
-     Brightness/contrast push the near-white background closer to true
-     white (so multiply drops it out more fully) and make the linework
-     read crisper instead of muddy. */
-  filter: grayscale(100%) brightness(1.35) contrast(1.5);
-  mix-blend-mode: multiply;
+.index-header.index-header-home {
+  margin-bottom: 36px;
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 .index-author {
   font-family: var(--serif);
-  font-size: 13px;
-  letter-spacing: .05em;
+  font-size: 11px;
+  letter-spacing: .07em;
   text-transform: uppercase;
-  color: var(--muted);
 }
 
 .index-empty {
   font-family: var(--serif);
   color: var(--muted);
-}
-
-/* Owl button: reset all button chrome so it looks identical to the
-   <a class="index-logo"> it replaces. */
-button.owl-trigger {
-  display: inline-block;
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0 0 10px;
-  cursor: pointer;
-}
-
-button.owl-trigger img {
-  display: block;
-  width: 140px;
-  margin: 0 auto;
-  filter: grayscale(100%) brightness(1.35) contrast(1.5);
-  mix-blend-mode: multiply;
 }
 
 /* Tag picker dialog */
@@ -1084,6 +1107,11 @@ dialog.tag-dialog {
   max-width: 340px;
   font-family: var(--serif);
   box-shadow: 0 8px 32px rgba(0,0,0,.18);
+}
+
+dialog.tag-dialog:focus,
+dialog.tag-dialog:focus-visible {
+  outline: none;
 }
 
 dialog.tag-dialog::backdrop {
@@ -1125,6 +1153,32 @@ dialog.tag-dialog::backdrop {
   opacity: .6;
 }
 
+/* =========================================================
+   Contents / reading mode ("/contents"): dark background. The table
+   of contents (date + title, sorted by created date) lives in a
+   modal popup instead of a persistent side panel — opened/closed
+   with Space (see the keydown handler in pageShell), since only one
+   page/spread is ever on screen at a time now and there's no fixed
+   margin left to dedicate to an always-present sidebar.
+   ========================================================= */
+
+dialog.toc-dialog {
+  background: var(--entry-bg);
+  color: rgba(241, 243, 244, .92);
+  border: 1px solid rgba(241, 243, 244, .18);
+  border-radius: 2px;
+  padding: 1.6em 1.4em;
+  width: min(320px, 90vw);
+  max-height: 80vh;
+  overflow-y: auto;
+  font-family: var(--serif);
+  box-shadow: 0 8px 32px rgba(0,0,0,.35);
+}
+
+dialog.toc-dialog::backdrop {
+  background: rgba(0,0,0,.45);
+}
+
 /* TOC tag label above the list */
 .toc-tag-label {
   font-size: 9px;
@@ -1134,67 +1188,6 @@ dialog.tag-dialog::backdrop {
   padding: 0 0 .6em;
   margin-bottom: .4em;
   border-bottom: 1px solid var(--rule);
-  opacity: 0;
-  transition: opacity .2s;
-}
-
-.toc-panel:hover .toc-tag-label {
-  opacity: 1;
-}
-
-/* =========================================================
-   Contents / reading mode ("/contents"): dark background. The
-   table of contents (date + title, sorted by created date) mirrors
-   .edge-controls on the right edge — a zero-footprint hover zone,
-   compact and small-text like the left-hand controls, revealed only
-   when hovering the non-paper margin so it never competes with the
-   spread for width.
-   ========================================================= */
-
-/* The panel itself stays hit-testable at all times (that's what lets it
-   receive :hover in the first place) — only its contents fade in, same
-   pattern as .edge-controls. Giving the panel itself pointer-events:none
-   while invisible would make it a click-through hole, so it could never
-   receive the hover that's supposed to reveal it. */
-.toc-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-
-  /* Wider than .edge-controls — it holds wrapped title text, not a
-     short label, so it needs real content width. */
-  width: var(--toc-zone-width);
-  height: 100vh;
-  z-index: 50;
-
-  /* Solid background so the panel reads as a real opaque surface
-     instead of relying on whatever happens to be underneath — the
-     page (an unrelated stacking quirk) was showing through and
-     clipping the start of each line. */
-  background: var(--entry-bg);
-
-  /* CUSTOMIZABLE STYLE: inner gap — kept tight; shrink this, not the
-     width above, to make the panel feel more compact */
-  padding: 64px 6px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  box-sizing: border-box;
-}
-
-.toc-panel .toc-list {
-  /* Confine to the panel's own box — long titles wrap instead of
-     overflowing past this narrow column. */
-  width: 100%;
-  min-width: 0;
-
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .18s ease;
-}
-
-.toc-panel:hover .toc-list {
-  opacity: 1;
-  pointer-events: auto;
 }
 
 .toc-list {
@@ -1208,7 +1201,7 @@ dialog.tag-dialog::backdrop {
   gap: 2px;
 }
 
-.toc-item a {
+.toc-item button {
   display: block;
   width: 100%;
   box-sizing: border-box;
@@ -1216,12 +1209,22 @@ dialog.tag-dialog::backdrop {
   /* CUSTOMIZABLE STYLE: TOC row padding */
   padding: 5px 4px;
 
+  background: none;
+  border: none;
   color: inherit;
-  text-decoration: none;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
   border-radius: 3px;
+
+  /* <dialog>.showModal() auto-focuses the first focusable element,
+     and 'w'/'s' (see the keydown handler in pageShell) move that
+     focus between items — both put the browser's own default focus
+     ring around whichever item is current. Explicitly suppressed. */
+  outline: none;
 }
 
-.toc-item a:hover {
+.toc-item button:hover {
   background: rgba(241, 243, 244, .08);
 }
 
@@ -1229,8 +1232,7 @@ dialog.tag-dialog::backdrop {
   display: block;
   color: rgba(241, 243, 244, .55);
 
-  /* CUSTOMIZABLE STYLE: TOC date typography — compact, matches the
-     edge controls' small text */
+  /* CUSTOMIZABLE STYLE: TOC date typography */
   font-size: 10px;
   letter-spacing: .05em;
   text-transform: uppercase;
@@ -1245,8 +1247,7 @@ dialog.tag-dialog::backdrop {
   overflow-wrap: break-word;
   word-break: break-word;
 
-  /* CUSTOMIZABLE STYLE: TOC title typography — compact, matches the
-     edge controls' small text */
+  /* CUSTOMIZABLE STYLE: TOC title typography */
   font-family: var(--serif);
   font-size: 12px;
   line-height: 1.3;
@@ -1264,7 +1265,7 @@ dialog.tag-dialog::backdrop {
 
 
 /* =========================================================
-   Waterfall (masonry) card grid: sorted by updated date.
+   Waterfall (masonry) card grid: homepage sorted by created date.
    Built with CSS multi-column layout, no JS needed.
    ========================================================= */
 
@@ -1287,15 +1288,14 @@ dialog.tag-dialog::backdrop {
   background: var(--paper);
   border: 1px solid rgba(40, 40, 40, .12);
 
-  /* CUSTOMIZABLE STYLE: card shadow, kept light */
-  box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 10px rgba(0,0,0,.08);
+  box-shadow: none;
 
   transition: transform .12s ease, box-shadow .12s ease;
 }
 
 .wf-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 2px 4px rgba(0,0,0,.08), 0 8px 16px rgba(0,0,0,.10);
+  transform: translateY(-1px);
+  box-shadow: 0 1px 5px rgba(0,0,0,.045);
 }
 
 /* Image cards: picture only, no title/date overlay. */
@@ -1354,139 +1354,22 @@ dialog.tag-dialog::backdrop {
 }
 
 /* =========================================================
-   Entry page navigation (back to index)
-   Lives outside the paper, on the desk background.
+   Entry page
+   No side chrome anymore (back link + double-page toggle dropped —
+   use the browser's own Back and the '/' key instead; the TOC moved
+   into a Space-triggered popup, see dialog.toc-dialog above) — /entry
+   and /contents now share this exact same simple centering, with
+   nothing reserving side margins for a persistent panel.
    ========================================================= */
 
 .entry-page {
-  /* Full width by default so double-page mode has room to actually
-     lay two pages side by side. Single-page mode re-centers and caps
-     the width itself, below.
-
-     The left/right padding reserves exactly the space the fixed
-     .edge-controls/.toc-panel hover zones occupy, so narrowing the
-     window shrinks this middle column instead of the paper sliding
-     underneath (or getting covered by) either fixed zone. */
   width: 100%;
-  padding: 0 var(--edge-zone-width);
   box-sizing: border-box;
-}
-
-/* "/contents" reserves the TOC panel's (wider) width on BOTH sides,
-   not just the right where the panel actually sits — using each
-   side's own zone width (48px left, 100px right) made the book
-   itself sit off-center, since the left/right margins around it
-   would then differ by exactly that 52px difference. Matching both
-   sides to the larger value keeps the book's distance to the browser
-   edge equal left and right, even though the left side reserves a
-   little more than .edge-controls actually needs. */
-.entry-page.has-toc {
-  padding-left: var(--toc-zone-width);
-  padding-right: var(--toc-zone-width);
 }
 
 #pagedjs-target:not(.spread-mode) {
   width: min(100%, var(--paper-width));
   margin: 0 auto;
-}
-
-.entry-nav {
-  font-size: 13px;
-}
-
-.entry-nav a {
-  color: rgba(241, 243, 244, .78);
-  text-decoration: none;
-}
-
-.entry-nav a:hover {
-  color: var(--paper);
-  text-decoration: underline;
-}
-
-/* =========================================================
-   Single-page / double-page (spread) toggle
-   ========================================================= */
-
-.mode-toggle {
-  /* CUSTOMIZABLE STYLE: plain small text button, no checkbox */
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-
-  font-family: var(--serif);
-  font-size: 13px;
-  color: rgba(241, 243, 244, .78);
-  cursor: pointer;
-}
-
-.mode-toggle:hover {
-  color: var(--paper);
-}
-
-/* Disabled when there's only one page — nothing to spread beside it. */
-.mode-toggle:disabled {
-  opacity: .35;
-  cursor: default;
-}
-
-.mode-toggle:disabled:hover {
-  color: rgba(241, 243, 244, .78);
-}
-
-/* "On" state: a soft white glow around the word itself instead of a
-   checkbox, so the toggle's state reads from the text alone. */
-.mode-toggle.is-on {
-  color: var(--paper);
-  text-shadow:
-    0 0 6px rgba(255, 255, 255, .85),
-    0 0 16px rgba(255, 255, 255, .5);
-}
-
-/* =========================================================
-   Edge controls (back link + double-page checkbox): always a
-   fixed, zero-footprint hover zone at the true left edge of the
-   viewport — never part of the document flow, so it can never
-   compete with the TOC/paper for horizontal space. Invisible until
-   hovered, regardless of viewport width (no media query — a
-   width-gated version silently fell back to an always-visible,
-   space-taking layout on anything narrower than that breakpoint).
-   ========================================================= */
-
-.edge-controls {
-  position: fixed;
-  top: 0;
-  left: 0;
-
-  /* Same width as .toc-panel on the right — symmetric. */
-  width: var(--edge-zone-width);
-  height: 100vh;
-  z-index: 50;
-}
-
-.edge-controls .entry-nav,
-.edge-controls .mode-toggle {
-  position: absolute;
-  left: 16px;
-
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .18s ease;
-}
-
-.edge-controls .entry-nav {
-  top: 64px;
-}
-
-.edge-controls .mode-toggle {
-  bottom: 48px;
-}
-
-.edge-controls:hover .entry-nav,
-.edge-controls:hover .mode-toggle {
-  opacity: 1;
-  pointer-events: auto;
 }
 
 /* =========================================================
@@ -1618,13 +1501,6 @@ html.touch-book #pagedjs-target.spread-mode .pagedjs_page {
   margin: 0 !important;
 }
 
-/* Nothing outside the paper on touch devices — no back link, no
-   double-page toggle, no TOC. */
-html.touch-book .toc-panel,
-html.touch-book .edge-controls {
-  display: none !important;
-}
-
 /* Landscape tablets reuse the desktop spread styling (center gutter,
    odd/even pairing on whichever page is nth-child(odd)/(even) within
    its own .touch-slide-inner) — but the outer track stays this flex
@@ -1640,4 +1516,97 @@ html.touch-book #pagedjs-target.spread-mode .pagedjs_pages {
   .journal-waterfall {
     column-count: 2;
   }
+}
+
+/* =========================================================
+   Dream mode — continuous flow, inline references, wider
+   left margin. Activated when the tag contains "dream".
+   ========================================================= */
+
+.dream-entry {
+  break-before: auto;
+  margin-top: 3em;
+}
+
+.dream-entry:first-child {
+  margin-top: 0;
+}
+
+.page-dream .title {
+  font-family: "Cormorant SC", var(--serif);
+  font-size: 18px;
+  font-weight: 400;
+
+  /* Continuous flow (.dream-entry has no break-before, unlike the
+     forced-fresh-page .spread) means a title can land right at the
+     bottom of a page with its own entry's body pushed entirely to
+     the next one. avoid-page (not the generic avoid, which also
+     covers column breaks and seems to get lost crossing into .body's
+     own multi-column formatting context below) is the explicit
+     page-fragmentation signal Paged.js's break resolution reads most
+     reliably here — reinforced from the other side by .body's own
+     break-before below, and by .teaser-slot for entries with a teaser
+     image between title and body. */
+  break-after: avoid-page;
+}
+
+/* Entries with a teaser image between the title and body (see
+   renderEntryBody) need the same avoid-page as .title itself, or an
+   entry whose title fits but whose teaser doesn't would just move the
+   same orphan one element later. */
+.page-dream .teaser-slot {
+  break-after: avoid-page;
+}
+
+.page-dream .body {
+  font-optical-sizing: auto;
+  column-fill: balance;
+
+  /* Reinforces .title/.teaser-slot's break-after: avoid-page from the
+     other side of the boundary — belt-and-suspenders in case Paged.js
+     only reliably honors one direction of the pairing. */
+  break-before: avoid-page;
+}
+
+.byline-footer--dream {
+  width: auto;
+  margin: .8em 0 0;
+  padding: 0;
+  border: none;
+  text-align: right;
+  font-size: 8.5px;
+  font-style: italic;
+  color: inherit;
+  break-inside: avoid;
+
+  /* break-before: avoid-column was tried here and confirmed (via an
+     actual print) NOT to stop the orphan — .body's column-fill:
+     balance overrides it, same as column-fill interfering with the
+     page-level title-orphan case elsewhere. Spanning both columns
+     sidesteps the conflict entirely: a spanning element isn't
+     assigned to either column, so there's no column-break placement
+     decision for "avoid" to lose. */
+  column-span: all;
+}
+
+/* References--inline directly follows the byline (see renderEntryBody
+   in server.js) and sits in exactly the same spot in the flow, so it's
+   just as exposed to the same column-balance override — spans for the
+   same reason as .byline-footer--dream/--inline above. */
+.references--inline {
+  position: static;
+  width: auto;
+  text-align: left;
+  margin: 1.2em 0 0;
+  break-inside: avoid;
+  column-span: all;
+}
+
+.references--inline::before {
+  display: none;
+}
+
+.references--inline .reference-list {
+  font-size: 8.5px;
+  color: inherit;
 }

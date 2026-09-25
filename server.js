@@ -24,10 +24,13 @@ const entrySource = createEntrySource(LOCAL_ENTRIES_DIR);
 // Where the entry-listing pages actually live. Defaults to "/" for
 // local dev; set HOME_PATH (e.g. "/pw") on a public deployment so
 // the real "/" reveals nothing and only whoever knows this path can
-// browse the journal. A single entry's own /entry/<hash> link never
-// depends on this.
+// browse the journal. Nothing meant to be shared out — a single
+// entry's /entry/<hash> link, or a tag's /contents/<tag> link (dream
+// or not) — ever depends on this: CONTENTS_PATH is always the plain
+// top-level "/contents", never prefixed with HOME_PATH, so pasting
+// one of those URLs elsewhere can't leak the secret home path.
 const HOME_PATH = process.env.HOME_PATH || "/";
-const CONTENTS_PATH = HOME_PATH === "/" ? "/contents" : `${HOME_PATH}/contents`;
+const CONTENTS_PATH = "/contents";
 
 // Built-in metadata: does not need to exist in Markdown.
 const AUTHOR = "Ziru Wei";
@@ -674,7 +677,6 @@ function postProcessMarkdown(renderedHtml) {
 
     root.append(`
       <section class="references">
-        <h2>References</h2>
         <ol class="reference-list">${items}</ol>
       </section>
     `);
@@ -752,7 +754,7 @@ async function loadEntry({ id, version }) {
     slug,
     id,
     version,
-    title: title !== "Untitled" ? title : path.basename(id, path.extname(id)),
+    title: title !== "Untitled" ? title : toTitleCase(path.basename(id, path.extname(id))),
     teaserHtml,
     excerpt,
     bodyHtml,
@@ -798,7 +800,23 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
   <title>${escapeHtml(title)}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400..700;1,400..700&family=Source+Serif+4:ital,opsz,wght@0,8..60,200..900;1,8..60,200..900&display=swap" rel="stylesheet" />
+  <!-- Source Han Serif SC (the Chinese serif in --serif, below) loads
+       from Adobe/Typekit, not Google Fonts — it's a large CJK family
+       (thousands of glyphs) so it's inherently slow relative to a
+       Latin webfont, but two real, fixable chunks of that latency are
+       the DNS/TLS handshake to Adobe's CDN (paid for here, before the
+       loader script even runs) and the loader script itself only
+       starting to fetch once this inline script executes and appends
+       it — a <link rel=preload> lets the browser's preload scanner
+       discover and start that same fetch in parallel while still
+       parsing the rest of <head>, well before this script block runs
+       at all; the inline loader's own dynamically-created <script>
+       tag then just reuses that already-in-flight (or already cached)
+       request instead of starting a fresh one. -->
+  <link rel="preconnect" href="https://use.typekit.net" />
+  <link rel="preconnect" href="https://p.typekit.net" crossorigin />
+  <link rel="preload" href="https://use.typekit.net/vlg3xva.js" as="script" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+SC:wght@300;400;500;600;700&family=Libre+Baskerville:ital,wght@0,400..700;1,400..700&family=Source+Serif+4:ital,opsz,wght@0,8..60,200..900;1,8..60,200..900&display=swap" rel="stylesheet" />
   <script>
     (function(d) {
       var config = {
@@ -810,6 +828,7 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
     })(document);
   </script>
   <link rel="stylesheet" href="/static/journal.css" />
+  <link rel="stylesheet" href="/static/print.css" media="print" />
   ${paginated ? `<script>window.PagedConfig = { auto: false };</script>
   <script src="https://unpkg.com/pagedjs/dist/paged.polyfill.js"></script>` : ""}
 </head>
@@ -842,7 +861,7 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
     (async function () {
       const source = document.getElementById("pagedjs-source");
       const target = document.getElementById("pagedjs-target");
-      const toggle = document.getElementById("spread-toggle");
+      const tocDialog = document.getElementById("toc-dialog");
       if (!source || !target) return;
 
       // Opt-in overlay for diagnosing pagination/teaser lifecycle bugs
@@ -982,10 +1001,15 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       const NOMINAL_WIDTH = 850;
       const NOMINAL_HEIGHT = 1100;
 
-      // Single-page mode: each page individually zoomed to fill the
-      // viewport's height.
+      // Single-page mode: the page zoomed to fill the viewport, capped
+      // by whichever of width/height is tighter — height-only fit
+      // (the old formula) could overflow past the bottom of narrower/
+      // shorter windows with nothing to scroll it back into view.
       function applySinglePageZoom() {
-        const scale = window.innerHeight / NOMINAL_HEIGHT;
+        const scale = Math.min(
+          viewportWidth() / NOMINAL_WIDTH,
+          stableViewportHeight() / NOMINAL_HEIGHT
+        );
         target.querySelectorAll(".pagedjs_page").forEach(page => {
           page.style.zoom = scale;
         });
@@ -993,7 +1017,10 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
 
       // Double-page mode: the pair zoomed together (not per-page — they
       // need to shrink/grow as one unit to stay the same size as each
-      // other) to fill the available width.
+      // other) to fill the available space — same width-or-height cap
+      // as applySinglePageZoom, so a wide-but-short window can't zoom
+      // past the viewport's actual height (this used to be width-fit
+      // only, the same bug applySinglePageZoom had).
       function fitSpreadWidth() {
         const pages = target.querySelector(".pagedjs_pages");
         if (!pages) return;
@@ -1020,14 +1047,10 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
           \`repeat(2, \${NOMINAL_WIDTH}px)\`,
           "important"
         );
-        // DIAGNOSTIC ONLY — scale forced to a constant 1 (never
-        // recomputed from target.clientWidth) instead of the usual
-        // fill-available-width math below, to test whether fixed
-        // zoom:1 makes page/body geometry invariant while resizing
-        // Safari. Not a fix; revert to the clientWidth-based scale
-        // once diagnosed:
-        //   const scale = target.clientWidth / (NOMINAL_WIDTH * 2);
-        const scale = 1;
+        const scale = Math.min(
+          target.clientWidth / (NOMINAL_WIDTH * 2),
+          stableViewportHeight() / NOMINAL_HEIGHT
+        );
         // Kept in sync so pages Paged.js is still inserting mid-preview
         // (see the spread-mode CSS's \`zoom: var(--spread-zoom, 1)\`)
         // are born at approximately the right scale before this ever
@@ -1040,15 +1063,84 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // currently happen to exist — a mid-repagination page count (or a
       // one-page doc's forced single-page fallback) must never overwrite
       // this, so a later corrected multi-page render can restore it.
-      let wantsSpread = !!(toggle && toggle.classList.contains("is-on"));
+      // Defaults to true (matching the old #spread-toggle button's
+      // default "is-on" state) — there's no button anymore to read an
+      // initial value from.
+      let wantsSpread = true;
 
-      if (toggle && !isTouchBook) {
-        toggle.addEventListener("click", () => {
-          wantsSpread = !wantsSpread;
-          toggle.classList.toggle("is-on", wantsSpread);
-          target.classList.toggle("spread-mode", wantsSpread);
-          fitSpreadWidth();
+      // Desktop pager: exactly one page (or one spread's worth, in
+      // double-page mode) is ever visible — everything else just sits
+      // display:none. No scrolling, no lock, no custom zoom: with only
+      // the current page/spread ever on screen, native pinch/Ctrl-zoom
+      // is safe again (there's nothing adjacent to accidentally scroll
+      // into), so it's left completely alone here.
+      let currentUnit = 0;
+
+      function unitSize() {
+        return wantsSpread ? 2 : 1;
+      }
+
+      function unitPages(index) {
+        const pages = Array.from(target.querySelectorAll(".pagedjs_page"));
+        const size = unitSize();
+        return pages.slice(index * size, index * size + size);
+      }
+
+      function unitCount() {
+        const pages = target.querySelectorAll(".pagedjs_page").length;
+        return Math.max(1, Math.ceil(pages / unitSize()));
+      }
+
+      // "01/09"-style page number, one per .pagedjs_page (not a single
+      // shared overlay) — appended once pagination is fully final (see
+      // createPageIndicators below), each showing THAT page's own
+      // real position/total. Static per page, not live: a CSS counter
+      // would skip display:none elements entirely (exactly why the
+      // old @page @bottom-center counter(page) was stuck on "1"/"2"),
+      // and a single shared overlay only ever showed the first page of
+      // whatever unit was current, which is wrong for the second page
+      // of a double-page spread. Being real per-page content instead
+      // of a fixed-position screen overlay also means it survives
+      // print's display:block override for free — no separate
+      // print-only visibility rule needed.
+      function createPageIndicators() {
+        const pages = Array.from(target.querySelectorAll(".pagedjs_page"));
+        const total = pages.length;
+        const digits = Math.max(2, String(total).length);
+        const pad = n => String(n).padStart(digits, "0");
+        pages.forEach((page, i) => {
+          const label = document.createElement("div");
+          label.className = "page-number";
+          label.setAttribute("aria-hidden", "true");
+          label.textContent = pad(i + 1) + "/" + pad(total);
+          page.appendChild(label);
         });
+      }
+
+      function showUnit(index) {
+        currentUnit = Math.min(Math.max(index, 0), unitCount() - 1);
+        const visible = new Set(unitPages(currentUnit));
+        target.querySelectorAll(".pagedjs_page").forEach(p => {
+          p.style.display = visible.has(p) ? "" : "none";
+        });
+      }
+
+      // No #spread-toggle button anymore (removed along with the rest
+      // of the side edge-controls) — '/' drives this directly instead
+      // of dispatching a click.
+      function toggleSpread() {
+        const oldSize = unitSize();
+        wantsSpread = !wantsSpread;
+        target.classList.toggle("spread-mode", wantsSpread);
+        fitSpreadWidth();
+        // Same index-remapping trick setupTouchBook's tablet-rotation
+        // handler uses when its own perScreen changes — keeps roughly
+        // the same content in view across the single/double regroup
+        // instead of snapping back to page 1.
+        showUnit(Math.floor(currentUnit * oldSize / unitSize()));
+      }
+
+      if (!isTouchBook) {
         window.addEventListener("resize", () => {
           if (target.classList.contains("spread-mode")) {
             fitSpreadWidth();
@@ -1056,6 +1148,185 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
             applySinglePageZoom();
           }
         });
+      }
+
+      // Finds which page a /contents entry (marked with id="card-
+      // <slug>" — see renderContentsPage) starts on, and jumps the
+      // pager straight to its unit. Paged.js clones a split element's
+      // attributes (including id) onto every page fragment it spans —
+      // same fact the existing data-ref-for lookup already relies on —
+      // so querySelector here reliably lands on the entry's first page
+      // in document order even if the id is duplicated across later
+      // fragments of the same (long) entry.
+      function jumpToEntry(slug) {
+        const marker = target.querySelector("#card-" + CSS.escape(slug));
+        const page = marker && marker.closest(".pagedjs_page");
+        if (!page) return;
+        const pages = Array.from(target.querySelectorAll(".pagedjs_page"));
+        const pageIndex = pages.indexOf(page);
+        if (pageIndex === -1) return;
+        showUnit(Math.floor(pageIndex / unitSize()));
+      }
+
+      if (tocDialog) {
+        tocDialog.querySelectorAll("[data-jump]").forEach(btn => {
+          btn.addEventListener("click", () => {
+            jumpToEntry(btn.dataset.jump);
+            tocDialog.close();
+          });
+        });
+        tocDialog.addEventListener("click", (e) => {
+          const r = tocDialog.getBoundingClientRect();
+          if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
+            tocDialog.close();
+          }
+        });
+      }
+
+      // '/' toggles single/double page. 'a'/ArrowLeft/(physical) Left
+      // Shift move to the previous page or spread; 'd'/ArrowRight/
+      // Right Shift move to the next. Space opens/closes the TOC
+      // popup where one exists (/contents only — no-op on /entry,
+      // which has no tocDialog). A trackpad swipe also flips a page —
+      // see the wheel listener below, added after this keydown one —
+      // except while zoomed in, where the same gesture pans instead,
+      // until it hits the left/right edge of what's pannable. While
+      // the TOC popup is open, only Space (to close it) is handled —
+      // navigation/'/' underneath are ignored so they can't silently
+      // change pages behind the open popup.
+      if (!isTouchBook) {
+        document.addEventListener("keydown", (e) => {
+          if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+          const active = document.activeElement;
+          const activeTag = (active && active.tagName) || "";
+          if (activeTag === "INPUT" || activeTag === "TEXTAREA" || active?.isContentEditable) return;
+
+          if (e.code === "Space" || e.key === " ") {
+            if (!tocDialog) return;
+            e.preventDefault();
+            if (tocDialog.open) {
+              tocDialog.close();
+            } else {
+              tocDialog.showModal();
+            }
+            return;
+          }
+
+          if (tocDialog && tocDialog.open) {
+            // 'w'/'s' move focus up/down among the TOC items — Space
+            // is already taken (closes the dialog), so Enter is what
+            // actually activates the focused item, via the button's
+            // own native keyboard handling (untouched here).
+            const isUp = e.key === "w" || e.key === "W";
+            const isDown = e.key === "s" || e.key === "S";
+            if (isUp || isDown) {
+              e.preventDefault();
+              const items = Array.from(tocDialog.querySelectorAll("[data-jump]"));
+              if (items.length) {
+                const current = items.indexOf(document.activeElement);
+                const next = current === -1
+                  ? (isDown ? 0 : items.length - 1)
+                  : Math.max(0, Math.min(items.length - 1, current + (isDown ? 1 : -1)));
+                items[next].focus();
+              }
+            }
+            return;
+          }
+
+          if (e.key === "/") {
+            e.preventDefault();
+            toggleSpread();
+            return;
+          }
+
+          const isPrev = e.key === "a" || e.key === "A" || e.key === "ArrowLeft" || e.code === "ShiftLeft";
+          const isNext = e.key === "d" || e.key === "D" || e.key === "ArrowRight" || e.code === "ShiftRight";
+          if (isPrev || isNext) {
+            e.preventDefault();
+            showUnit(currentUnit + (isNext ? 1 : -1));
+          }
+        });
+
+        // Trackpad two-finger swipe reports as a wheel event with a
+        // horizontal (deltaX) component. While zoomed in (native
+        // pinch-zoom — never managed by this app's own JS), the
+        // gesture is left completely alone so it can pan the zoomed
+        // view. While not zoomed, the first clearly horizontal event
+        // (deltaX bigger than deltaY) flips a page immediately — no
+        // threshold, no accumulation.
+        //
+        // Guaranteeing one flip per swipe needs actually knowing when
+        // the swipe ends, which a fixed-duration cooldown can't do —
+        // a real swipe plus its trackpad inertia commonly outlasts
+        // any reasonable fixed guess, which is how a single swipe
+        // flipped through several pages before. So the lock instead
+        // releases on a genuine gap in wheel events (inertia has
+        // actually finished), however long that takes. The one
+        // exception: a CLEAR direction reversal releases it
+        // immediately — otherwise a quick "flip back" swipe started
+        // while the previous swipe's inertia was still fading would
+        // just get swallowed by the lock that old gesture was still
+        // holding, since its own trailing events keep pushing the
+        // idle timer back out.
+        let flipLocked = false;
+        let lockedDirection = 0;
+        let gestureIdleTimer = null;
+        const GESTURE_IDLE_GAP = 150;
+
+        window.addEventListener("wheel", (e) => {
+          if (e.ctrlKey) return;
+          if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+          if (tocDialog && tocDialog.open) return;
+
+          const vv = window.visualViewport;
+          // Trackpad pinch-zoom is analog — zooming back out rarely
+          // lands exactly on 1.0, so a tight threshold here left the
+          // page thinking it was still zoomed (and so ignoring every
+          // swipe for flipping, routing it all to "let it pan"
+          // instead) well after it visually looked back to normal.
+          if (vv && vv.scale > 1.05) return; // zoomed in — leave the gesture alone entirely, let it pan
+
+          e.preventDefault();
+
+          // A single continuous swipe's own natural acceleration
+          // ramp-up (start) or deceleration (tail) can occasionally
+          // report one tiny, sign-flipped delta even though the
+          // gesture is logically one-directional throughout — with
+          // zero noise tolerance, that got misread as a genuine
+          // reversal, instantly unlocking and firing a second flip
+          // the opposite way. Net effect: flip forward, immediately
+          // flip back (or the reverse) — looks exactly like swiping
+          // that direction "does nothing", and which direction it
+          // cancels out depends on which way the noise happened to
+          // point that time. A small noise floor on the delta used
+          // for direction — not a distance-to-accumulate gate, still
+          // reacts on the first real event — filters this out.
+          if (Math.abs(e.deltaX) < 4) return;
+
+          const dir = Math.sign(e.deltaX);
+          if (flipLocked && dir !== lockedDirection) {
+            flipLocked = false;
+          }
+
+          clearTimeout(gestureIdleTimer);
+          gestureIdleTimer = setTimeout(() => { flipLocked = false; }, GESTURE_IDLE_GAP);
+
+          if (flipLocked) return;
+
+          // Already at the first/last page and swiping further that
+          // way: showUnit() clamps and nothing visibly changes, but
+          // the lock would still engage for the full idle-gap window
+          // regardless — feeling exactly like "stuck" even though the
+          // swipe itself did nothing wrong. Only lock when the page
+          // actually changed.
+          const before = currentUnit;
+          showUnit(currentUnit + (dir > 0 ? 1 : -1));
+          if (currentUnit === before) return;
+
+          lockedDirection = dir;
+          flipLocked = true;
+        }, { passive: false });
       }
 
       // Height the book is fitted into. 100svh ("small viewport height")
@@ -1151,6 +1422,29 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         // pixel offset — slides are always exactly one viewport wide,
         // so it survives a rescale (or a tablet regrouping) untouched.
         let currentSlide = 0;
+        // /contents/:tag lists entries oldest-first (see
+        // renderContentsPage) but should open on the newest entry's
+        // own TITLE slide, not just "the final slide" — for a multi-
+        // page latest entry those aren't the same thing, since the
+        // final slide lands wherever that entry's own content happens
+        // to end, past its title. Finding the slide that contains the
+        // newest entry's own marker (id="card-<slug>", still present
+        // regardless of the regrouping above, which only moves the
+        // .pagedjs_page elements themselves) via data-latest-slug
+        // (embedded server-side, see renderContentsPage) gets the
+        // actual title slide regardless of how long that entry is —
+        // falling back to the last slide only if that lookup fails.
+        // /entry/:slug has no data-latest-slug at all, so it still
+        // opens on the first slide as before.
+        if (document.body.classList.contains("page-contents")) {
+          const latestSlug = document.querySelector(".entry-page")?.dataset.latestSlug;
+          const marker = latestSlug && target.querySelector("#card-" + CSS.escape(latestSlug));
+          const slide = marker && marker.closest(".touch-slide");
+          const slides = Array.from(track.querySelectorAll(".touch-slide"));
+          const slideIndex = slide ? slides.indexOf(slide) : -1;
+          currentSlide = slideIndex !== -1 ? slideIndex : Math.max(0, slides.length - 1);
+          track.scrollLeft = currentSlide * viewportWidth();
+        }
         let lastWidth = viewportWidth();
         function handleTouchResize() {
           const w = viewportWidth();
@@ -1204,6 +1498,38 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         document.documentElement.classList.remove("touch-pending");
       }
 
+      // Desktop counterpart to activateTouchBook() — same timing
+      // (final page DOM fully known, called once), same idea (turn on
+      // the reader's real presentation right before reveal): adds
+      // .desktop-pager (see journal.css — kills scroll entirely) and
+      // shows page/spread 1.
+      let desktopPagerActivated = false;
+      function activateDesktopPager() {
+        if (isTouchBook || desktopPagerActivated) return;
+        desktopPagerActivated = true;
+
+        document.documentElement.classList.add("desktop-pager");
+        // /contents/:tag lists entries oldest-first (see
+        // renderContentsPage) but should open on the newest entry's
+        // own TITLE page, not just "the final page of the whole
+        // document" — for a multi-page latest entry those aren't the
+        // same thing, since the final page lands wherever that
+        // entry's own content happens to end, past its title. Reusing
+        // jumpToEntry (same lookup the TOC popup's own links use) via
+        // the newest entry's slug (embedded server-side as
+        // data-latest-slug, see renderContentsPage) gets the actual
+        // title page regardless of how long that entry is.
+        // /entry/:slug has no such "oldest to newest" concept (it's
+        // one entry's own pages) and has no data-latest-slug at all,
+        // so it still opens on the first unit as before.
+        const latestSlug = document.querySelector(".entry-page")?.dataset.latestSlug;
+        if (latestSlug) {
+          jumpToEntry(latestSlug);
+        } else {
+          showUnit(0);
+        }
+      }
+
       // Removes the loading gate on the next animation frame. Called
       // once, right after the FIRST preview()'s pages get their final
       // layout applied (see finishUp/applyDesktopPageLayout below) —
@@ -1223,29 +1549,21 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // exist in \`target\`. Idempotent and safe to call again after an
       // overlap-retry swaps in corrected pages — it only ever reads the
       // current page count and re-applies fitting, same as the first
-      // time. The one-page fallback disables the toggle UI but never
-      // touches \`wantsSpread\` itself, so if a later corrected render
-      // turns out to have multiple pages after all, the user's actual
-      // intended (or default) spread state comes back automatically.
+      // time. The one-page fallback never touches \`wantsSpread\` itself,
+      // so if a later corrected render turns out to have multiple pages
+      // after all, the user's actual intended (or default) spread state
+      // comes back automatically.
       function applyDesktopPageLayout() {
         const pageCount = target.querySelectorAll(".pagedjs_page").length;
         if (pageCount <= 1) {
           // Nothing to spread — a single page has no facing page to
           // sit beside, so default to single-page regardless of
           // wantsSpread.
-          if (toggle) {
-            toggle.disabled = true;
-            toggle.classList.remove("is-on");
-          }
           target.classList.remove("spread-mode");
           applySinglePageZoom();
           return;
         }
 
-        if (toggle) {
-          toggle.disabled = false;
-          toggle.classList.toggle("is-on", wantsSpread);
-        }
         target.classList.toggle("spread-mode", wantsSpread);
 
         if (wantsSpread) {
@@ -1304,35 +1622,6 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
         }
       }
 
-      // Collects every margin comment on each page into one top-
-      // aligned stack in that page's own right margin (.page-comments,
-      // positioned the same way .references reaches a page's true
-      // edges — see that section of journal.css). Moves the actual
-      // .comment-margin-marker nodes (not clones) out of their in-text
-      // position, so each one keeps its own comment text but no longer
-      // tries to align with its exact anchor line — normal block flow
-      // inside the shared stack means entries can never overlap each
-      // other or following body content. Called once, after the final
-      // page DOM is fully settled (same point as hydratePagedImages/
-      // activateTouchBook), so it can never run mid-pagination.
-      function layoutPageComments(root) {
-        root.querySelectorAll(".pagedjs_page").forEach(page => {
-          const markers = page.querySelectorAll(".comment-margin-marker");
-          if (!markers.length) return;
-
-          const stack = document.createElement("div");
-          stack.className = "page-comments";
-          markers.forEach(marker => stack.appendChild(marker));
-
-          // Appended directly onto .pagedjs_page itself (not a nested
-          // Paged.js-internal box whose own positioning behavior isn't
-          // guaranteed) — journal.css gives .pagedjs_page an explicit
-          // position:relative for exactly this, so .page-comments's
-          // position:absolute is unambiguously anchored to this one
-          // physical page, regardless of how many pages exist.
-          page.appendChild(stack);
-        });
-      }
 
       // Extra clearance required beyond a bare touch — both because a
       // late-loading image can still nudge layout a little after this
@@ -1420,24 +1709,81 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // only ever made off-screen/hidden ones stall (notably on iOS).
       source.innerHTML = source.innerHTML.replace(/ loading="lazy"/g, "");
 
-      // No device ever gets a second/staging Paged.Previewer().preview()
-      // pass to correct a References overlap after the fact (see
-      // needsFinalRepagination below) — confirmed (iPad debugPaged
-      // evidence) that a second preview() pass corrupts Paged.js's
-      // output (title-only page, duplicated teaser, blank pages).
-      // Since Mac/iPad Safari share the same WebKit engine, this is
-      // NOT assumed to be a touch-only risk — every References section
-      // is forced onto its own fresh page up front, before the one and
-      // only preview() any device ever runs, instead.
+      // References are position:absolute (bottom-right of the page),
+      // so they take zero space in the flow — Paged.js can place body
+      // text right where the references will render. A second
+      // preview() pass to detect and fix that was tried and abandoned
+      // (it corrupts Paged.js output on every engine).
+      //
+      // Two different fixes for two different contexts:
+      // - Non-dream /contents/:tag: a plain .references (bottom-right
+      //   of the page) sharing a page with a two-entry (or longer)
+      //   flow is where this actually broke in practice — an in-flow
+      //   spacer sized from a real measurement of .reference-list
+      //   still overlapped in confirmed cases (references at the very
+      //   end of the whole document — Paged.js's own overflow
+      //   handling for a content-less trailing spacer didn't reliably
+      //   force a fresh page the way ordinary text overflow does), and
+      //   a post-hoc shrink-to-fit made the text illegibly small. So
+      //   this context just forces every .references onto its own
+      //   fresh page — the guaranteed-correct fix, at the cost of a
+      //   page that would otherwise have had room to spare.
+      // - Everywhere else (/entry/:slug, any mode) — unchanged,
+      //   dream's inline references are unaffected either way (never
+      //   matched by :not(.references--inline) below): the measured
+      //   spacer, since a single entry's own references overlapping
+      //   its own tail hasn't been the confirmed-broken case.
       {
         const scratch = document.createElement("div");
         scratch.innerHTML = source.innerHTML;
-        scratch.querySelectorAll(".references").forEach(ref => {
-          const breaker = document.createElement("div");
-          breaker.className = "force-page-break";
-          breaker.setAttribute("aria-hidden", "true");
-          ref.parentNode.insertBefore(breaker, ref);
-        });
+
+        const isNonDreamContentPage =
+          document.body.classList.contains("page-contents") &&
+          !document.body.classList.contains("page-dream");
+
+        if (isNonDreamContentPage) {
+          scratch.querySelectorAll(".references:not(.references--inline)").forEach(ref => {
+            const breaker = document.createElement("div");
+            breaker.className = "force-page-break";
+            breaker.setAttribute("aria-hidden", "true");
+            ref.parentNode.insertBefore(breaker, ref);
+          });
+        } else {
+          // 150 is --pad-x from journal.css (@page's own parser can't
+          // resolve custom properties, so that file already keeps this
+          // value as a hand-synced literal — same reasoning applies
+          // here). .references' own width:45% is relative to the
+          // page's CONTENT box (NOMINAL_WIDTH minus both side
+          // margins), not the full page width.
+          const PAD_X = 150;
+          const referencesWidth = (NOMINAL_WIDTH - PAD_X * 2) * 0.45;
+
+          const measureBox = document.createElement("div");
+          measureBox.style.cssText =
+            "position:fixed;left:-99999px;top:0;visibility:hidden;" +
+            "width:" + referencesWidth + "px;";
+          document.body.appendChild(measureBox);
+
+          scratch.querySelectorAll(".references:not(.references--inline)").forEach(ref => {
+            const list = ref.querySelector(".reference-list");
+            if (!list) return;
+            measureBox.innerHTML = list.outerHTML;
+            const listHeight = measureBox.firstElementChild.offsetHeight;
+            // .references::before's own 3em gap, at the font-size it
+            // actually inherits (--body-size, 11.5px) — plus a small
+            // safety margin.
+            const h = Math.round(3 * 11.5 + listHeight + 10);
+
+            const spacer = document.createElement("div");
+            spacer.className = "references-spacer";
+            spacer.style.height = h + "px";
+            spacer.setAttribute("aria-hidden", "true");
+            ref.parentNode.insertBefore(spacer, ref);
+          });
+
+          measureBox.remove();
+        }
+
         source.innerHTML = scratch.innerHTML;
       }
 
@@ -1445,69 +1791,217 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // geometry never changes with screen shape (see setupTouchBook).
       const pageStylesheets = ["/static/journal.css"];
 
-      // Desktop only: prime the spread presentation BEFORE Paged.js
-      // inserts anything, so \`.spread-mode\` already exists the moment
-      // the first \`.pagedjs_pages\` grid is born mid-preview.
-      // DIAGNOSTIC ONLY — --spread-zoom forced to a constant 1 here too
-      // (was: target.clientWidth / (NOMINAL_WIDTH * 2)), matching
-      // fitSpreadWidth()'s forced scale above, for the same test.
-      if (!isTouchBook && wantsSpread) {
-        target.classList.add("spread-mode");
-        target.style.setProperty("--spread-zoom", 1);
-      }
-
-      // Desktop progressive reveal: rather than waiting for the whole
-      // \`preview()\` promise (which only resolves once EVERY page has
-      // been generated) a target-scoped MutationObserver reveals the
-      // reader as soon as the FIRST page exists — spread-mode and the
-      // explicit two-column grid are already primed above, so page 1
-      // lands in the left spread slot with an empty right slot, and
-      // page 2 (and beyond) fill in progressively as Paged.js keeps
-      // appending them into the now-visible \`.pagedjs_pages\` — no
-      // waiting for a full pair before the reader is shown at all.
-      // Scoped to \`target\` (not a global Paged.Handler) so it can never
-      // fire for the hidden retry/staging Previewer below.
-      let progressiveRevealed = false;
-
-      function revealProgressiveDesktop() {
-        const pageCount = target.querySelectorAll(".pagedjs_page").length;
-
-        if (progressiveRevealed || isTouchBook) return;
-
-        if (pageCount < 1) return;
-
-        progressiveRevealed = true;
-
-        if (wantsSpread) {
-          target.classList.add("spread-mode");
-          fitSpreadWidth();
-        } else {
-          applySinglePageZoom();
-        }
-
-        revealPagedReader();
-      }
-
-      const progressiveObserver = !isTouchBook
-        ? new MutationObserver(() => revealProgressiveDesktop())
-        : null;
-      progressiveObserver?.observe(target, { childList: true, subtree: true });
-
+      // No progressive/early reveal, on desktop or touch: the whole
+      // reader stays hidden under .paged-loading (desktop)/
+      // .touch-pending (touch) until pagination is fully final. Once
+      // only one page/spread is ever shown at a time, there's no
+      // benefit to revealing page 1 mid-pagination (the eventual page
+      // count can still change what "unit 1" even contains), and
+      // touching the pager's page-list mid-run reopens exactly the
+      // kind of DOM-mutation-during-pagination corruption the touch
+      // viewer already avoids by waiting for the final page DOM.
       const previewer = new Paged.Previewer();
       await previewer.preview(source.innerHTML, pageStylesheets, target);
-      progressiveObserver?.disconnect();
       pagedDebug("after first preview");
 
-      // A real one-page document (or touch, where the observer never
-      // runs) never got progressively revealed above — reveal it now
-      // that pagination is actually done. Otherwise the progressive
-      // path already applied final layout and revealed.
-      if (!progressiveRevealed) {
-        finishUp();
-        revealPagedReader();
-      } else {
-        finishUp();
+      // Dream mode's continuous flow (.dream-entry has no forced
+      // break-before, unlike the fresh-page-per-entry .spread) can
+      // still land a title alone at the bottom of a page with its
+      // whole entry pushed to the next one — confirmed via an actual
+      // print: break-after/break-before: avoid-page on .title/.body
+      // did NOT stop it, so this isn't a wrong CSS value, it's Paged.js's
+      // own chunker not honoring that hint across a multi-column
+      // sibling boundary. Same class of problem as the .references
+      // overlap issue elsewhere in this file, and the same fix shape:
+      // detect it after the one and only preview() pass, then fix the
+      // DOM directly — no second preview() pass (confirmed elsewhere
+      // in this file to corrupt WebKit's output), just relocating an
+      // already-placed element between two already-existing pages.
+      function fixOrphanedDreamTitles() {
+        // Paged.js clones .dream-entry (and .paper) PER PAGE when an
+        // entry spans more than one — so title.closest(".dream-entry")
+        // is only ITS page's clone, and wrapper.querySelector(".body")
+        // returns null whenever .body landed in a different clone on
+        // a different page — which is exactly, and only, the orphan
+        // case this function exists to fix. That made an earlier
+        // version silently no-op every real orphan it found. Finding
+        // .body by document order instead of by ancestor lookup
+        // sidesteps the whole cloning problem: entries flow strictly
+        // sequentially, so the first .body anywhere in the document
+        // that comes AFTER a given element is necessarily that same
+        // entry's own body, regardless of which clone either one
+        // ended up in.
+        //
+        // A later version tried to move title's whole remaining
+        // sibling list (title + whatever else, e.g. a teaser image,
+        // sat after it in its own pre-move parent) in one step — but
+        // that assumed title's own parent at that point contains
+        // ONLY this entry's own leftover content, which isn't
+        // guaranteed (still confirmed broken, especially where an
+        // entry's continuation gets wrapped/positioned differently —
+        // touch's slide grouping runs later and doesn't affect this,
+        // but the underlying per-page cloning it's built on top of
+        // clearly isn't as uniform as that assumed). Reuniting title
+        // and any teaser with .body as two independent, identically-
+        // verified moves — each found by the same document-order
+        // lookup, each only moved if it's actually on a different
+        // page than .body — has no assumption about what else shares
+        // either element's current parent to get wrong.
+        const allBodies = Array.from(target.querySelectorAll(".dream-entry .body"));
+
+        function ownBody(el) {
+          return allBodies.find(b => el.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+        }
+
+        function reuniteWithBody(el) {
+          const body = ownBody(el);
+          if (!body) return;
+          const elPage = el.closest(".pagedjs_page");
+          const bodyPage = body.closest(".pagedjs_page");
+          if (!elPage || !bodyPage || elPage === bodyPage) return;
+          body.parentNode.insertBefore(el, body);
+        }
+
+        // Title first, so it lands immediately before .body — then
+        // the teaser (if any), which lands immediately before
+        // whatever's now right in front of .body (title, just
+        // placed) — reconstructing the original title/teaser/body
+        // order regardless of which page(s) either one started on.
+        target.querySelectorAll(".dream-entry .title").forEach(reuniteWithBody);
+        target.querySelectorAll(".dream-entry .teaser-slot").forEach(reuniteWithBody);
       }
+      fixOrphanedDreamTitles();
+
+      // Same orphan, opposite end: the byline (created/updated date)
+      // sits at the tail of .body, right before any inline references
+      // — a page break can just as easily land right BEFORE it,
+      // stranding it alone at the top of a fresh page with the
+      // paragraph it belongs to left behind on the previous one.
+      // Column breaks are separately handled by plain CSS
+      // (break-before: avoid-column on .byline-footer--dream/
+      // --inline, in journal.css) since those are native browser
+      // multi-column layout, not Paged.js's chunker — only the
+      // page-level case needs this DOM fix, for the same reason
+      // fixOrphanedDreamTitles needs one above it.
+      function fixOrphanedByline() {
+        const pages = Array.from(target.querySelectorAll(".pagedjs_page"));
+        target.querySelectorAll(".byline-footer--dream, .byline-footer--inline").forEach(byline => {
+          // Body content already precedes it in this same fragment —
+          // not orphaned.
+          if (byline.previousElementSibling) return;
+
+          const page = byline.closest(".pagedjs_page");
+          const prevPage = pages[pages.indexOf(page) - 1];
+          if (!prevPage) return;
+
+          const bodies = prevPage.querySelectorAll(".body");
+          const lastBody = bodies[bodies.length - 1];
+          if (!lastBody) return;
+
+          // Dream mode's inline references immediately follow the
+          // byline in source order — if both got pushed together,
+          // move them together so references don't end up newly
+          // orphaned on their own right after "fixing" the byline.
+          const next = byline.nextElementSibling;
+          const trailingRef = next && next.classList.contains("references--inline") ? next : null;
+
+          lastBody.appendChild(byline);
+          if (trailingRef) lastBody.appendChild(trailingRef);
+        });
+      }
+      fixOrphanedByline();
+
+      // Margin comments used to just stack top-aligned in the page's
+      // right margin, one under another, regardless of where their
+      // anchor actually fell in the text — real per-line alignment was
+      // "tried and abandoned" earlier specifically because measuring
+      // Paged.js's own output was assumed unsafe. But every other fix
+      // in this pipeline (page numbers, the title/byline orphan fixes
+      // above) already treats Paged.js's finished layout as a plain,
+      // external fact to read — not something to influence — and
+      // measures it directly with getBoundingClientRect() rather than
+      // trying to predict it. Same approach here: read each anchor's
+      // real column AND vertical position, then place its note at
+      // that same height in WHICHEVER margin is nearest (left column
+      // → left margin, right column → right margin) — falling back to
+      // pushing a note down just enough to clear whichever note is
+      // directly above it IN THE SAME MARGIN when two same-side
+      // anchors sit close enough that their notes would otherwise
+      // overlap (a taller note "borrows" room from the gap below it,
+      // same idea academic margin-note layouts use; left- and right-
+      // margin notes never compete with each other), so notes are
+      // guaranteed not to overlap while staying as close as possible
+      // to their real anchor.
+      //
+      // Must run HERE, before activateDesktopPager() below sets
+      // display:none on every page but the current one — that would
+      // zero out getBoundingClientRect() for any comment not on that
+      // one page, the same bug that broke the reference-overlap check
+      // when it ran too late.
+      function layoutPageComments(root) {
+        root.querySelectorAll(".pagedjs_page").forEach(page => {
+          const markers = Array.from(page.querySelectorAll(".comment-margin-marker"));
+          if (!markers.length) return;
+
+          const pageRect = page.getBoundingClientRect();
+          const midX = pageRect.left + pageRect.width / 2;
+
+          // Measured while still nested in the flowing text, before
+          // moving anything — .comment-number is the small, stable
+          // part of the anchor (the margin-marker itself still holds
+          // its full comment text at this point, which would inflate
+          // a measurement taken from the whole <sup>).
+          const items = markers.map(marker => {
+            const numberEl = marker.closest(".comment-marker")?.querySelector(".comment-number");
+            const anchorRect = (numberEl || marker).getBoundingClientRect();
+            return {
+              marker,
+              top: anchorRect.top - pageRect.top,
+              side: anchorRect.left < midX ? "left" : "right",
+            };
+          });
+
+          const stack = document.createElement("div");
+          stack.className = "page-comments";
+          // Appended directly onto .pagedjs_page itself (not a nested
+          // Paged.js-internal box whose own positioning behavior isn't
+          // guaranteed) — journal.css gives .pagedjs_page an explicit
+          // position:relative for exactly this, so .page-comments's
+          // position:absolute is unambiguously anchored to this one
+          // physical page, regardless of how many pages exist.
+          page.appendChild(stack);
+          items.forEach(item => {
+            item.marker.classList.add("comment-margin-marker--" + item.side);
+            stack.appendChild(item.marker);
+          });
+
+          const GAP = 6;
+          ["left", "right"].forEach(side => {
+            let cursor = 0;
+            items.filter(item => item.side === side).forEach(item => {
+              const top = Math.max(item.top, cursor);
+              item.marker.style.top = top + "px";
+              cursor = top + item.marker.offsetHeight + GAP;
+            });
+          });
+        });
+      }
+      layoutPageComments(target);
+
+      finishUp();
+      // Both must run BEFORE revealPagedReader() — otherwise the
+      // reader would flash the old fully-stacked, unnumbered layout
+      // for a frame before the pager hides everything but the current
+      // unit. Safe this early on both counts: the final page DOM is
+      // already fully known at this point (the corrective repagination
+      // pass below is permanently disabled — see needsFinalRepagination
+      // — and hydratePagedImages never changes page count/structure,
+      // only swaps <img src>). createPageIndicators() runs
+      // unconditionally (not just !isTouchBook) — touch and print both
+      // want real per-page numbers too, not just the desktop pager.
+      createPageIndicators();
+      activateDesktopPager();
+      revealPagedReader();
 
       // An <img> still incomplete during this first pass can change
       // content flow/page breaks once its real intrinsic size lands —
@@ -1524,11 +2018,9 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
 
       await waitForImages();
       // Kept computed (findOverlappingReferenceSlugs still measures the
-      // real thing) even though nothing acts on it below — every
-      // References section already got an unconditional fresh page up
-      // front, above, so there's nothing left to correct. Left in place
-      // rather than removed in case it's useful again if that upfront
-      // strategy is ever revisited.
+      // real thing) even though nothing acts on it below — the spacer
+      // inserted above should prevent overlaps without a second pass.
+      // Left in place for monitoring / debugging.
       const overlappingRefs = findOverlappingReferenceSlugs();
       // No second/staging Paged.Previewer().preview() pass on ANY
       // device, permanently — confirmed to corrupt WebKit's pagination
@@ -1576,10 +2068,11 @@ function pageShell({ title, bodyHtml, bodyClass, paginated = false }) {
       // boxes from here on, visibly, without affecting page geometry.
       hydratePagedImages(target);
       attachImageFallback(target);
-      layoutPageComments(target);
 
       // The final page DOM is now fully known — safe to turn on the
-      // touch viewer (a no-op on desktop). Never earlier than this.
+      // touch viewer (a no-op on desktop). The desktop pager already
+      // activated earlier, right before reveal (see above) — no image
+      // hydration or comment layout it needs to wait on.
       activateTouchBook();
     })();
     ` : `attachImageFallback();`}
@@ -1594,49 +2087,30 @@ function truncate(text, max = 160) {
   return `${text.slice(0, max).trimEnd()}…`;
 }
 
-// Back link + double-page checkbox, both hidden by default and revealed
-// on hover near the left edge of the viewport — kept out of the way of
-// a full-width double-page spread. Shared by the entry page and the
-// contents (reading mode) page.
-function renderEdgeControls({ href, showBack = true, showToggle }) {
-  return `
-  <div class="edge-controls">
-    ${showBack ? `<nav class="entry-nav"><a href="${href}">Back</a></nav>` : ""}
-    ${showToggle ? `<button type="button" id="spread-toggle" class="mode-toggle is-on">Double</button>` : ""}
-  </div>`;
-}
-
-function renderLogo(href) {
-  return `
-    <a href="${href}" class="index-logo" aria-label="Journal">
-      <img src="/static/owl.png" alt="Journal" />
-    </a>
-    <div class="index-author">${escapeHtml(AUTHOR)}</div>
-  `;
-}
-
-// Home-page variant: owl is a button that opens the tag picker dialog
-// instead of a direct link to /contents.
-function renderOwlButton() {
-  return `
-    <button type="button" class="index-logo owl-trigger" aria-haspopup="dialog" aria-label="Browse collections">
-      <img src="/static/owl.png" alt="Journal" />
-    </button>
-    <div class="index-author">${escapeHtml(AUTHOR)}</div>
-  `;
+function sortByCreatedDate(entries) {
+  return [...entries].sort((a, b) => {
+    const aCreated = a.created || "";
+    const bCreated = b.created || "";
+    if (aCreated && bCreated) return bCreated.localeCompare(aCreated);
+    if (aCreated) return -1;
+    if (bCreated) return 1;
+    return a.id.localeCompare(b.id);
+  });
 }
 
 function renderWaterfallCards(entries) {
-  return sortByDateDesc(entries, "updated").map(entry => {
-    const date = entry.updated || entry.created || "";
+  return sortByCreatedDate(entries).map(entry => {
+    const date = entry.created || "";
+    const titleLang = /[\u3400-\u9fff]/u.test(entry.title) ? "zh-CN" : "en";
+    const excerptLang = /[\u3400-\u9fff]/u.test(entry.excerpt || "") ? "zh-CN" : "en";
 
     // Cards with a teaser image show the image plus title/date; text-only
     // entries show a truncated first-paragraph preview instead of a thumb.
     const inner = `
       ${entry.teaserHtml ? `<div class="wf-thumb">${entry.teaserHtml}</div>` : ""}
       <div class="wf-card-body">
-        <h2 class="wf-card-title">${escapeHtml(entry.title)}</h2>
-        ${!entry.teaserHtml && entry.excerpt ? `<p class="wf-card-excerpt">${escapeHtml(truncate(entry.excerpt))}</p>` : ""}
+        <h2 lang="${titleLang}" class="wf-card-title">${escapeHtml(entry.title)}</h2>
+        ${!entry.teaserHtml && entry.excerpt ? `<p lang="${excerptLang}" class="wf-card-excerpt">${escapeHtml(truncate(entry.excerpt))}</p>` : ""}
         ${date ? `<div class="wf-card-date">${escapeHtml(date)}</div>` : ""}
       </div>
     `;
@@ -1655,24 +2129,17 @@ function renderEmptyState(entries) {
     : `<p class="index-empty">No published entries yet. Add <code>publishID: ...</code> to a Markdown file's frontmatter (source: ${escapeHtml(entrySource.label)}).</p>`;
 }
 
-// Home page ("/"): logo + author + a plain waterfall feed, no TOC.
-// Clicking the owl opens a tag-picker dialog; choosing a tag loads that
-// collection's /contents/<tag> page. Falls back to /contents (all) when
-// there are no tags at all.
+// Home page ("/"): title + a plain waterfall feed, no TOC. Space opens
+// the tag-picker dialog; choosing a tag loads /contents/<tag>.
 function renderHomePage(entries) {
   // Collect unique tags in sorted order for the picker.
   const allTags = [...new Set(entries.flatMap(e => e.tags))].sort();
 
-  // If there's only one natural destination, make the owl a plain link
-  // (no popup needed). Zero tags → link to /contents; one+ tag → popup.
+  // Show the collection picker only when there are collections to choose.
   const needsPicker = allTags.length > 0;
 
-  const headerInner = needsPicker
-    ? renderOwlButton()
-    : renderLogo(CONTENTS_PATH);
-
   const dialogHtml = needsPicker ? `
-  <dialog class="tag-dialog" id="tag-dialog">
+  <dialog class="tag-dialog" id="tag-dialog" tabindex="-1">
     <p class="tag-dialog-prompt">choose a collection</p>
     <ul class="tag-dialog-list" id="tag-list"></ul>
   </dialog>
@@ -1691,8 +2158,26 @@ function renderHomePage(entries) {
       li.appendChild(a);
       list.appendChild(li);
     });
-    document.querySelector('.owl-trigger').addEventListener('click', function() {
+    function openDialog() {
       dialog.showModal();
+      dialog.focus({ preventScroll: true });
+    }
+    dialog.addEventListener('close', function() {
+      requestAnimationFrame(function() {
+        if (document.activeElement && document.activeElement.blur) {
+          document.activeElement.blur();
+        }
+      });
+    });
+    document.addEventListener('keydown', function(e) {
+      if ((e.code === 'Space' || e.key === ' ') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        var active = document.activeElement;
+        var tag = active && active.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || (active && active.isContentEditable)) return;
+        e.preventDefault();
+        if (dialog.open) dialog.close();
+        else openDialog();
+      }
     });
     dialog.addEventListener('click', function(e) {
       var r = dialog.getBoundingClientRect();
@@ -1706,7 +2191,7 @@ function renderHomePage(entries) {
   const bodyHtml = `
   <div class="journal-home">
     <header class="index-header index-header-home">
-      ${headerInner}
+      <div class="index-author">Roaming2026</div>
     </header>
 
     <div class="journal-waterfall">
@@ -1716,33 +2201,41 @@ function renderHomePage(entries) {
   </div>
   ${dialogHtml}`;
 
-  return pageShell({ title: "Journal", bodyHtml, bodyClass: "page-index" });
+  return pageShell({ title: "meroaming2026", bodyHtml, bodyClass: "page-index" });
 }
 
 // Contents view ("/contents" or "/contents/:tag"): the reading mode.
 // When `tag` is provided, only entries with that tag are shown and the
 // TOC panel gets a small label. Otherwise all entries are shown.
 async function renderContentsPage(entries, tag) {
-  const orderedEntries = sortByDateDesc(
-    tag ? entries.filter(e => e.tags.includes(tag)) : entries,
-    "created"
-  );
+  const isDream = tag && tag.toLowerCase().includes("dream");
+
+  const filtered = tag ? entries.filter(e => e.tags.includes(tag)) : entries;
+  // Oldest first, newest last (a journal reads front-to-back
+  // chronologically) — but the pager still opens on the LAST unit
+  // (see activateDesktopPager/setupTouchBook), so the reader lands on
+  // the newest entry first and pages backward through history from
+  // there, rather than starting at day one.
+  const orderedEntries = isDream
+    ? [...filtered].sort((a, b) => (a.created || "").localeCompare(b.created || ""))
+    : [...sortByDateDesc(filtered, "created")].reverse();
 
   const toc = orderedEntries.map(entry => {
     const date = entry.created || entry.updated || "";
     return `
       <li class="toc-item">
-        <a href="#card-${entry.slug}">
+        <button type="button" data-jump="${escapeHtml(entry.slug)}">
           ${date ? `<span class="toc-date">${escapeHtml(date)}</span>` : ""}
           <span class="toc-title">${escapeHtml(entry.title)}</span>
-        </a>
+        </button>
       </li>
     `;
   }).join("");
 
+  const articleClass = isDream ? "paper dream-entry" : "paper spread";
   const spreads = orderedEntries.map(entry => `
-    <article class="paper spread" id="card-${entry.slug}">
-      ${renderEntryBody(entry, { mode: "plain", showByline: !isDateFilename(entry.id) })}
+    <article class="${articleClass}" id="card-${entry.slug}">
+      ${renderEntryBody(entry, { mode: "plain", showByline: isDream || !isDateFilename(entry.id), dream: isDream })}
     </article>
   `).join("");
 
@@ -1751,23 +2244,30 @@ async function renderContentsPage(entries, tag) {
   // through this.
   const pagedSpreads = orderedEntries.length ? await preparePagedImagePlaceholders(spreads) : "";
 
-  const bodyHtml = `
-  ${renderEdgeControls({ href: HOME_PATH, showToggle: orderedEntries.length > 0 })}
+  // Oldest-to-newest order (above) means the last entry here is the
+  // newest — the default open position (see activateDesktopPager/
+  // setupTouchBook) needs its slug to jump straight to that entry's
+  // own title page, not just "the final page of the whole document"
+  // (which, for a multi-page latest entry, would be somewhere past
+  // its title, into its own content).
+  const latestSlug = orderedEntries.length ? orderedEntries[orderedEntries.length - 1].slug : "";
 
+  const bodyHtml = `
   ${orderedEntries.length ? `
-  <div class="toc-panel">
+  <dialog class="toc-dialog" id="toc-dialog">
     ${tag ? `<div class="toc-tag-label">${escapeHtml(tag)}</div>` : ""}
     <ul class="toc-list">${toc}</ul>
-  </div>` : ""}
+  </dialog>` : ""}
 
-  <div class="entry-page${orderedEntries.length ? " has-toc" : ""}">
+  <div class="entry-page" data-latest-slug="${escapeHtml(latestSlug)}">
     ${orderedEntries.length
       ? `<template id="pagedjs-source">${pagedSpreads}</template>
          <div id="pagedjs-target" class="journal-spreads"></div>`
       : `<div class="journal-spreads">${renderEmptyState(entries)}</div>`}
   </div>`;
 
-  return pageShell({ title: "Journal", bodyHtml, bodyClass: "page-contents", paginated: orderedEntries.length > 0 });
+  const bodyClass = isDream ? "page-contents page-dream" : "page-contents";
+  return pageShell({ title: tag || "Journal", bodyHtml, bodyClass, paginated: orderedEntries.length > 0 });
 }
 
 // A title containing "/" or ":" (either half- or full-width — "/",
@@ -1801,7 +2301,12 @@ function isDateFilename(id) {
   return /^\d{4}-\d{2}-\d{2}$/.test(base);
 }
 
-function renderByline(entry, { mode }) {
+function renderByline(entry, { mode, dream = false }) {
+  if (dream) {
+    if (!entry.created) return "";
+    return `<p class="byline-footer byline-footer--dream">${escapeHtml(entry.created)}</p>`;
+  }
+
   // "written on <created>, and updated <updated>" — degrades to just
   // whichever date is present, or nothing at all if neither is.
   const parts = [];
@@ -1828,24 +2333,75 @@ function renderByline(entry, { mode }) {
   // is what's actually reliable: it sits under the title instead of at
   // the page bottom, a real (visible) difference from /entry, traded
   // for /contents' column/page breaks staying correct.
-  const modeClass = mode === "running" ? "byline-footer--running" : "";
+  const modeClass = mode === "running" ? "byline-footer--running" : "byline-footer--inline";
   return `<p class="byline-footer ${modeClass}">${clause}</p>`;
 }
 
-function renderEntryBody(entry, { mode, showByline = true }) {
-  const byline = showByline ? renderByline(entry, { mode }) : "";
+function renderEntryBody(entry, { mode, showByline = true, dream = false }) {
+  const byline = showByline ? renderByline(entry, { mode, dream }) : "";
+
+  let referencesHtml = entry.bodyHtml;
+  const refTag = `<section class="references"`;
+  const refTagDream = `<section class="references references--inline" data-ref-for="${escapeHtml(entry.slug)}"`;
+  const refTagNormal = `<section class="references" data-ref-for="${escapeHtml(entry.slug)}"`;
+
+  if (dream) {
+    // Extract references from bodyHtml so we can place them after the byline
+    let extractedRef = "";
+    const refStart = referencesHtml.indexOf(refTag);
+    if (refStart !== -1) {
+      const refEnd = referencesHtml.indexOf("</section>", refStart);
+      if (refEnd !== -1) {
+        extractedRef = referencesHtml.slice(refStart, refEnd + "</section>".length)
+          .replace(refTag, refTagDream);
+        referencesHtml = referencesHtml.slice(0, refStart) + referencesHtml.slice(refEnd + "</section>".length);
+      }
+    }
+
+    const bodyMain = `<main class="body">${referencesHtml}${byline}${extractedRef}</main>`;
+
+    const { main, sub } = splitTitleSubtitle(entry.title);
+    const subDisplay = sub ? sub.charAt(0).toUpperCase() + sub.slice(1).toLowerCase() : null;
+    const titleHtml = subDisplay
+      ? `<span class="title-main">${escapeHtml(main)}</span><span class="title-sub">${escapeHtml(subDisplay)}</span>`
+      : escapeHtml(main);
+
+    return `
+      <h1 class="title">${titleHtml}</h1>
+      ${entry.teaserHtml ? `<div class="teaser-slot">${entry.teaserHtml}</div>` : ""}
+      ${bodyMain}
+    `;
+  }
+
+  const plainByline = mode === "plain" && showByline
+    ? renderByline(entry, { mode, dream: false })
+    : "";
+
+  // Byline is spliced in right before the .references section (not
+  // just prepended to referencesHtml, which is the WHOLE body content
+  // with .references appended inside it — prepending there would push
+  // the byline above every paragraph, not just above references).
+  // It also has to go before .references specifically, not after: the
+  // client-side spacer that reserves room for the absolutely-
+  // positioned .references box gets inserted directly before it (see
+  // pageShell), so if the byline followed .references here, that
+  // invisible reserved gap would land between the last paragraph and
+  // the byline, pushing it down with a big blank space above it.
+  let bodyContent = referencesHtml.replace(refTag, refTagNormal);
+  if (plainByline) {
+    const refStart = bodyContent.indexOf(refTagNormal);
+    bodyContent = refStart !== -1
+      ? bodyContent.slice(0, refStart) + plainByline + bodyContent.slice(refStart)
+      : bodyContent + plainByline;
+  }
+
   const bodyMain = `
     <main class="body">
-      ${entry.bodyHtml.replace(
-        '<section class="references"',
-        `<section class="references" data-ref-for="${escapeHtml(entry.slug)}"`
-      )}
+      ${bodyContent}
     </main>
   `;
 
   const { main, sub } = splitTitleSubtitle(entry.title);
-  // Main title: already Title Case from entry.title (toTitleCase in postProcessMarkdown).
-  // Subtitle: sentence case only — first char uppercase, rest unchanged.
   const subDisplay = sub ? sub.charAt(0).toUpperCase() + sub.slice(1).toLowerCase() : null;
   const titleHtml = subDisplay
     ? `<span class="title-main">${escapeHtml(main)}</span><span class="title-sub">${escapeHtml(subDisplay)}</span>`
@@ -1859,8 +2415,6 @@ function renderEntryBody(entry, { mode, showByline = true }) {
     ${entry.teaserHtml ? `<div class="teaser-slot">${entry.teaserHtml}</div>` : ""}
 
     ${bodyMain}
-
-    ${mode === "running" ? "" : byline}
   `;
 }
 
@@ -1875,14 +2429,19 @@ async function renderEntryPage(entry) {
   const pagedArticleHtml = await preparePagedImagePlaceholders(articleHtml);
 
   const bodyHtml = `
-  ${renderEdgeControls({ href: HOME_PATH, showBack: false, showToggle: true })}
-
   <div class="entry-page">
     <template id="pagedjs-source">${pagedArticleHtml}</template>
     <div id="pagedjs-target"></div>
   </div>`;
 
-  return pageShell({ title: entry.title, bodyHtml, bodyClass: "page-entry", paginated: true });
+  // Standalone /entry/:slug rendering always uses the plain (non-
+  // dream) layout — mode:"running" above, no dream:true — but a
+  // dream-tagged entry should still lose the bold title here, same as
+  // it would on its /contents/dream card.
+  const isDream = entry.tags.some(t => t.toLowerCase().includes("dream"));
+  const bodyClass = isDream ? "page-entry entry-dream-title" : "page-entry";
+
+  return pageShell({ title: entry.title, bodyHtml, bodyClass, paginated: true });
 }
 
 // "/" and "/contents" are the only routes that let someone browse
@@ -1893,15 +2452,6 @@ app.get(HOME_PATH, async (_req, res) => {
   try {
     const entries = await listEntries();
     res.type("html").send(renderHomePage(entries));
-  } catch (error) {
-    res.status(500).type("text").send(`Could not list entries from ${entrySource.label}\n\n${error.stack || error}`);
-  }
-});
-
-app.get(CONTENTS_PATH, async (_req, res) => {
-  try {
-    const entries = await listEntries();
-    res.type("html").send(await renderContentsPage(entries));
   } catch (error) {
     res.status(500).type("text").send(`Could not list entries from ${entrySource.label}\n\n${error.stack || error}`);
   }
@@ -1937,7 +2487,11 @@ if (entrySource.liveReload) {
     path.join(__dirname, "static", "journal.css")
   ];
 
-  chokidar.watch(watchTargets, { ignoreInitial: true }).on("all", (_event, filePath) => {
+  chokidar.watch(watchTargets, {
+    ignoreInitial: true,
+    usePolling: process.env.WATCH_POLLING === "1",
+    interval: 1000
+  }).on("all", (_event, filePath) => {
     if (filePath && filePath.endsWith(".md")) {
       entryCache.delete(path.relative(entrySource.rootDir, filePath));
     }
