@@ -184,7 +184,7 @@ html[data-layout="tablet"] .page--right .page-foot {
   pointer-events: none;
 }
 
-/* Each entry starts on a fresh page (dream mode's continuous flow
+/* Each entry starts on a fresh page (the zine layout's continuous flow
    overrides this, below). */
 .paper {
   break-before: page;
@@ -540,11 +540,11 @@ html.reader.is-zoomed body {
   break-after: avoid-page;
 }
 
-/* Standalone /entry/:slug page for a dream-tagged entry: only drops
-   the bold weight, otherwise identical to a normal entry title (see
-   .page-dream .title below for the fuller dream typographic
-   treatment, which this deliberately does NOT also pull in here). */
-.entry-dream-title .title {
+/* A note from a zine collection on its own page: only drops the bold
+   weight, otherwise identical to a normal title (see .page-zine .title
+   below for the zine's fuller typographic treatment, which this
+   deliberately does NOT also pull in here). */
+.entry-zine-title .title {
   font-weight: 400;
 }
 
@@ -595,10 +595,10 @@ html.reader.is-zoomed body {
 }
 
 /* Follows the entry's .body, so it and the last lines of text always
-   share a page (see fitColumns in reader.js); .byline-footer--dream is
-   the date-only dream-mode variant. */
+   share a page (see fitColumns in reader.js); .byline-footer--zine is
+   the zine layout's date-only variant. */
 .byline-footer--inline,
-.byline-footer--dream {
+.byline-footer--zine {
   width: auto;
   margin: 0 0 1em;
   padding: 0;
@@ -645,7 +645,7 @@ html.reader.is-zoomed body {
 
   /* Fills the left column down to the page foot before starting the
      right one (reader.js gives each page's .body the page's remaining
-     height). Dream mode balances the two instead, see below. */
+     height). The zine layout balances the two instead, see below. */
   column-fill: auto;
 
   font-family: var(--serif);
@@ -1174,6 +1174,24 @@ figure.md-table figcaption {
 }
 
 /* =========================================================
+   Links between notes ([[wikilinks]], relative .md links)
+   ========================================================= */
+
+/* CUSTOMIZABLE STYLE: link to another note — reads as text, a quiet
+   underline marks it */
+.wikilink {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: .5px;
+  text-underline-offset: .15em;
+}
+
+/* A link to a note that isn't published: just its text. */
+.wikilink--missing {
+  text-decoration: none;
+}
+
+/* =========================================================
    Math (Obsidian $...$ / $$...$$, rendered to MathML by Temml in
    server.js; its own stylesheet picks the math font)
    ========================================================= */
@@ -1583,30 +1601,30 @@ html {
 }
 
 /* =========================================================
-   Dream mode — continuous flow, inline references, wider
-   left margin. Activated when the tag contains "dream".
+   Zine layout — continuous flow, inline references, balanced
+   columns. For collections config.layouts maps to "zine".
    ========================================================= */
 
 /* Entries follow one another on the same page instead of each
    starting a fresh one. */
-.dream-entry {
+.zine-entry {
   break-before: auto;
   margin-top: 3em;
 }
 
 /* First on its page — including an entry pushed to the top of a new
    page. */
-.dream-entry:first-child {
+.zine-entry:first-child {
   margin-top: 0;
 }
 
-.page-dream .title {
+.page-zine .title {
   font-family: "Cormorant SC", var(--serif);
   font-size: 18px;
   font-weight: 400;
 }
 
-.page-dream .body {
+.page-zine .body {
   font-optical-sizing: auto;
   column-fill: balance;
 }
@@ -1727,7 +1745,7 @@ html[data-layout="tablet"]:not(.is-touch) .reference-list,
 html[data-layout="tablet"]:not(.is-touch) .references--inline .reference-list,
 html[data-layout="tablet"]:not(.is-touch) .byline-footer,
 html[data-layout="tablet"]:not(.is-touch) .byline-footer--inline,
-html[data-layout="tablet"]:not(.is-touch) .byline-footer--dream {
+html[data-layout="tablet"]:not(.is-touch) .byline-footer--zine {
   font-size: 11px;
 }
 
@@ -1746,8 +1764,8 @@ html[data-layout="tablet"] .title {
   margin-bottom: 28px;
 }
 
-html[data-layout="phone"] .page-dream .title,
-html[data-layout="tablet"] .page-dream .title {
+html[data-layout="phone"] .page-zine .title,
+html[data-layout="tablet"] .page-zine .title {
   font-size: 20px;
 }
 
@@ -1794,13 +1812,13 @@ html[data-layout="phone"] .byline-footer {
 }
 
 html[data-layout="phone"] .byline-footer--inline,
-html[data-layout="phone"] .byline-footer--dream {
+html[data-layout="phone"] .byline-footer--zine {
   font-size: 10.5px;
 }
 
 html[data-layout="tablet"] .byline-footer,
 html[data-layout="tablet"] .byline-footer--inline,
-html[data-layout="tablet"] .byline-footer--dream {
+html[data-layout="tablet"] .byline-footer--zine {
   font-size: 10px;
 }
 

@@ -3,8 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "description": "Read a folder of Markdown notes (an Obsidian vault works as-is) as a paginated two-column book.",
+  "bin": {
+    "md2book": "bin/md2book.js"
+  },
+  "engines": {
+    "node": ">=20.12"
+  },
   "scripts": {
-    "dev": "node --env-file-if-exists=.env server.js"
+    "dev": "node --env-file-if-exists=.env server.js",
+    "start": "node bin/md2book.js"
   },
   "dependencies": {
     "@vscode/markdown-it-katex": "^1.1.2",

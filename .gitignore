@@ -2,3 +2,6 @@ node_modules/
 .env
 .vercel
 entries/
+
+# Site settings (see md2book.config.example.js)
+md2book.config.js

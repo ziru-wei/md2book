@@ -1,113 +1,157 @@
 # md2book
 
-A live local Markdown journal app. Every `.md` file in a watched folder
-becomes an entry with a portrait, two-column publication layout; `/` lists
-all entries.
+Read a folder of Markdown notes as a book. Every note is set on fixed
+pages in a two-column publication layout, and you turn pages like paper —
+by key, trackpad swipe, or finger. An Obsidian vault works as-is: no
+plugin, no export step, no build.
 
-## Run
+- Collections: a folder, a tag or a `#tag` becomes a book of its own.
+- Two layouts per collection: **paper** (each note on fresh pages) and
+  **zine** (notes running on one after another).
+- Obsidian syntax: `[[wikilinks]]`, `![[embedded images]]`, math,
+  highlights, CriticMarkup revisions and comments (as margin notes).
+- Figures, tables and headings are numbered; links become numbered
+  references.
+- Desktop, phone and tablet layouts; pinch-zoom; prints one sheet per page.
+
+## Run it on your notes
+
+With Node.js 20.12 or later:
 
 ```bash
+git clone https://github.com/ziru-wei/md2book.git
+cd md2book
 npm install
-npm run dev
+node bin/md2book.js ~/path/to/your/notes
 ```
 
-`npm run dev` opens `http://localhost:3000` in your default browser
-automatically. Set `NO_OPEN=1` to skip that.
+This opens `http://localhost:3000`. Edit a note and the page reloads.
+`--port 4000` picks another port, `--no-open` doesn't open a browser. Run
+it from inside your notes folder and the folder can be left out.
 
-Add, edit, or remove `.md` files anywhere under `entries/` (including
-nested subfolders) with `publishID: <anything>` in the frontmatter. The
-browser reloads automatically, and the entry list on `/` updates on its
-own — no extra registration step.
+md2book only reads your notes; it never writes to the folder.
 
-There is no build step and no PDF pipeline. Pages are cut in the browser
-by `static/reader.js`: each page's body is a two-column block exactly as
-tall as the room left on the page, and whatever the browser pushes past
-the second column becomes the next page.
+## Your notes
 
-## Use another folder
-
-```bash
-npm run dev -- path/to/folder
-```
-
-or:
-
-```bash
-JOURNAL_DIR=path/to/folder npm run dev
-```
-
-This is meant to point at your own notes folder — for example a local
-clone of a private Git repo where you keep your Markdown notes. The app
-only reads from it; nothing here writes back to that folder or to Git.
-
-## Markdown contract
+Any `.md` file in the folder (and its subfolders) is a note. Nothing is
+required in it; these all help:
 
 ```md
 ---
-publishID: some-stable-id
-created: 2026-09-22
-updated: 2026-09-22
+created: 2026-04-02
+updated: 2026-04-05
+tags: [japan, trips]
 ---
 
-# Journal Title
+# Kyoto in Spring
+
+The first `# heading` is the title. A title with ": " or " / " gets a
+subtitle on its own line.
 ```
 
-Rules:
+- **Hidden notes**: `publish: false` in the frontmatter. Folders starting
+  with `.` (like `.obsidian`) are skipped.
+- **Dates**: `created`/`updated` show in a small byline, and order a
+  collection oldest to newest (it opens on the newest note).
+- **Links that last**: a note's URL is made from its file path, so
+  renaming the file changes it. Give the note a `publishID: anything`
+  and the URL stays the same wherever the file moves.
 
-- `publishID` is required for the file to appear at all (on the list page or its own URL); missing/blank is skipped. Its value can be anything you want — it's hashed into the file's `/entry/<hash>` URL, and unlike the file's path (which changes if you rename or move the note in Obsidian), it stays put, so the URL never breaks. Pick it once and don't change it.
-- the first `# H1` becomes the centered document title and is removed from body flow
-- `created`/`updated` and the author (built into the template as `Ziru Wei`) appear as a small italic byline at the bottom of the first page's first column: "This article is written on ‹created›, and updated ‹updated› by ‹author›."
-- body content flows continuously through two columns
-- `**bold**`, `*italic*`, bullets, blockquotes, and standard Markdown are supported
-- `==highlight==` renders as a restrained marker-style highlight
-- `[label](url)` renders as `label [N]`
-- `%%REF{>>{"author":"...","time":...}@@url<<}%%` renders as a bare `[N]`, with no label; the `author`/`time` metadata is accepted but ignored. This is for citing a source inline without turning any visible text into a link.
-- adjacent `%%REF...%%` citations (e.g. written back-to-back as `(%%REF..%%, %%REF..%%)`) collapse into a single group like `[1, 2]` instead of `[1][2]`
-- References are generated automatically and pinned to the bottom-right of whichever page ends up being the last one
-- repeated URLs reuse the same reference number, whether written as `[label](url)` or `%%REF...%%`
-- CriticMarkup renders as the finished text: `{--deleted--}` is not shown, `{++added++}` is shown, `{~~old~>new~~}` shows only `new`, and `{==text==}` shows `text`.
-- A `{>>comment<<}` right after a replacement or a highlight (`{~~old~>new~~}{>>comment<<}`, `{==text==}{>>comment<<}`) becomes a side note: a small numbered superscript after the text, with the comment in the page margin level with it. Comments after a deletion or an addition, and comments on their own, are not shown. The CriticMarkup plugin's `{"author":...}@@` metadata prefix is ignored everywhere.
+### Collections
 
-## Images
+`http://localhost:3000` lists every note; press **Space** there to pick a
+collection. A note is in a collection named after:
 
-Normal Markdown images work directly:
+- its top-level folder (`travel/kyoto.md` is in `travel`),
+- each entry in its `tags` frontmatter,
+- each `#tag` in its text.
+
+`/contents` is every note as one book; `/contents/<name>` is one
+collection.
+
+### Writing
+
+- The usual Markdown, plus `==highlight==`.
+- `[text](https://…)` shows as `text [1]`, with the source in a
+  References list at the end of the note. Repeated URLs share a number.
+- `{==REF==}{>>https://…<<}` cites a source as a bare `[1]`; adjacent
+  ones, `({==REF==}{>>…<<}, {==REF==}{>>…<<})`, collapse to `[1, 2]`.
+- `[[Another note]]`, `[[Another note|shown text]]`, and
+  `[text](another%20note.md)` link to other notes. A link to a hidden or
+  missing note is plain text.
+- Math: `$…$` inline, `$$…$$` on its own lines.
+- CriticMarkup shows the finished text: `{--deleted--}` is left out,
+  `{++added++}` stays, `{~~old~>new~~}` shows `new`, and `{==text==}`
+  shows `text`. A comment on a replacement or a highlight —
+  `{==text==}{>>comment<<}` — becomes a numbered note in the page margin,
+  level with its line. Headings can have them too.
+- Headings are numbered (1, 1.1, …); a first heading called "Abstract"
+  isn't.
+
+### Images and tables
+
+`![[image.png]]` finds the image anywhere in the vault, the way Obsidian
+does; `![alt](attachments/image.png)` (relative to the note) and web URLs
+work too. An image on its own line becomes a numbered figure; a
+`(caption)` on the next line is its caption:
 
 ```md
-![image.png](https://example.com/image.png)
-
-(This figure demonstrates...)
+![[kyoto.jpg]]
+(The Philosopher's Path in April.)
 ```
 
-A normal image stays at its source position in one column.
+Put `//teaser` on the line after an image to show it under the title,
+across both columns, or `//span` to put it at the top of the page it
+lands on, across both columns. Tables take a caption and `//span` the
+same way. Tables are numbered, keep whole rows together, and repeat
+their header when they continue on the next column or page.
 
-To promote an image to a teaser figure:
+## Reading
 
-```md
-![image.png](https://example.com/image.png)
+| | Desktop | Phone / tablet |
+|---|---|---|
+| Turn a page | ← → or A D, or swipe sideways on the trackpad | swipe |
+| One page / two pages | `/` | turn the tablet |
+| Tablet-style page (bigger type, one column) | `\` | — |
+| Contents of a collection | Space | — |
 
-//teaser
-(This figure demonstrates...)
+## Settings
 
+Copy `md2book.config.example.js` to `md2book.config.js` — in the folder
+you run md2book from, or in your notes folder — and keep what you want to
+change: the site's title, which notes are published, where collections
+come from, and which collections use the zine layout:
+
+```js
+export default {
+  site: { title: "Field Notes" },
+  layouts: [{ match: "diary", layout: "zine" }]
+};
 ```
 
-The marker must be the immediately following paragraph and must match exactly, ignoring letter case. The teaser is directly below the title and spans the text area.
+Every option is described in `lib/config.js`. Colors, fonts, sizes and
+page margins are in `static/journal.css`, marked `CUSTOMIZABLE STYLE`.
 
-If a remote image cannot load, the page shows a local placeholder instead of a broken-image icon.
+## Putting it online
 
-Any `raw.githubusercontent.com` image URL is proxied through this app's own `/img/<id>` route instead of being sent to the browser as-is — a visitor never sees the real GitHub URL (owner, repo, path), in page source, the Network tab, or after the browser loads the image. See `IMAGE_GITHUB_TOKEN` in `.env.example` if that image repo needs authentication (it can be a completely different GitHub account/repo from the one the Markdown content itself comes from).
+The server is an ordinary Express app (`server.js`); `api/index.js`
+wraps it for Vercel. On a server, notes can come from a GitHub repository
+instead of a folder — see `.env.example` (`GITHUB_OWNER`, `GITHUB_REPO`,
+`GITHUB_TOKEN`, optionally `GITHUB_DIRS`).
 
-## Styling
+- `site.homePath` (or `HOME_PATH`) moves the list of every note to an
+  unguessable path; single notes and collections keep working links.
+- Images on `raw.githubusercontent.com` are served through the site, so
+  the repository's name never reaches readers (`IMAGE_GITHUB_TOKEN` for a
+  private one).
+- `.vercelignore` keeps `entries/`, `.env` and `node_modules` out of a
+  `vercel deploy`.
 
-Edit:
+## How it works
 
-```text
-static/journal.css
-```
-
-Every area intended for visual tuning is marked with:
-
-```css
-/* CUSTOMIZABLE STYLE: ... */
-```
-
-The easiest global controls are the variables at the top of that file.
+`server.js` turns each note into HTML. In the browser, `static/reader.js`
+cuts it into pages: each page's text is a two-column box exactly as tall
+as the room left on the page, and whatever the browser pushes past the
+second column becomes the next page — so column breaks and page breaks
+are the browser's own. Pages are laid out at a fixed size, then scaled to
+fit the screen.

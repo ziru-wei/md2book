@@ -13,31 +13,31 @@ import { fileURLToPath } from "node:url";
 import { exec } from "node:child_process";
 import { Readable } from "node:stream";
 import { createEntrySource } from "./lib/source.js";
+import { loadConfig, layoutOf } from "./lib/config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
 const PORT = Number(process.env.PORT || 3000);
+// The notes folder: the command-line argument, $JOURNAL_DIR, or ./entries.
 const LOCAL_ENTRIES_DIR = path.resolve(
   process.cwd(),
-  process.argv[2] || process.env.JOURNAL_DIR || "entries"
+  process.env.JOURNAL_DIR || process.argv[2] || "entries"
 );
 
 const entrySource = createEntrySource(LOCAL_ENTRIES_DIR);
 
-// Where the entry-listing pages actually live. Defaults to "/" for
-// local dev; set HOME_PATH (e.g. "/pw") on a public deployment so
-// the real "/" reveals nothing and only whoever knows this path can
-// browse the journal. Nothing meant to be shared out — a single
-// entry's /entry/<hash> link, or a tag's /contents/<tag> link (dream
-// or not) — ever depends on this: CONTENTS_PATH is always the plain
-// top-level "/contents", never prefixed with HOME_PATH, so pasting
-// one of those URLs elsewhere can't leak the secret home path.
-const HOME_PATH = process.env.HOME_PATH || "/";
-const CONTENTS_PATH = "/contents";
+// The site's own settings (name, which notes publish, collections,
+// layouts...) — see lib/config.js.
+const config = await loadConfig(LOCAL_ENTRIES_DIR);
 
-// Built-in metadata: does not need to exist in Markdown.
-const AUTHOR = "Ziru Wei";
+// Where the home page (the list of every note) lives — see
+// config.site.homePath. Nothing meant to be shared out (a note's
+// /entry/<hash> link, a collection's /contents/<name> link) depends on
+// it: CONTENTS_PATH is always the plain top-level "/contents", so
+// pasting one of those URLs elsewhere can't leak a secret home path.
+const HOME_PATH = config.site.homePath;
+const CONTENTS_PATH = "/contents";
 
 // Optional PAT for a private image-hosting repo (may be a different
 // GitHub account/repo entirely from GITHUB_TOKEN's content repo — see
@@ -188,6 +188,31 @@ app.get("/img/:id", async (req, res) => {
   }
 });
 
+// An attachment referenced by a published note (see resolveVaultLinks).
+// Ids are registered as pages are served; one this instance hasn't seen
+// yet (a fresh server) is looked up by resolving every published note.
+app.get("/asset/:id", async (req, res) => {
+  try {
+    if (!assetIds.has(req.params.id)) {
+      for (const entry of await listEntries()) {
+        resolveVaultLinks(entry.bodyHtml + entry.teaserHtml);
+      }
+    }
+    const p = assetIds.get(req.params.id);
+    const asset = p && await entrySource.readAsset(p);
+    if (!asset) {
+      res.status(404).type("text").send("Not found");
+      return;
+    }
+    res.type(path.extname(p));
+    res.set("Cache-Control", "public, max-age=300");
+    if (asset.size) res.set("Content-Length", String(asset.size));
+    asset.stream.on("error", () => res.destroy()).pipe(res);
+  } catch (error) {
+    res.status(500).type("text").send(`Could not read attachment\n\n${error.stack || error}`);
+  }
+});
+
 function escapeHtml(value = "") {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -215,6 +240,7 @@ const MATH_SEGMENT_RE = /\$[^$\n]+\$/g;
 // `first`/`last`: whether this text starts/ends the whole title — not
 // for a piece of a heading with math before/after it.
 function toTitleCase(text, { first = true, last = true } = {}) {
+  if (!config.typography.titleCase) return text;
   // Math stays exactly as written, as one "word".
   const math = [];
   text = text.replace(MATH_SEGMENT_RE, m => `${math.push(m) - 1}`);
@@ -265,10 +291,7 @@ function slugify(id) {
   return crypto.createHash("sha256").update(id).digest("hex").slice(0, 12);
 }
 
-// One frontmatter field instead of two: `publishID: <anything>` both
-// marks the note published AND supplies the stable id its URL hash is
-// derived from (so renaming the file or moving it in Obsidian doesn't
-// change the URL). Missing/empty means unpublished.
+// A frontmatter value usable as an id: a non-empty string or a number.
 function getPublishId(value) {
   if (typeof value === "string" && value.trim()) return value.trim();
   if (typeof value === "number") return String(value);
@@ -482,6 +505,105 @@ function expandCriticMarkup(markdown) {
   return text.replace(/(\d+)/g, (_, i) => code[i]);
 }
 
+// --- Vault links: Obsidian embeds, wikilinks, attachments ---------------
+//
+// ![[image.png]] (and ![[image.png|300]], ![[image.png|caption]]) embeds
+// an attachment from anywhere in the vault; [[Note]], [[Note|text]],
+// [[Note#Heading]] link to another note (![[Note]] too). Found by name
+// the way Obsidian does — exact path first, else by file name — but only
+// when a page is served (resolveVaultLinks), so links follow notes that
+// are renamed, added or unpublished. A link to a note that isn't
+// published stays plain text. Code stays as written.
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|avif|svg|bmp|tiff?)$/i;
+
+function expandVaultLinks(markdown) {
+  const code = [];
+  let text = markdown.replace(CODE_RE, m => `${code.push(m) - 1}`);
+  text = text.replace(/(!?)\[\[([^\[\]\n]+?)\]\]/g, (_m, bang, inner) => {
+    const [target, option = ""] = inner.split("|").map(part => part.trim());
+    if (!target) return _m;
+    if (bang && IMAGE_EXT_RE.test(target)) {
+      // "|300" or "|300x200" is a size; anything else is alt text.
+      const alt = option && !/^\d+(x\d+)?$/.test(option) ? option : path.posix.basename(target);
+      // As a Markdown image, so it becomes a figure (with a caption)
+      // like any other; its vault-asset: address is resolved below.
+      return `![${alt.replace(/[\[\]\\]/g, "\\$&")}](vault-asset:${encodeURIComponent(`name:${target}`)})`;
+    }
+    const note = target.replace(/[#^].*$/, "").trim();
+    const label = option || target.replace(/\.md$/i, "").replace(/#\^?/, " › ");
+    return `<a data-wikilink="${encodeURIComponent(`name:${note}`)}" class="wikilink">${escapeHtml(label)}</a>`;
+  });
+  return text.replace(/(\d+)/g, (_, i) => code[i]);
+}
+
+// A relative link/src in note `noteId` as a vault path, or null for
+// anything else (a URL, an absolute path, an anchor, data:).
+function vaultPath(noteId, ref) {
+  if (!ref || /^([a-z][a-z0-9+.-]*:|\/|#)/i.test(ref)) return null;
+  let decoded = ref;
+  try { decoded = decodeURIComponent(ref); } catch { /* keep as written */ }
+  const joined = path.posix.normalize(path.posix.join(path.posix.dirname(noteId || "."), decoded));
+  return joined.startsWith("../") ? null : joined.replace(/^\.\//, "");
+}
+
+// Published notes and every attachment, refreshed on each listing.
+const vault = {
+  notesByPath: new Map(),
+  notesByName: new Map(),
+  assetsByPath: new Map(),
+  assetsByName: new Map()
+};
+
+function updateVaultIndex(entries, assets) {
+  vault.notesByPath = new Map(entries.map(e => [e.id.toLowerCase(), e]));
+  vault.notesByName = new Map();
+  for (const e of [...entries].sort((a, b) => a.id.length - b.id.length)) {
+    const name = path.posix.basename(e.id).replace(/\.md$/i, "").toLowerCase();
+    if (!vault.notesByName.has(name)) vault.notesByName.set(name, e);
+  }
+  vault.assetsByPath = new Map(assets.map(p => [p.toLowerCase(), p]));
+  vault.assetsByName = new Map();
+  for (const p of [...assets].sort((a, b) => a.length - b.length)) {
+    const name = path.posix.basename(p).toLowerCase();
+    if (!vault.assetsByName.has(name)) vault.assetsByName.set(name, p);
+  }
+}
+
+// "name:x" (from ![[x]]/[[x]]) or "path:x" (a relative link) -> a match.
+function lookUp(key, byPath, byName, ext = "") {
+  const [kind, ...rest] = key.split(":");
+  const ref = rest.join(":").replace(/^\/+/, "").toLowerCase();
+  if (!ref) return null;
+  const withExt = ext && !ref.endsWith(ext) ? ref + ext : ref;
+  if (byPath.has(withExt)) return byPath.get(withExt);
+  if (kind === "path") return null;
+  return byName.get(path.posix.basename(withExt).replace(ext ? new RegExp(`\\${ext}$`) : /$^/, "")) || null;
+}
+
+// Attachments a served page refers to, by opaque id -> vault path (the
+// /asset/:id route only ever serves these).
+const assetIds = new Map();
+
+function assetUrl(p) {
+  const id = crypto.createHash("sha256").update(p).digest("hex").slice(0, 20);
+  assetIds.set(id, p);
+  return `/asset/${id}`;
+}
+
+function resolveVaultLinks(html) {
+  return html
+    .replace(/<img ([^>]*?)data-asset="([^"]*)"([^>]*)>/g, (match, before, key, after) => {
+      const p = lookUp(decodeURIComponent(key), vault.assetsByPath, vault.assetsByName);
+      return p ? `<img src="${assetUrl(p)}" ${before}${after}>` : match;
+    })
+    .replace(/<a ([^>]*?)data-wikilink="([^"]*)"([^>]*)>([\s\S]*?)<\/a>/g, (_match, _b, key, _a, inner) => {
+      const entry = lookUp(decodeURIComponent(key), vault.notesByPath, vault.notesByName, ".md");
+      return entry
+        ? `<a class="wikilink" href="/entry/${entry.slug}">${inner}</a>`
+        : `<span class="wikilink wikilink--missing">${inner}</span>`;
+    });
+}
+
 // A reference's stored URL sometimes turns out to be a whole markdown
 // link itself (e.g. a browser "copy as markdown link" pasted in whole
 // as the URL half of a %%REF...%% token or [label](url)) — split that
@@ -495,7 +617,7 @@ function splitEmbeddedMarkdownLink(href) {
   return { label: match[1].trim(), url: match[2].trim() };
 }
 
-function postProcessMarkdown(renderedHtml) {
+function postProcessMarkdown(renderedHtml, noteId = "") {
   // Wrap rendered fragment so Cheerio can safely transform it.
   const $ = cheerio.load(`<main id="root">${renderedHtml}</main>`, null, false);
   const root = $("#root");
@@ -505,11 +627,14 @@ function postProcessMarkdown(renderedHtml) {
   const title = firstH1.length ? toTitleCase(plainText($, firstH1).trim()) : "Untitled";
   if (firstH1.length) firstH1.remove();
 
-  // A "## Note" heading (any letter case) marks a private end-of-file
-  // scratchpad — that heading and everything after it in the document
-  // is stripped entirely here, before figures/references/excerpt are
-  // computed, so none of it is ever rendered, numbered, or previewed.
-  const noteHeading = root.find("h2").filter((_, h) => $(h).text().trim().toLowerCase() === "note").first();
+  // The private heading (config.privateHeading, any letter case) marks
+  // an end-of-note scratchpad — it and everything after it are dropped
+  // here, before figures/references/excerpt are computed, so none of it
+  // is ever rendered, numbered, or previewed.
+  const privateHeading = (config.privateHeading || "").trim().toLowerCase();
+  const noteHeading = privateHeading
+    ? root.find("h2").filter((_, h) => $(h).text().trim().toLowerCase() === privateHeading).first()
+    : $();
   if (noteHeading.length) {
     noteHeading.nextAll().remove();
     noteHeading.remove();
@@ -571,6 +696,28 @@ function postProcessMarkdown(renderedHtml) {
     const src = $img.attr("src");
     if (src && isGithubRawUrl(src)) {
       $img.attr("src", registerImageProxy(src));
+    }
+  });
+
+  // Images and note links by relative path (![](attachments/a.png),
+  // [text](other%20note.md)) point into the vault: marked here, resolved
+  // when the page is served (see resolveVaultLinks).
+  root.find("img[src]").each((_, img) => {
+    const $img = $(img);
+    const src = $img.attr("src");
+    if (src.startsWith("vault-asset:")) {
+      $img.removeAttr("src").attr("data-asset", src.slice("vault-asset:".length));
+      return;
+    }
+    const target = vaultPath(noteId, src);
+    if (target) $img.removeAttr("src").attr("data-asset", encodeURIComponent(`path:${target}`));
+  });
+  root.find("a[href]").each((_, a) => {
+    const $a = $(a);
+    const href = $a.attr("href");
+    const target = vaultPath(noteId, href.replace(/#.*$/, ""));
+    if (target && /\.md$/i.test(target)) {
+      $a.removeAttr("href").attr("data-wikilink", encodeURIComponent(`path:${target}`)).addClass("wikilink");
     }
   });
 
@@ -955,17 +1102,20 @@ async function loadEntry({ id, version }) {
 
   const raw = await entrySource.readFile(id);
   const { data, content } = matter(raw);
-  const rendered = md.render(expandCriticMarkup(expandInlineRefTokens(expandBookTitles(content))));
-  const { title, teaserHtml, excerpt, bodyHtml, referencesHtml } = postProcessMarkdown(rendered);
+  const rendered = md.render(expandVaultLinks(expandCriticMarkup(expandInlineRefTokens(expandBookTitles(content)))));
+  const { title, teaserHtml, excerpt, bodyHtml, referencesHtml } = postProcessMarkdown(rendered, id);
 
-  // Renaming a file or moving it to a different folder in Obsidian
-  // changes its path — and hashing the path (the fallback below) would
-  // silently break any /entry/<hash> link already shared for it.
-  // publishID, once written in frontmatter, survives renames/moves, so
-  // it's used instead whenever present; it's still hashed like the
-  // path would be, so the URL stays just as opaque either way.
-  const publishId = getPublishId(data.publishID);
+  // Renaming a file or moving it to a different folder changes its path
+  // — and hashing the path (the fallback below) would break any
+  // /entry/<hash> link already shared for it. An id field
+  // (config.publish.idField), once written in frontmatter, survives
+  // renames/moves, so it's used instead whenever present; it's hashed
+  // like the path would be, so the URL stays just as opaque either way.
+  const publishId = getPublishId(data[config.publish.idField]);
   const slug = slugify(publishId || id);
+  const published = config.publish.require
+    ? getPublishId(data[config.publish.require]) !== null
+    : data.publish !== false && String(data.publish).toLowerCase() !== "false";
 
   const entry = {
     slug,
@@ -976,12 +1126,10 @@ async function loadEntry({ id, version }) {
     excerpt,
     bodyHtml,
     referencesHtml,
-    published: publishId !== null,
+    published,
     created: normalizeDate(data.created),
     updated: normalizeDate(data.updated),
-    tags: data.publishTag
-      ? (Array.isArray(data.publishTag) ? data.publishTag : [data.publishTag]).map(String).filter(Boolean)
-      : []
+    tags: collectionsOf(id, data, content)
   };
 
   entryCache.set(id, entry);
@@ -1000,11 +1148,34 @@ function sortByDateDesc(entries, field) {
   });
 }
 
-async function listEntries() {
-  const files = await entrySource.listFiles();
+// The collections a note belongs to (config.collections): its top-level
+// folder, its tag fields, its inline #tags.
+function collectionsOf(id, data, content) {
+  const names = [];
+  const rules = config.collections;
+  if (rules.folders && id.includes("/")) names.push(id.split("/")[0]);
+  for (const field of rules.tagFields || []) {
+    const value = data[field];
+    if (value === undefined || value === null) continue;
+    const list = Array.isArray(value) ? value : String(value).split(",");
+    names.push(...list.map(String));
+  }
+  if (rules.inlineTags) {
+    const text = content.replace(CODE_RE, " ");
+    // Obsidian's rule: after a space or line start; letters, digits,
+    // "_", "-", "/"; not only digits.
+    for (const m of text.matchAll(/(?:^|\s)#([\p{L}\p{N}_\/-]+)/gu)) {
+      if (!/^\d+$/.test(m[1])) names.push(m[1]);
+    }
+  }
+  return [...new Set(names.map(n => n.trim().replace(/^#/, "")).filter(Boolean))];
+}
 
-  return (await Promise.all(files.map(loadEntry)))
-    .filter(entry => entry.published);
+async function listEntries() {
+  const { notes, assets } = await entrySource.listAll();
+  const entries = (await Promise.all(notes.map(loadEntry))).filter(entry => entry.published);
+  updateVaultIndex(entries, assets);
+  return entries;
 }
 
 // `reader`: /entry and /contents — bodyHtml carries the entry flow in
@@ -1019,35 +1190,11 @@ function pageShell({ title, bodyHtml, bodyClass, reader = false }) {
     ? "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     : "width=device-width, initial-scale=1"}" />
   <title>${escapeHtml(title)}</title>
+  ${config.site.author ? `<meta name="author" content="${escapeHtml(config.site.author)}" />` : ""}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <!-- Source Han Serif SC (the Chinese serif in --serif, below) loads
-       from Adobe/Typekit, not Google Fonts — it's a large CJK family
-       (thousands of glyphs) so it's inherently slow relative to a
-       Latin webfont, but two real, fixable chunks of that latency are
-       the DNS/TLS handshake to Adobe's CDN (paid for here, before the
-       loader script even runs) and the loader script itself only
-       starting to fetch once this inline script executes and appends
-       it — a <link rel=preload> lets the browser's preload scanner
-       discover and start that same fetch in parallel while still
-       parsing the rest of <head>, well before this script block runs
-       at all; the inline loader's own dynamically-created <script>
-       tag then just reuses that already-in-flight (or already cached)
-       request instead of starting a fresh one. -->
-  <link rel="preconnect" href="https://use.typekit.net" />
-  <link rel="preconnect" href="https://p.typekit.net" crossorigin />
-  <link rel="preload" href="https://use.typekit.net/vlg3xva.js" as="script" />
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+SC:wght@300;400;500;600;700&family=Libre+Baskerville:ital,wght@0,400..700;1,400..700&family=Source+Serif+4:ital,opsz,wght@0,8..60,200..900;1,8..60,200..900&display=swap" rel="stylesheet" />
-  <script>
-    (function(d) {
-      var config = {
-        kitId: 'vlg3xva',
-        scriptTimeout: 3000,
-        async: true
-      },
-      h=d.documentElement,t=setTimeout(function(){h.className=h.className.replace(/\\bwf-loading\\b/g,"")+" wf-inactive";},config.scriptTimeout),tk=d.createElement("script"),f=false,s=d.getElementsByTagName("script")[0],a;h.className+=" wf-loading";tk.src='https://use.typekit.net/'+config.kitId+'.js';tk.async=true;tk.onload=tk.onreadystatechange=function(){a=this.readyState;if(f||a&&a!="complete"&&a!="loaded")return;f=true;clearTimeout(t);try{Typekit.load(config)}catch(e){}};s.parentNode.insertBefore(tk,s)
-    })(document);
-  </script>
+${adobeFontsHtml()}
 ${bodyHtml.includes("<math") ? `<link rel="stylesheet" href="${MATH_CSS}" crossorigin />
   ` : ""}<link rel="stylesheet" href="/static/journal.css" />
   <link rel="stylesheet" href="/static/print.css" media="print" />
@@ -1078,6 +1225,30 @@ ${bodyHtml.includes("<math") ? `<link rel="stylesheet" href="${MATH_CSS}" crosso
   ${reader ? `<script src="/static/reader.js"></script>` : ""}
 </body>
 </html>`;
+}
+
+// An Adobe Fonts (Typekit) web project (config.fonts.adobeKit), e.g.
+// for a CJK serif: a large family, so its CDN connection and loader
+// script start as early as possible — the preload lets the browser
+// fetch the loader while it's still parsing <head>, and the inline
+// loader then reuses that request.
+function adobeFontsHtml() {
+  const kit = config.fonts.adobeKit;
+  if (!kit) return "";
+  const id = JSON.stringify(String(kit));
+  return `<link rel="preconnect" href="https://use.typekit.net" />
+  <link rel="preconnect" href="https://p.typekit.net" crossorigin />
+  <link rel="preload" href="https://use.typekit.net/${escapeHtml(kit)}.js" as="script" />
+  <script>
+    (function(d) {
+      var config = {
+        kitId: ${id},
+        scriptTimeout: 3000,
+        async: true
+      },
+      h=d.documentElement,t=setTimeout(function(){h.className=h.className.replace(/\\bwf-loading\\b/g,"")+" wf-inactive";},config.scriptTimeout),tk=d.createElement("script"),f=false,s=d.getElementsByTagName("script")[0],a;h.className+=" wf-loading";tk.src='https://use.typekit.net/'+config.kitId+'.js';tk.async=true;tk.onload=tk.onreadystatechange=function(){a=this.readyState;if(f||a&&a!="complete"&&a!="loaded")return;f=true;clearTimeout(t);try{Typekit.load(config)}catch(e){}};s.parentNode.insertBefore(tk,s)
+    })(document);
+  </script>`;
 }
 
 // The reader's input: the entry flow (articles) kept inert in a
@@ -1132,7 +1303,9 @@ function renderWaterfallCards(entries) {
 function renderEmptyState(entries) {
   return entries.length
     ? ""
-    : `<p class="index-empty">No published entries yet. Add <code>publishID: ...</code> to a Markdown file's frontmatter (source: ${escapeHtml(entrySource.label)}).</p>`;
+    : `<p class="index-empty">No published notes yet${config.publish.require
+      ? `. Add <code>${escapeHtml(config.publish.require)}: ...</code> to a note's frontmatter to publish it`
+      : ""} (source: ${escapeHtml(entrySource.label)}).</p>`;
 }
 
 // Home page ("/"): title + a plain waterfall feed, no TOC. Space opens
@@ -1197,7 +1370,7 @@ function renderHomePage(entries) {
   const bodyHtml = `
   <div class="journal-home">
     <header class="index-header index-header-home">
-      <div class="index-author">Roaming2026</div>
+      <div class="index-author">${escapeHtml(config.site.title)}</div>
     </header>
 
     <div class="journal-waterfall">
@@ -1207,21 +1380,22 @@ function renderHomePage(entries) {
   </div>
   ${dialogHtml}`;
 
-  return pageShell({ title: "meroaming2026", bodyHtml, bodyClass: "page-index" });
+  return pageShell({ title: config.site.browserTitle, bodyHtml, bodyClass: "page-index" });
 }
 
 // Contents view ("/contents" or "/contents/:tag"): the reading mode.
-// When `tag` is provided, only entries with that tag are shown and the
-// TOC panel gets a small label. Otherwise all entries are shown.
+// When `tag` is provided, only entries in that collection are shown and
+// the TOC panel gets a small label. Otherwise all entries are shown.
+// The collection's layout (config.layouts) is "paper" or "zine".
 async function renderContentsPage(entries, tag) {
-  const isDream = tag && tag.toLowerCase().includes("dream");
+  const isZine = layoutOf(config, tag) === "zine";
 
   const filtered = tag ? entries.filter(e => e.tags.includes(tag)) : entries;
   // Oldest first, newest last (a journal reads front-to-back
   // chronologically) — but the reader opens on the newest entry (see
   // latestSlug below), so it lands there first and pages backward
   // through history, rather than starting at day one.
-  const orderedEntries = isDream
+  const orderedEntries = isZine
     ? [...filtered].sort((a, b) => (a.created || "").localeCompare(b.created || ""))
     : [...sortByDateDesc(filtered, "created")].reverse();
 
@@ -1237,10 +1411,11 @@ async function renderContentsPage(entries, tag) {
     `;
   }).join("");
 
-  const articleClass = isDream ? "paper dream-entry" : "paper";
+  const articleClass = isZine ? "paper zine-entry" : "paper";
+  const hideByline = entry => config.byline.hideOnDateFilenames && isDateFilename(entry.id);
   const articles = orderedEntries.map(entry => `
     <article class="${articleClass}" id="card-${entry.slug}">
-      ${renderEntryBody(entry, { mode: "plain", showByline: isDream || !isDateFilename(entry.id), dream: isDream })}
+      ${renderEntryBody(entry, { mode: "plain", showByline: isZine || !hideByline(entry), zine: isZine })}
     </article>
   `).join("");
 
@@ -1263,8 +1438,8 @@ async function renderContentsPage(entries, tag) {
       : `<div class="journal-spreads">${renderEmptyState(entries)}</div>`}
   </div>`;
 
-  const bodyClass = isDream ? "page-contents page-dream" : "page-contents";
-  return pageShell({ title: tag || "Journal", bodyHtml, bodyClass, reader: orderedEntries.length > 0 });
+  const bodyClass = isZine ? "page-contents page-zine" : "page-contents";
+  return pageShell({ title: tag || config.site.browserTitle, bodyHtml, bodyClass, reader: orderedEntries.length > 0 });
 }
 
 // A title containing "/" or ":" (either half- or full-width — "/",
@@ -1288,14 +1463,12 @@ function splitTitleSubtitle(title) {
 const BOOK_TITLE_RE = /《([^《》]+)》/g;
 
 function expandBookTitles(markdown) {
+  if (!config.typography.bookTitleMarks) return markdown;
   return markdown.replace(BOOK_TITLE_RE, (_, title) => `「**_${title}_**」`);
 }
 
-// A source filename that's just a date (e.g. "2026-09-21.md") reads as
-// its own label already on /contents' shared TOC/flow — the "written
-// on/updated" footnote there is redundant for those entries (but still
-// shown on that entry's own standalone /entry page, where there's no
-// surrounding date context).
+// A file name that's just a date (e.g. "2026-09-21.md") already says
+// when it was written (see config.byline.hideOnDateFilenames).
 function isDateFilename(id) {
   const base = path.basename(id, path.extname(id));
   return /^\d{4}-\d{2}-\d{2}$/.test(base);
@@ -1314,10 +1487,10 @@ function renderTitle(title) {
   return `<h1 class="title">${titleHtml}</h1>`;
 }
 
-function renderByline(entry, { mode, dream = false }) {
-  if (dream) {
+function renderByline(entry, { mode, zine = false }) {
+  if (zine) {
     if (!entry.created) return "";
-    return `<p class="byline-footer byline-footer--dream">${escapeHtml(entry.created)}</p>`;
+    return `<p class="byline-footer byline-footer--zine">${escapeHtml(entry.created)}</p>`;
   }
 
   // "written on <created>, and updated <updated>" — degrades to just
@@ -1339,20 +1512,20 @@ function renderByline(entry, { mode, dream = false }) {
 // One entry's flow as the reader cuts it into pages (see
 // static/reader.js): title, teaser, the two-column .body, then the
 // blocks that must share a page with the body's last lines — the byline
-// and References. Dream mode lists References in full width after the
+// and References. The zine layout lists References in full width after the
 // byline; everywhere else they're pinned to the bottom-right of the
 // entry's last page, with a spacer holding their room at the spot they
 // sit in the flow: inside .body when nothing follows the text (so they
 // take room in whichever column it ends in), after the byline when one
 // does.
-function renderEntryBody(entry, { mode, showByline = true, dream = false }) {
-  const byline = showByline ? renderByline(entry, { mode, dream }) : "";
+function renderEntryBody(entry, { mode, showByline = true, zine = false }) {
+  const byline = showByline ? renderByline(entry, { mode, zine }) : "";
   const running = mode === "running" ? byline : "";
   const trailing = mode === "running" ? "" : byline;
-  const references = dream
+  const references = zine
     ? entry.referencesHtml.replace(`class="references"`, `class="references references--inline"`)
     : entry.referencesHtml;
-  const referencesInBody = !dream && !trailing;
+  const referencesInBody = !zine && !trailing;
 
   return `
     ${renderTitle(entry.title)}
@@ -1369,12 +1542,10 @@ async function renderEntryPage(entry) {
     ${await renderBook(`<article class="paper">${renderEntryBody(entry, { mode: "running" })}</article>`)}
   </div>`;
 
-  // Standalone /entry/:slug rendering always uses the plain (non-
-  // dream) layout — mode:"running" above, no dream:true — but a
-  // dream-tagged entry should still lose the bold title here, same as
-  // it would on its /contents/dream card.
-  const isDream = entry.tags.some(t => t.toLowerCase().includes("dream"));
-  const bodyClass = isDream ? "page-entry entry-dream-title" : "page-entry";
+  // A note on its own always uses the paper layout, but one from a zine
+  // collection keeps the zine's lighter (non-bold) title.
+  const isZine = entry.tags.some(t => layoutOf(config, t) === "zine");
+  const bodyClass = isZine ? "page-entry entry-zine-title" : "page-entry";
 
   return pageShell({ title: entry.title, bodyHtml, bodyClass, reader: true });
 }
@@ -1386,17 +1557,18 @@ async function renderEntryPage(entry) {
 app.get(HOME_PATH, async (_req, res) => {
   try {
     const entries = await listEntries();
-    res.type("html").send(renderHomePage(entries));
+    res.type("html").send(resolveVaultLinks(renderHomePage(entries)));
   } catch (error) {
     res.status(500).type("text").send(`Could not list entries from ${entrySource.label}\n\n${error.stack || error}`);
   }
 });
 
-app.get(`${CONTENTS_PATH}/:tag`, async (req, res) => {
+// Every note as one book ("/contents"), or one collection.
+app.get([CONTENTS_PATH, `${CONTENTS_PATH}/:tag`], async (req, res) => {
   try {
     const tag = req.params.tag;
     const entries = await listEntries();
-    res.type("html").send(await renderContentsPage(entries, tag));
+    res.type("html").send(resolveVaultLinks(await renderContentsPage(entries, tag)));
   } catch (error) {
     res.status(500).type("text").send(`Could not list entries from ${entrySource.label}\n\n${error.stack || error}`);
   }
@@ -1410,7 +1582,7 @@ app.get("/entry/:slug", async (req, res) => {
       res.status(404).type("text").send(`No entry found for "${req.params.slug}"`);
       return;
     }
-    res.type("html").send(await renderEntryPage(entry));
+    res.type("html").send(resolveVaultLinks(await renderEntryPage(entry)));
   } catch (error) {
     res.status(500).type("text").send(`Could not render entry\n\n${error.stack || error}`);
   }
@@ -1434,18 +1606,18 @@ if (entrySource.liveReload) {
   });
 }
 
-// Running directly (`node server.js` / `npm run dev`) starts a local
-// server. Deployed on Vercel, `api/index.js` imports `app` instead and
-// Vercel handles listening, so this block never runs there.
-const isMain = process.argv[1] === fileURLToPath(import.meta.url);
-if (isMain) {
-  app.listen(PORT, () => {
-    const url = `http://localhost:${PORT}${HOME_PATH}`;
-    console.log(`Journal: ${url}`);
-    console.log(`Source:  ${entrySource.label}`);
-    if (HOME_PATH !== "/") console.log(`(HOME_PATH set — plain "/" won't show the journal)`);
+// Starts the local server (`npm run dev`, or the md2book command in
+// bin/). Deployed on Vercel, `api/index.js` imports `app` instead and
+// Vercel handles listening.
+export function start({ port = PORT, open = process.env.NO_OPEN !== "1" } = {}) {
+  return app.listen(port, () => {
+    const url = `http://localhost:${port}${HOME_PATH}`;
+    console.log(`md2book: ${url}`);
+    console.log(`Notes:   ${entrySource.label}`);
+    console.log(`Config:  ${config.file || "(none — defaults)"}`);
+    if (HOME_PATH !== "/") console.log(`(home path set — plain "/" won't list the notes)`);
 
-    if (process.env.NO_OPEN !== "1") {
+    if (open) {
       const opener = process.platform === "darwin" ? "open"
         : process.platform === "win32" ? "start \"\""
         : "xdg-open";
@@ -1453,5 +1625,7 @@ if (isMain) {
     }
   });
 }
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) start();
 
 export default app;

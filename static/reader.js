@@ -433,7 +433,7 @@
 
   // How a page's share of a .body is shown: filled column by column down
   // to the page foot (`column-fill: auto`, normal entries) or balanced
-  // (`column-fill: balance`, dream) — and balanced whenever a full-width
+  // (`column-fill: balance`, zine) — and balanced whenever a full-width
   // byline/References row follows it on the page, the way a column-
   // spanning element would.
   // `settled`: the page is cut, and its layout (split tables, forced
@@ -633,7 +633,7 @@
     for (let i = 0; i < blocks.length; i++) {
       const block = blocks[i];
       if (isColumns(block)) {
-        // The byline (and dream's inline References) must share a page
+        // The byline (and the zine layout's inline References) must share a page
         // with the text's last lines. Pinned References only need their
         // spacer to fit somewhere: when it doesn't fit under the text,
         // it moves on to a page of its own like any other block, so it

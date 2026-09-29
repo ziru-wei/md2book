@@ -1,10 +1,13 @@
 {
   "functions": {
     "api/index.js": {
-      "includeFiles": "static/**"
+      "includeFiles": "{static/**,md2book.config.js}"
     }
   },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index" }
+    {
+      "source": "/(.*)",
+      "destination": "/api/index"
+    }
   ]
 }
