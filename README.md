@@ -1,157 +1,223 @@
+<p align="right"><a href="README.zh-CN.md">中文</a> · <b>English</b></p>
+
 # md2book
 
-Read a folder of Markdown notes as a book. Every note is set on fixed
-pages in a two-column publication layout, and you turn pages like paper —
-by key, trackpad swipe, or finger. An Obsidian vault works as-is: no
-plugin, no export step, no build.
+"Share your Markdown notes the way you'd hand a friend a book."
 
-- Collections: a folder, a tag or a `#tag` becomes a book of its own.
-- Two layouts per collection: **paper** (each note on fresh pages) and
-  **zine** (notes running on one after another).
-- Obsidian syntax: `[[wikilinks]]`, `![[embedded images]]`, math,
-  highlights, CriticMarkup revisions and comments (as margin notes).
-- Figures, tables and headings are numbered; links become numbered
-  references.
-- Desktop, phone and tablet layouts; pinch-zoom; prints one sheet per page.
+Markdown has become a good medium for talking with agents. I made this tool to share Markdown just as well with your human friends: when you present what you share with care, it is listened to with care, and you may get feedback that matters to you and start conversations that open minds.
 
-## Run it on your notes
+It works with a local folder or a GitHub repository. The local version needs a redeploy after your notes change; the repository version pulls automatically and stays in sync with the repo.
+No apps, plugins or exports needed.
 
-With Node.js 20.12 or later:
+## Features
+
+- One note or many in sequence, in two-column or single-column pages that turn like paper.
+- Collections of notes, organized by folders or by tags.
+- Each collection can use one of two layouts: **paper** (each note starts on a fresh page, modeled on academic papers; good for research notes) and **zine** (notes run on one after another; good for essays and journals).
+- Beyond standard Markdown, [Obsidian](https://obsidian.md) syntax is supported too: `[[wikilink]]`, `![[embedded image]]`, math.
+- [CriticMarkup](https://criticmarkup.com) edits (rendered as the final copy) and comments (shown as margin notes).
+   - Want a nice way to write CriticMarkup in Obsidian? Try the plugin [Simple Commentor](https://github.com/ziru-wei/obsidian-criticmarkup/tree/ziru-custom).
+- Citations: links become numbered references.
+- Figures, tables and headings are numbered automatically; figures and tables can span both columns.
+- Desktop, phone and tablet layouts; pinch to zoom.
+- Print from the browser to a clean PDF.
+
+## Run it locally
+
+Requires Node.js 20.12 or later. The first time:
 
 ```bash
 git clone https://github.com/ziru-wei/md2book.git
 cd md2book
 npm install
-node bin/md2book.js ~/path/to/your/notes
+node bin/md2book.js path/to/your/notes
 ```
 
-This opens `http://localhost:3000`. Edit a note and the page reloads.
-`--port 4000` picks another port, `--no-open` doesn't open a browser. Run
-it from inside your notes folder and the folder can be left out.
+Every time after that (replace the path with your notes folder):
 
-md2book only reads your notes; it never writes to the folder.
+```bash
+cd md2book
+node bin/md2book.js path/to/your/notes
+```
 
-## Your notes
+Your browser opens `http://localhost:3000`, and the page reloads when your notes change. Press `Ctrl+C` to stop.
 
-Any `.md` file in the folder (and its subfolders) is a note. Nothing is
-required in it; these all help:
+## Settings
+
+While md2book is running, open:
+
+```
+http://localhost:3000/settings
+```
+
+Changes are saved right away to `md2book.settings.json` in your notes folder.
+
+
+## Deploy online (using Vercel as an example)
+
+Deploy with Vercel. The first time, install it and log in:
+
+```bash
+npm install -g vercel
+vercel login
+```
+
+> Don't want others browsing the list of all your notes? In settings, set "Site → Home page path" to something no one can guess, such as `/a1b2c3`.
+
+### Option 1: notes in a local folder
+
+**First deployment**
+
+```bash
+cd md2book
+rsync -a --delete --exclude '.*' path/to/your/notes/ notes/
+vercel deploy --prod
+```
+
+Vercel asks a few questions the first time; press Enter for each. The URL it prints at the end is your site.
+
+**After your notes change**
+
+```bash
+cd md2book
+rsync -a --delete --exclude '.*' path/to/your/notes/ notes/
+vercel deploy --prod
+```
+
+**Changing settings**
+
+Edit:
+
+```bash
+cd md2book
+node bin/md2book.js path/to/your/notes
+```
+Open `http://localhost:3000/settings`, make your changes, then press `Ctrl+C`.
+
+Upload your changes:
+
+```bash
+rsync -a --delete --exclude '.*' path/to/your/notes/ notes/
+vercel deploy --prod
+```
+
+### Option 2: notes in a GitHub repository
+
+**First deployment**
+
+1. Create a read-only token: open <https://github.com/settings/personal-access-tokens/new>, pick your notes repository under Repository access, set Contents to Read-only under Permissions, generate it and copy it.
+2. In a terminal (each command asks you to paste its value):
+
+```bash
+cd md2book
+vercel link
+vercel env add GITHUB_OWNER production    # your GitHub username
+vercel env add GITHUB_REPO production     # your notes repository's name
+vercel env add GITHUB_TOKEN production    # the token from step 1
+vercel deploy --prod
+```
+
+Optional: if your notes aren't on the `main` branch, add `vercel env add GITHUB_BRANCH production`; to publish only some top-level folders, add `vercel env add GITHUB_DIRS production` (comma-separated, e.g. `Journal,Research`). Then run `vercel deploy --prod` again.
+
+**After your notes change**
+
+Push your notes to GitHub as usual. The site reads the latest content; no redeploy needed.
+
+**Changing settings**
+
+Run it on the copy of your notes repository on your computer:
+
+```bash
+cd md2book
+node bin/md2book.js ~/my-notes-repo
+```
+
+Open `http://localhost:3000/settings`, make your changes, press `Ctrl+C`, then:
+
+```bash
+cp ~/my-notes-repo/md2book.settings.json ./md2book.settings.json
+vercel deploy --prod
+```
+
+## Writing and reading
+### Your notes
+
+All of these fields are optional extras:
 
 ```md
 ---
 created: 2026-04-02
 updated: 2026-04-05
-tags: [japan, trips]
+publishTag: [japan, trips]
+publishID: awesome-trip
+publish: true
 ---
 
 # Kyoto in Spring
 
-The first `# heading` is the title. A title with ": " or " / " gets a
-subtitle on its own line.
+The first `# heading` becomes the title; without a level-1 heading, the note's file name is used. The characters that split a title and subtitle can be set in settings.
+
 ```
+- **Dates**: `created`/`updated` appear as a small byline and set the order of notes in a collection, oldest first. Without them, local notes use the file's own creation and modification dates.
+- **Drawings**: Excalidraw drawings (`*.excalidraw.md`) and canvas files are skipped.
+- **Hiding a note**: write `publish: false` in its YAML front matter.
+- **Links that don't break**: a note's URL comes from its file path by default, so renaming or moving the file changes the link. Give the note `publishID: any-value` and the link stays fixed wherever the file moves in your vault.
 
-- **Hidden notes**: `publish: false` in the frontmatter. Folders starting
-  with `.` (like `.obsidian`) are skipped.
-- **Dates**: `created`/`updated` show in a small byline, and order a
-  collection oldest to newest (it opens on the newest note).
-- **Links that last**: a note's URL is made from its file path, so
-  renaming the file changes it. Give the note a `publishID: anything`
-  and the URL stays the same wherever the file moves.
 
-### Collections
+#### Collections
 
-`http://localhost:3000` lists every note; press **Space** there to pick a
-collection. A note is in a collection named after:
+`http://localhost:3000` lists every note; the search box at the top searches titles and text. Press **Space** on this page to pick a collection. A note belongs to these collections:
 
-- its top-level folder (`travel/kyoto.md` is in `travel`),
-- each entry in its `tags` frontmatter,
-- each `#tag` in its text.
+- its top-level folder, however deep in subfolders it sits (e.g. `travel/japan/kyoto.md` is in the `travel` collection);
+- each tag in its front matter's `publishTag` field.
 
-`/contents` is every note as one book; `/contents/<name>` is one
-collection.
+In settings you can choose which folders count (subfolders too), use other or additional front matter fields and limit which of their tags count, and whether `#tags` in the text count.
 
-### Writing
+Each collection lives at `/contents/<collection name>`.
 
-- The usual Markdown, plus `==highlight==`.
-- `[text](https://…)` shows as `text [1]`, with the source in a
-  References list at the end of the note. Repeated URLs share a number.
-- `{==REF==}{>>https://…<<}` cites a source as a bare `[1]`; adjacent
-  ones, `({==REF==}{>>…<<}, {==REF==}{>>…<<})`, collapse to `[1, 2]`.
-- `[[Another note]]`, `[[Another note|shown text]]`, and
-  `[text](another%20note.md)` link to other notes. A link to a hidden or
-  missing note is plain text.
-- Math: `$…$` inline, `$$…$$` on its own lines.
-- CriticMarkup shows the finished text: `{--deleted--}` is left out,
-  `{++added++}` stays, `{~~old~>new~~}` shows `new`, and `{==text==}`
-  shows `text`. A comment on a replacement or a highlight —
-  `{==text==}{>>comment<<}` — becomes a numbered note in the page margin,
-  level with its line. Headings can have them too.
-- Headings are numbered (1, 1.1, …); a first heading called "Abstract"
-  isn't.
+#### Writing syntax
 
-### Images and tables
+- Regular Markdown.
+- `[text](https://…)` shows as "text [1]", with the source listed in references at the end; the same link repeated shares one number.
+- `{==REF==}{>>https://…<<}` renders the source as a bare citation mark `[1]`; several in a row, like `({==REF==}{>>…<<}, {==REF==}{>>…<<})`, merge into `[1, 2]`.
+- `[[another note]]`, `[[another note|display text]]` and `[text](another-note.md)` all link to other notes; a link to a note that is unpublished or doesn't exist opens a "This note isn't available now" page.
+- Math: `$…$` inline, `$$…$$` for a display block.
+- CriticMarkup renders only the final result: `{--deleted--}` is hidden, `{++added++}` is kept, `{~~old~>new~~}` shows only "new", and `{==text==}` shows as "text". A comment right after a substitution or highlight, like `{==text==}{>>comment<<}`, becomes a numbered margin note lined up with the line it marks; headings can carry comments too.
+- Headings are numbered automatically (1, 1.1…); if the first heading is "Abstract", it isn't numbered.
 
-`![[image.png]]` finds the image anywhere in the vault, the way Obsidian
-does; `![alt](attachments/image.png)` (relative to the note) and web URLs
-work too. An image on its own line becomes a numbered figure; a
-`(caption)` on the next line is its caption:
+#### Images and tables
+
+`![[image.png]]` finds the image by file name anywhere in your vault, as Obsidian does; `![alt](attachments/image.png)` (relative to the current note) and hosted image links work too.
+
+Mark lines under an image to add a caption and to make it a teaser (header image) or a span (across both columns):
 
 ```md
 ![[kyoto.jpg]]
-(The Philosopher's Path in April.)
+//The Philosopher's Path in April.
+//teaser
+
+![[kyoto.jpg]]
+//teaser
+//The Philosopher's Path in April.
+
+![[kyoto.jpg]]
+//teaser
+
+![[kyoto.jpg]]
+//span
+
 ```
 
-Put `//teaser` on the line after an image to show it under the title,
-across both columns, or `//span` to put it at the top of the page it
-lands on, across both columns. Tables take a caption and `//span` the
-same way. Tables are numbered, keep whole rows together, and repeat
-their header when they continue on the next column or page.
 
-## Reading
+### Reading controls
 
-| | Desktop | Phone / tablet |
+| Action | Desktop | Touch |
 |---|---|---|
-| Turn a page | ← → or A D, or swipe sideways on the trackpad | swipe |
-| One page / two pages | `/` | turn the tablet |
-| Tablet-style page (bigger type, one column) | `\` | — |
-| Contents of a collection | Space | — |
-
-## Settings
-
-Copy `md2book.config.example.js` to `md2book.config.js` — in the folder
-you run md2book from, or in your notes folder — and keep what you want to
-change: the site's title, which notes are published, where collections
-come from, and which collections use the zine layout:
-
-```js
-export default {
-  site: { title: "Field Notes" },
-  layouts: [{ match: "diary", layout: "zine" }]
-};
-```
-
-Every option is described in `lib/config.js`. Colors, fonts, sizes and
-page margins are in `static/journal.css`, marked `CUSTOMIZABLE STYLE`.
-
-## Putting it online
-
-The server is an ordinary Express app (`server.js`); `api/index.js`
-wraps it for Vercel. On a server, notes can come from a GitHub repository
-instead of a folder — see `.env.example` (`GITHUB_OWNER`, `GITHUB_REPO`,
-`GITHUB_TOKEN`, optionally `GITHUB_DIRS`).
-
-- `site.homePath` (or `HOME_PATH`) moves the list of every note to an
-  unguessable path; single notes and collections keep working links.
-- Images on `raw.githubusercontent.com` are served through the site, so
-  the repository's name never reaches readers (`IMAGE_GITHUB_TOKEN` for a
-  private one).
-- `.vercelignore` keeps `entries/`, `.env` and `node_modules` out of a
-  `vercel deploy`.
+| Turn the page | ←/→, A/D, or swipe left/right on the trackpad | Swipe |
+| Single / two-page view | `/` | Rotate the device |
+| Larger-text "tablet" pages | `\` | — |
+| Contents (collection) or outline (single note) | Space | — |
 
 ## How it works
 
-`server.js` turns each note into HTML. In the browser, `static/reader.js`
-cuts it into pages: each page's text is a two-column box exactly as tall
-as the room left on the page, and whatever the browser pushes past the
-second column becomes the next page — so column breaks and page breaks
-are the browser's own. Pages are laid out at a fixed size, then scaled to
-fit the screen.
+`server.js` turns each note into HTML; in the browser, `static/reader.js` cuts the content into pages. Each page's body is a two-column box exactly as tall as the space left on that page, and whatever the browser can't fit, overflowing into a third column, becomes the start of the next page. Column and page breaks are left entirely to the browser's own layout engine instead of a separate simulation. Pages are laid out at a fixed size, then scaled as a whole to fit the screen. P.S. WebKit and Paged.js have bugs with nested multi-column layout, so in keeping with this project's purpose, sharing, and so readers can browse on any platform, I dropped Paged.js and reinvented a few wheels.

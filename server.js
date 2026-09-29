@@ -13,23 +13,31 @@ import { fileURLToPath } from "node:url";
 import { exec } from "node:child_process";
 import { Readable } from "node:stream";
 import { createEntrySource } from "./lib/source.js";
-import { loadConfig, layoutOf } from "./lib/config.js";
+import { loadConfig, rowFor, allowed, readSettings, resolveConfig, writeSettings, DEFAULTS } from "./lib/config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
 const PORT = Number(process.env.PORT || 3000);
-// The notes folder: the command-line argument, $JOURNAL_DIR, or ./entries.
+// The notes folder: $MD2BOOK_NOTES (set by bin/md2book.js), the
+// command-line argument, or ./notes.
 const LOCAL_ENTRIES_DIR = path.resolve(
   process.cwd(),
-  process.env.JOURNAL_DIR || process.argv[2] || "entries"
+  process.env.MD2BOOK_NOTES || process.argv[2] || "notes"
 );
 
 const entrySource = createEntrySource(LOCAL_ENTRIES_DIR);
 
 // The site's own settings (name, which notes publish, collections,
 // layouts...) — see lib/config.js.
-const config = await loadConfig(LOCAL_ENTRIES_DIR);
+// Local notes keep their settings in their own folder; a deployment
+// reading GitHub uses the file next to the app.
+const SETTINGS_DIR = entrySource.liveReload ? LOCAL_ENTRIES_DIR : null;
+
+// Watching notes and reloading pages is for running md2book on your own
+// computer; a deployed site (Vercel) serves a fixed copy.
+const LIVE = entrySource.liveReload && !process.env.VERCEL;
+const config = loadConfig(SETTINGS_DIR);
 
 // Where the home page (the list of every note) lives — see
 // config.site.homePath. Nothing meant to be shared out (a note's
@@ -275,6 +283,13 @@ function renderTitleText(text) {
   return html + escapeHtml(text.slice(last));
 }
 
+// A file date as YYYY-MM-DD in local time.
+function localDay(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.valueOf())) return "";
+  const pad = n => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 function normalizeDate(value) {
   if (!value) return "";
   if (value instanceof Date && !Number.isNaN(value.valueOf())) {
@@ -285,7 +300,7 @@ function normalizeDate(value) {
 
 // Opaque per-file identifier, not a readable slug: a note's URL
 // shouldn't hint at its title or filename (e.g. for a link shared on
-// its own, out of the journal's context). Stable across requests/
+// its own, out of the site's context). Stable across requests/
 // restarts since it's derived only from the file's own path.
 function slugify(id) {
   return crypto.createHash("sha256").update(id).digest("hex").slice(0, 12);
@@ -600,7 +615,7 @@ function resolveVaultLinks(html) {
       const entry = lookUp(decodeURIComponent(key), vault.notesByPath, vault.notesByName, ".md");
       return entry
         ? `<a class="wikilink" href="/entry/${entry.slug}">${inner}</a>`
-        : `<span class="wikilink wikilink--missing">${inner}</span>`;
+        : `<a class="wikilink wikilink--missing" href="/unavailable">${inner}</a>`;
     });
 }
 
@@ -617,7 +632,23 @@ function splitEmbeddedMarkdownLink(href) {
   return { label: match[1].trim(), url: match[2].trim() };
 }
 
-function postProcessMarkdown(renderedHtml, noteId = "") {
+// Whether `el`'s text starts with a letter or digit, reached only through
+// plain emphasis — not through a link, code, math or anything else.
+function startsWithLetter($, el) {
+  for (const node of el.children || []) {
+    if (node.type === "text") {
+      if (!node.data.trim()) continue;
+      return /^\s*[\p{L}\p{N}]/u.test(node.data);
+    }
+    if (node.type === "tag" && ["strong", "em", "b", "i", "mark", "span"].includes(node.name) && !$(node).attr("class")) {
+      return startsWithLetter($, node);
+    }
+    return false;
+  }
+  return false;
+}
+
+function postProcessMarkdown(renderedHtml, noteId = "", privateHeadingText = "") {
   // Wrap rendered fragment so Cheerio can safely transform it.
   const $ = cheerio.load(`<main id="root">${renderedHtml}</main>`, null, false);
   const root = $("#root");
@@ -627,11 +658,11 @@ function postProcessMarkdown(renderedHtml, noteId = "") {
   const title = firstH1.length ? toTitleCase(plainText($, firstH1).trim()) : "Untitled";
   if (firstH1.length) firstH1.remove();
 
-  // The private heading (config.privateHeading, any letter case) marks
+  // The private heading (a layout's privateHeading, any letter case) marks
   // an end-of-note scratchpad — it and everything after it are dropped
   // here, before figures/references/excerpt are computed, so none of it
   // is ever rendered, numbered, or previewed.
-  const privateHeading = (config.privateHeading || "").trim().toLowerCase();
+  const privateHeading = (privateHeadingText || "").trim().toLowerCase();
   const noteHeading = privateHeading
     ? root.find("h2").filter((_, h) => $(h).text().trim().toLowerCase() === privateHeading).first()
     : $();
@@ -686,6 +717,23 @@ function postProcessMarkdown(renderedHtml, noteId = "") {
     $(h).prepend(`<span class="heading-number">${number}</span>`);
   });
 
+  // The note's outline (the Space-key popup on its own page): every
+  // heading, by id, with its number and text (math kept, side notes
+  // left out).
+  const outline = [];
+  root.find("h2, h3, h4, h5, h6").each((i, h) => {
+    const $h = $(h);
+    $h.attr("id", `sec-${i + 1}`);
+    const $text = $h.clone();
+    $text.find(".comment-marker, .heading-number").remove();
+    outline.push({
+      id: `sec-${i + 1}`,
+      level: Number(h.name.slice(1)),
+      number: $h.find(".heading-number").text(),
+      html: ($text.html() || "").trim()
+    });
+  });
+
   // Every raw-GitHub <img src> becomes an opaque /img/<id> proxy URL
   // here, before anything else touches images (figure-wrapping, teaser
   // promotion, addManagedImageSizes) — so every downstream use
@@ -721,182 +769,146 @@ function postProcessMarkdown(renderedHtml, noteId = "") {
     }
   });
 
-  // Turn standalone Markdown images into figures. A "//teaser" marker
-  // promotes one image under the metadata; a "//span" marker makes the
-  // figure span the columns at the top of whichever page it lands on
-  // (see placeSpanFigures in static/reader.js). Either form (marker,
-  // and/or a "(caption)") can be soft-wrapped into the image's own
-  // paragraph, or written as its own separate paragraph(s) (blank line
-  // before):
-  //
-  // ![alt](https://...)      ![alt](https://...)
+  // Figure lines: written under an image (in its paragraph or in the
+  // paragraphs right after it), one per line, in any order:
+  //   //teaser        show it under the title, across the text
+  //   //span          put it at the top of the page it lands on
+  //   //Some caption  its caption (so is "(Some caption)")
+  //   //teaser (Some caption), //span (Some caption)
+  // ![[kyoto.jpg]]
   // //teaser
-  // (some caption)     or    //teaser
-  //
-  //                          (some caption)
-  const FIGURE_MARKER_RE = /^\/\/\s*(teaser|span)\s*(?:\((.+)\))?$/is;
-
-  function parseFigureMarker(text) {
-    const trimmed = text.trim();
-    if (!trimmed) return null;
-    const markerMatch = FIGURE_MARKER_RE.exec(trimmed);
-    if (markerMatch) {
-      const kind = markerMatch[1].toLowerCase();
-      return {
-        isTeaser: kind === "teaser",
-        isSpan: kind === "span",
-        caption: markerMatch[2] ? markerMatch[2].trim() : null
-      };
+  // //The Philosopher's Path in April.
+  // Tables take the same lines (except //teaser). Returns the parsed
+  // lines, or null if any line isn't one of these. Works on the rendered
+  // HTML, so a caption keeps its formatting.
+  function parseFigureLines(html) {
+    const lines = String(html || "").split(/<br\s*\/?>|\n/i).map(line => line.trim()).filter(Boolean);
+    if (!lines.length) return null;
+    const out = { isTeaser: false, isSpan: false, captionHtml: null };
+    const addCaption = caption => {
+      caption = caption.trim();
+      if (caption) out.captionHtml = out.captionHtml ? `${out.captionHtml} ${caption}` : caption;
+    };
+    for (const line of lines) {
+      const text = cheerio.load(`<i>${line}</i>`, null, false).text().trim();
+      const kind = /^\/\/\s*(teaser|span)\s*(?:\((.*)\))?$/is.exec(text);
+      if (kind) {
+        if (kind[1].toLowerCase() === "teaser") out.isTeaser = true;
+        else out.isSpan = true;
+        if (kind[2]) addCaption(/\(([\s\S]*)\)\s*$/.exec(line)?.[1] ?? escapeHtml(kind[2]));
+      } else if (/^\/\/\s*\S/.test(text)) {
+        addCaption(line.replace(/^\s*\/\/\s*/, ""));
+      } else if (/^\([\s\S]+\)$/.test(text)) {
+        addCaption(line.replace(/^\s*\(/, "").replace(/\)\s*$/, ""));
+      } else {
+        return null;
+      }
     }
-    const captionMatch = /^\((.+)\)$/s.exec(trimmed);
-    if (captionMatch) {
-      return { isTeaser: false, isSpan: false, caption: captionMatch[1].trim() };
-    }
-    return null;
+    return out;
   }
 
-  // parseFigureMarker above matches against a node's plain .text(),
-  // which flattens any inline formatting markdown-it already rendered
-  // inside the caption (e.g. "**bold**" is <strong>bold</strong> in the
-  // HTML by this point) down to plain text — so a bold marker in a
-  // caption would otherwise just vanish. The "//teaser"/"//span" marker and the
-  // wrapping parentheses are always plain literal characters even when
-  // the caption itself has inline HTML in it, so the exact same two
-  // regexes apply just as safely to the node's raw .html() — this
-  // extracts the caption as HTML instead, preserving that formatting.
-  function captionHtmlFromMarker(html, marker) {
-    const trimmed = (html || "").trim();
-    if (marker.isTeaser || marker.isSpan) {
-      const m = FIGURE_MARKER_RE.exec(trimmed);
-      return m && m[2] ? m[2].trim() : escapeHtml(marker.caption || "");
-    }
-    const m = /^\((.+)\)$/s.exec(trimmed);
-    return m ? m[1].trim() : escapeHtml(marker.caption || "");
-  }
+  // Obsidian's size suffix in alt text ("image.png|1588", "x|300x200")
+  // isn't part of the description.
+  root.find("img[alt]").each((_, img) => {
+    const $img = $(img);
+    $img.attr("alt", $img.attr("alt").replace(/\|\s*\d+(x\d+)?\s*$/, ""));
+  });
 
-  // Pass 1: wrap every standalone image into a figure, picking up any
-  // marker/caption soft-wrapped into its own paragraph. Teaser
-  // promotion itself happens in pass 2, so a bare "//teaser" here can
-  // still pick up a caption from a separate following paragraph.
+  // Several images on consecutive lines (one paragraph, nothing else in
+  // it): a figure each.
+  root.find("p").each((_, p) => {
+    const $p = $(p);
+    const contents = $p.contents().toArray();
+    const images = contents.filter(node => node.type === "tag" && node.name === "img");
+    const onlyImages = contents.every(node =>
+      (node.type === "tag" && (node.name === "img" || node.name === "br")) ||
+      (node.type === "text" && !node.data.trim()));
+    if (images.length < 2 || !onlyImages) return;
+    $p.replaceWith(images.map(img => `<p>${$.html(img)}</p>`).join(""));
+  });
+
+  // Every paragraph that is one image (plus figure lines) becomes a
+  // figure; figure lines in the next paragraphs join it too.
   root.find("p").each((_, p) => {
     const $p = $(p);
     const contents = $p.contents().toArray();
     const imgNodes = contents.filter(node => node.type === "tag" && node.name === "img");
-
     if (imgNodes.length !== 1) return;
 
     const img = $(imgNodes[0]);
-    const trailingNodes = contents.filter(node => node !== imgNodes[0]);
-    const trailingText = trailingNodes.map(node => $(node).text()).join(" ").trim();
-
-    let marker = { isTeaser: false, isSpan: false, caption: null };
-    if (trailingText) {
-      const parsed = parseFigureMarker(trailingText);
+    const trailingHtml = contents.filter(node => node !== imgNodes[0]).map(node => $.html(node)).join("").trim();
+    const lines = { isTeaser: false, isSpan: false, captionHtml: null };
+    const take = parsed => {
+      lines.isTeaser ||= parsed.isTeaser;
+      lines.isSpan ||= parsed.isSpan;
+      if (parsed.captionHtml) lines.captionHtml = lines.captionHtml ? `${lines.captionHtml} ${parsed.captionHtml}` : parsed.captionHtml;
+    };
+    if (trailingHtml) {
+      const parsed = parseFigureLines(trailingHtml);
       if (!parsed) return;
-      marker = parsed;
+      take(parsed);
+    }
+    for (let next = $p.next(); next.length && next.is("p") && !next.find("img").length; ) {
+      const parsed = parseFigureLines(next.html());
+      if (!parsed) break;
+      take(parsed);
+      const after = next.next();
+      next.remove();
+      next = after;
     }
 
     img.attr("loading", "lazy");
     img.attr("decoding", "async");
-
     const figure = $("<figure class='md-figure'></figure>");
     figure.append(img.clone());
-    if (marker.isTeaser) figure.attr("data-teaser-pending", "1");
-    if (marker.isSpan) figure.attr("data-span-pending", "1");
-    if (marker.caption) {
-      const trailingHtml = trailingNodes.map(node => $.html(node)).join(" ").trim();
-      const captionHtml = captionHtmlFromMarker(trailingHtml, marker);
-      figure.append(`<figcaption data-figcaption="1">${captionHtml}</figcaption>`);
-    }
-
+    // Every figure is numbered, caption or not — teasers and page-top
+    // figures included.
+    figure.append(`<figcaption data-figcaption="1">${lines.captionHtml || ""}</figcaption>`);
+    if (lines.isTeaser) figure.addClass("is-teaser-candidate");
+    if (lines.isSpan && !lines.isTeaser) figure.addClass("span-figure");
     $p.replaceWith(figure);
   });
 
-  // Pass 2: pick up a marker/caption from following sibling
-  // paragraph(s) written on their own line, then finalize teaser
-  // promotion (first "//teaser" found wins). Left in place in `root`
-  // for now — pulled out after captions are numbered, below.
-  root.find("figure.md-figure").each((_, figure) => {
-    const $figure = $(figure);
-    let isTeaser = $figure.attr("data-teaser-pending") === "1";
-    let isSpan = $figure.attr("data-span-pending") === "1";
-
-    if (!isTeaser && !isSpan && !$figure.find("figcaption").length) {
-      const next = $figure.next();
-      if (next.length && next.is("p")) {
-        const parsed = parseFigureMarker(next.text());
-        if (parsed) {
-          const nextHtml = next.html();
-          next.remove();
-          isTeaser = parsed.isTeaser;
-          isSpan = parsed.isSpan;
-          if (parsed.caption) {
-            const captionHtml = captionHtmlFromMarker(nextHtml, parsed);
-            $figure.append(`<figcaption data-figcaption="1">${captionHtml}</figcaption>`);
-          }
-        }
-      }
-    }
-
-    // A bare "//teaser" or "//span" (no caption yet) may still have its
-    // caption on the very next paragraph after it.
-    if ((isTeaser || isSpan) && !$figure.find("figcaption").length) {
-      const next = $figure.next();
-      if (next.length && next.is("p")) {
-        const capMatch = /^\((.+)\)$/s.exec(next.text().trim());
-        if (capMatch) {
-          const htmlMatch = /^\((.+)\)$/s.exec((next.html() || "").trim());
-          const captionHtml = htmlMatch ? htmlMatch[1].trim() : escapeHtml(capMatch[1].trim());
-          next.remove();
-          $figure.append(`<figcaption data-figcaption="1">${captionHtml}</figcaption>`);
-        }
-      }
-    }
-
-    $figure.removeAttr("data-teaser-pending data-span-pending");
-    if (isTeaser) $figure.addClass("is-teaser-candidate");
-    if (isSpan) $figure.addClass("span-figure");
-    // Every figure is numbered, caption or not.
-    if (!$figure.find("figcaption").length) $figure.append(`<figcaption data-figcaption="1"></figcaption>`);
-  });
-
-  // Tables take a caption and a "//span" marker the same ways figures
-  // do: "(caption)", "//span" or "//span (caption)" as the next
-  // paragraph, or written right under the table — where Markdown parses
-  // the line as one more row of its own (first cell only). Every table
-  // is wrapped in a figure and numbered, caption or not; a "//span" one
-  // goes to the top of the page it lands on (see liftSpanFigure in
-  // static/reader.js).
+  // Tables: the same figure lines (not //teaser), right under the table
+  // — where Markdown reads each line as one more row of its own (first
+  // cell only) — or in the paragraphs after it. Every table is wrapped
+  // in a figure and numbered, caption or not; a "//span" one goes to the
+  // top of the page it lands on (see liftSpanFigure in static/reader.js).
   root.find("table").each((_, table) => {
     const $table = $(table);
-    let marker = null;
-    let markerHtml = "";
-    const $lastRow = $table.find("tbody tr").last();
-    if ($lastRow.length && $lastRow.siblings().length) {
-      const $cells = $lastRow.children("td");
-      const parsed = parseFigureMarker($cells.first().text());
+    const lines = { isSpan: false, captionHtml: null };
+    const take = parsed => {
+      lines.isSpan ||= parsed.isSpan || parsed.isTeaser;
+      if (parsed.captionHtml) lines.captionHtml = lines.captionHtml ? `${parsed.captionHtml} ${lines.captionHtml}` : parsed.captionHtml;
+    };
+    // Trailing marker rows, last first.
+    for (let $row = $table.find("tbody tr").last(); $row.length && $row.siblings().length; ) {
+      const $cells = $row.children("td");
       const restEmpty = $cells.slice(1).toArray().every(cell => !$(cell).text().trim());
-      if (parsed && !parsed.isTeaser && restEmpty) {
-        marker = parsed;
-        markerHtml = $cells.first().html();
-        $lastRow.remove();
-      }
+      const parsed = restEmpty ? parseFigureLines($cells.first().html()) : null;
+      if (!parsed) break;
+      take(parsed);
+      const prev = $row.prev();
+      $row.remove();
+      $row = prev;
     }
-    if (!marker) {
-      const $next = $table.next();
-      const parsed = $next.is("p") ? parseFigureMarker($next.text()) : null;
-      if (parsed && !parsed.isTeaser) {
-        marker = parsed;
-        markerHtml = $next.html();
-        $next.remove();
-      }
+    const after = { isSpan: false, captionHtml: null };
+    for (let next = $table.next(); next.length && next.is("p"); ) {
+      const parsed = parseFigureLines(next.html());
+      if (!parsed) break;
+      after.isSpan ||= parsed.isSpan || parsed.isTeaser;
+      if (parsed.captionHtml) after.captionHtml = after.captionHtml ? `${after.captionHtml} ${parsed.captionHtml}` : parsed.captionHtml;
+      const following = next.next();
+      next.remove();
+      next = following;
     }
+    lines.isSpan ||= after.isSpan;
+    if (after.captionHtml) lines.captionHtml = lines.captionHtml ? `${lines.captionHtml} ${after.captionHtml}` : after.captionHtml;
 
-    const $figure = $(`<figure class="md-table${marker && marker.isSpan ? " span-figure span-table" : ""}"></figure>`);
+    const $figure = $(`<figure class="md-table${lines.isSpan ? " span-figure span-table" : ""}"></figure>`);
     $table.before($figure);
     $figure.append($table);
-    const captionHtml = marker && marker.caption ? captionHtmlFromMarker(markerHtml, marker) : "";
-    $figure.append(`<figcaption data-tablecaption="1">${captionHtml}</figcaption>`);
+    $figure.append(`<figcaption data-tablecaption="1">${lines.captionHtml || ""}</figcaption>`);
   });
 
   let tableNumber = 0;
@@ -904,7 +916,10 @@ function postProcessMarkdown(renderedHtml, noteId = "") {
     tableNumber += 1;
     const $caption = $(caption);
     const inner = ($caption.html() || "").trim();
-    $caption.html(inner ? `Table ${tableNumber}. ${inner}` : `Table ${tableNumber}.`);
+    // The number in its own span, so a layout can hide it (and a caption
+    // that is only a number).
+    $caption.html(`<span class="table-number">Table ${tableNumber}.</span>${inner ? " " + inner : ""}`);
+    if (!inner) $caption.addClass("caption--bare");
     $caption.removeAttr("data-tablecaption");
   });
 
@@ -917,11 +932,12 @@ function postProcessMarkdown(renderedHtml, noteId = "") {
     const $caption = $(caption);
     // Prepended as a string, not re-set via .text() — the caption's
     // own inline HTML (its <strong>/<em> etc., already inside
-    // $caption from captionHtmlFromMarker above) must stay exactly as
+    // $caption from parseFigureLines above) must stay exactly as
     // parsed, not get flattened back to plain text here. "Figure N. "
     // itself has no special characters, so parsing it as HTML is safe.
     const inner = ($caption.html() || "").trim();
-    $caption.html(inner ? `Figure ${figureNumber}. ${inner}` : `Figure ${figureNumber}.`);
+    $caption.html(`<span class="figure-number">Figure ${figureNumber}.</span>${inner ? " " + inner : ""}`);
+    if (!inner) $caption.addClass("caption--bare");
     $caption.removeAttr("data-figcaption");
   });
 
@@ -1065,11 +1081,14 @@ function postProcessMarkdown(renderedHtml, noteId = "") {
     $margin.html(`${commentNumber}. ${md.renderInline(rawComment)}`);
   });
 
-  // Drop cap: if the body opens directly with a paragraph (not a heading
-  // or figure), mark it so CSS can enlarge and float the first letter.
-  // Only the very first child matters — a heading first means "no drop cap."
+  // Drop cap: only when the body opens with an ordinary paragraph whose
+  // first character is a letter or digit — not a heading, list, quote,
+  // figure, or a paragraph that starts with a link, citation, code,
+  // math, an image or a quotation mark. Plain emphasis (bold, italic,
+  // highlight) around the first word is fine. Whether it shows is up to
+  // the layout settings (CSS).
   const firstChild = root.children().first();
-  if (firstChild.is("p") && !firstChild.find("img").length) {
+  if (firstChild.is("p") && startsWithLetter($, firstChild[0])) {
     firstChild.addClass("drop-cap");
   }
 
@@ -1084,7 +1103,8 @@ function postProcessMarkdown(renderedHtml, noteId = "") {
     teaserHtml,
     excerpt,
     bodyHtml: root.html() || "",
-    referencesHtml
+    referencesHtml,
+    outline
   };
 }
 
@@ -1094,8 +1114,12 @@ function postProcessMarkdown(renderedHtml, noteId = "") {
 // on frontmatter we haven't read yet (see below).
 const entryCache = new Map();
 
-async function loadEntry({ id, version }) {
-  const cached = entryCache.get(id);
+// A note as rendered with private heading `privateHeading` (layouts
+// differ in it), cached per note and heading.
+async function loadEntry(file, privateHeading = rowFor(config, null).privateHeading) {
+  const { id, version, created: fileCreated, updated: fileUpdated } = file;
+  const key = `${id}\u0000${privateHeading || ""}`;
+  const cached = entryCache.get(key);
   if (cached && cached.version === version) {
     return cached;
   }
@@ -1103,7 +1127,7 @@ async function loadEntry({ id, version }) {
   const raw = await entrySource.readFile(id);
   const { data, content } = matter(raw);
   const rendered = md.render(expandVaultLinks(expandCriticMarkup(expandInlineRefTokens(expandBookTitles(content)))));
-  const { title, teaserHtml, excerpt, bodyHtml, referencesHtml } = postProcessMarkdown(rendered, id);
+  const { title, teaserHtml, excerpt, bodyHtml, referencesHtml, outline } = postProcessMarkdown(rendered, id, privateHeading);
 
   // Renaming a file or moving it to a different folder changes its path
   // — and hashing the path (the fallback below) would break any
@@ -1113,7 +1137,8 @@ async function loadEntry({ id, version }) {
   // like the path would be, so the URL stays just as opaque either way.
   const publishId = getPublishId(data[config.publish.idField]);
   const slug = slugify(publishId || id);
-  const published = config.publish.require
+  // Drawings saved as Markdown by the Excalidraw plugin aren't notes.
+  const published = data["excalidraw-plugin"] ? false : config.publish.require
     ? getPublishId(data[config.publish.require]) !== null
     : data.publish !== false && String(data.publish).toLowerCase() !== "false";
 
@@ -1121,18 +1146,24 @@ async function loadEntry({ id, version }) {
     slug,
     id,
     version,
+    file,
     title: title !== "Untitled" ? title : toTitleCase(path.basename(id, path.extname(id))),
     teaserHtml,
     excerpt,
     bodyHtml,
     referencesHtml,
+    outline,
     published,
-    created: normalizeDate(data.created),
-    updated: normalizeDate(data.updated),
-    tags: collectionsOf(id, data, content)
+    // From frontmatter, else (local notes) the file's own dates.
+    created: normalizeDate(data.created) || localDay(fileCreated),
+    updated: normalizeDate(data.updated) || localDay(fileUpdated),
+    tags: collectionsOf(id, data, content),
+    // For the settings page's lists of fields and tags.
+    frontmatter: data,
+    inlineTags: inlineTagsOf(content)
   };
 
-  entryCache.set(id, entry);
+  entryCache.set(key, entry);
   return entry;
 }
 
@@ -1148,32 +1179,45 @@ function sortByDateDesc(entries, field) {
   });
 }
 
-// The collections a note belongs to (config.collections): its top-level
-// folder, its tag fields, its inline #tags.
+// The collections a note belongs to (config.collections): the folders
+// it's in (any depth), the allowed tags of its tag fields, its allowed
+// inline #tags.
 function collectionsOf(id, data, content) {
   const names = [];
   const rules = config.collections;
-  if (rules.folders && id.includes("/")) names.push(id.split("/")[0]);
-  for (const field of rules.tagFields || []) {
+  if (rules.folders === true && id.includes("/")) names.push(id.split("/")[0]);
+  if (Array.isArray(rules.folders)) {
+    for (const folder of rules.folders) {
+      const prefix = String(folder).replace(/^\/+|\/+$/g, "");
+      if (prefix && id.toLowerCase().startsWith(prefix.toLowerCase() + "/")) names.push(prefix);
+    }
+  }
+  for (const [field, rule] of Object.entries(rules.tags || {})) {
     const value = data[field];
     if (value === undefined || value === null) continue;
     const list = Array.isArray(value) ? value : String(value).split(",");
-    names.push(...list.map(String));
+    names.push(...list.map(tag => String(tag).trim().replace(/^#/, "")).filter(tag => tag && allowed(rule, tag)));
   }
   if (rules.inlineTags) {
-    const text = content.replace(CODE_RE, " ");
-    // Obsidian's rule: after a space or line start; letters, digits,
-    // "_", "-", "/"; not only digits.
-    for (const m of text.matchAll(/(?:^|\s)#([\p{L}\p{N}_\/-]+)/gu)) {
-      if (!/^\d+$/.test(m[1])) names.push(m[1]);
-    }
+    names.push(...inlineTagsOf(content).filter(tag => allowed(rules.inlineTags, tag)));
   }
-  return [...new Set(names.map(n => n.trim().replace(/^#/, "")).filter(Boolean))];
+  return [...new Set(names.map(n => n.trim()).filter(Boolean))];
+}
+
+// #tags in a note's text, by Obsidian's rule: after a space or line
+// start; letters, digits, "_", "-", "/"; not only digits.
+function inlineTagsOf(content) {
+  const text = content.replace(CODE_RE, " ");
+  const tags = [];
+  for (const m of text.matchAll(/(?:^|\s)#([\p{L}\p{N}_\/-]+)/gu)) {
+    if (!/^\d+$/.test(m[1])) tags.push(m[1]);
+  }
+  return tags;
 }
 
 async function listEntries() {
   const { notes, assets } = await entrySource.listAll();
-  const entries = (await Promise.all(notes.map(loadEntry))).filter(entry => entry.published);
+  const entries = (await Promise.all(notes.map(file => loadEntry(file)))).filter(entry => entry.published);
   updateVaultIndex(entries, assets);
   return entries;
 }
@@ -1181,9 +1225,29 @@ async function listEntries() {
 // `reader`: /entry and /contents — bodyHtml carries the entry flow in
 // <template id="book-source"> plus an empty #book (see renderBook),
 // and static/reader.js cuts the flow into pages and shows them.
-function pageShell({ title, bodyHtml, bodyClass, reader = false }) {
+// Classes on <html> for a layout row's switches (see book.css and
+// static/reader.js).
+function rowClasses(row) {
+  if (!row) return "";
+  return [
+    row.columns === 1 && "cols-1",
+    !row.pageNumbers && "no-page-numbers",
+    !row.dropCap && "no-drop-cap",
+    !row.numberFigures && "no-figure-numbers",
+    !row.numberTables && "no-table-numbers",
+    !row.numberHeadings && "no-heading-numbers"
+  ].filter(Boolean).map(c => " " + c).join("");
+}
+
+// Whether a note shows its dates under layout row `row`.
+function showDates(row, entry) {
+  if (row.dates === "hide") return false;
+  return true;
+}
+
+function pageShell({ title, bodyHtml, bodyClass, reader = false, row = null }) {
   return `<!doctype html>
-<html lang="en"${reader ? ' class="reader reader-loading"' : ""}>
+<html lang="en"${reader ? ` class="reader reader-loading${rowClasses(row)}"` : ""}>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="${reader
@@ -1196,7 +1260,7 @@ function pageShell({ title, bodyHtml, bodyClass, reader = false }) {
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+SC:wght@300;400;500;600;700&family=Libre+Baskerville:ital,wght@0,400..700;1,400..700&family=Source+Serif+4:ital,opsz,wght@0,8..60,200..900;1,8..60,200..900&display=swap" rel="stylesheet" />
 ${adobeFontsHtml()}
 ${bodyHtml.includes("<math") ? `<link rel="stylesheet" href="${MATH_CSS}" crossorigin />
-  ` : ""}<link rel="stylesheet" href="/static/journal.css" />
+  ` : ""}<link rel="stylesheet" href="/static/book.css" />
   <link rel="stylesheet" href="/static/print.css" media="print" />
 </head>
 <body class="${escapeHtml(bodyClass)}">
@@ -1216,7 +1280,7 @@ ${bodyHtml.includes("<math") ? `<link rel="stylesheet" href="${MATH_CSS}" crosso
       }, { once: true });
     });
     `}
-    ${entrySource.liveReload ? `
+    ${LIVE ? `
     // Live reload when Markdown/CSS in the watched folder changes.
     const events = new EventSource("/events");
     events.addEventListener("reload", () => location.reload());
@@ -1368,30 +1432,66 @@ function renderHomePage(entries) {
   </script>` : "";
 
   const bodyHtml = `
-  <div class="journal-home">
+  <div class="home">
     <header class="index-header index-header-home">
       <div class="index-author">${escapeHtml(config.site.title)}</div>
+      ${entries.length ? `<input type="search" id="note-search" class="note-search" placeholder="Search notes" aria-label="Search notes" autocomplete="off" />` : ""}
     </header>
 
-    <div class="journal-waterfall">
+    <p class="search-empty" id="search-empty" hidden>No notes match.</p>
+    <div class="waterfall">
       ${renderEmptyState(entries)}
       ${renderWaterfallCards(entries)}
     </div>
   </div>
-  ${dialogHtml}`;
+  ${dialogHtml}
+  ${entries.length ? `<script>
+  (function () {
+    var input = document.getElementById("note-search");
+    var empty = document.getElementById("search-empty");
+    var cards = Array.prototype.slice.call(document.querySelectorAll(".wf-card"));
+    var timer = null, asked = 0;
+    function show(slugs) {
+      var keep = slugs ? new Set(slugs) : null;
+      var shown = 0;
+      cards.forEach(function (card) {
+        var on = !keep || keep.has(card.id.slice("card-".length));
+        card.hidden = !on;
+        if (on) shown++;
+      });
+      empty.hidden = shown > 0;
+    }
+    input.addEventListener("input", function () {
+      clearTimeout(timer);
+      var q = input.value.trim();
+      if (!q) { show(null); return; }
+      timer = setTimeout(function () {
+        var n = ++asked;
+        fetch(${JSON.stringify(SEARCH_PATH)} + "?q=" + encodeURIComponent(q))
+          .then(function (r) { return r.json(); })
+          .then(function (slugs) { if (n === asked) show(slugs); });
+      }, 150);
+    });
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { input.value = ""; show(null); input.blur(); }
+    });
+  })();
+  </script>` : ""}`;
 
   return pageShell({ title: config.site.browserTitle, bodyHtml, bodyClass: "page-index" });
 }
 
-// Contents view ("/contents" or "/contents/:tag"): the reading mode.
-// When `tag` is provided, only entries in that collection are shown and
-// the TOC panel gets a small label. Otherwise all entries are shown.
-// The collection's layout (config.layouts) is "paper" or "zine".
+// A collection ("/contents/:tag"), read as one book: its notes, in its
+// layout row's layout ("paper" or "zine"), re-rendered with the row's
+// private heading.
 async function renderContentsPage(entries, tag) {
-  const isZine = layoutOf(config, tag) === "zine";
+  const row = rowFor(config, tag);
+  const filtered = await Promise.all(entries
+    .filter(e => e.tags.includes(tag))
+    .map(entry => loadEntry(entry.file, row.privateHeading)));
+  const isZine = row.layout === "zine";
 
-  const filtered = tag ? entries.filter(e => e.tags.includes(tag)) : entries;
-  // Oldest first, newest last (a journal reads front-to-back
+  // Oldest first, newest last (a collection reads front-to-back
   // chronologically) — but the reader opens on the newest entry (see
   // latestSlug below), so it lands there first and pages backward
   // through history, rather than starting at day one.
@@ -1403,7 +1503,7 @@ async function renderContentsPage(entries, tag) {
     const date = entry.created || entry.updated || "";
     return `
       <li class="toc-item">
-        <button type="button" data-jump="${escapeHtml(entry.slug)}">
+        <button type="button" data-jump="card-${escapeHtml(entry.slug)}">
           ${date ? `<span class="toc-date">${escapeHtml(date)}</span>` : ""}
           <span class="toc-title">${escapeHtml(entry.title)}</span>
         </button>
@@ -1412,10 +1512,9 @@ async function renderContentsPage(entries, tag) {
   }).join("");
 
   const articleClass = isZine ? "paper zine-entry" : "paper";
-  const hideByline = entry => config.byline.hideOnDateFilenames && isDateFilename(entry.id);
   const articles = orderedEntries.map(entry => `
     <article class="${articleClass}" id="card-${entry.slug}">
-      ${renderEntryBody(entry, { mode: "plain", showByline: isZine || !hideByline(entry), zine: isZine })}
+      ${renderEntryBody(entry, { mode: "plain", showByline: showDates(row, entry), zine: isZine })}
     </article>
   `).join("");
 
@@ -1423,7 +1522,9 @@ async function renderContentsPage(entries, tag) {
   // newest — the reader opens on the page where it starts (not the
   // last page of the whole book, which for a multi-page latest entry
   // would land somewhere past its title).
-  const latestSlug = orderedEntries.length ? orderedEntries[orderedEntries.length - 1].slug : "";
+  const latestSlug = orderedEntries.length && row.open !== "first"
+    ? orderedEntries[orderedEntries.length - 1].slug
+    : "";
 
   const bodyHtml = `
   ${orderedEntries.length ? `
@@ -1435,22 +1536,25 @@ async function renderContentsPage(entries, tag) {
   <div class="entry-page" data-latest-slug="${escapeHtml(latestSlug)}">
     ${orderedEntries.length
       ? await renderBook(articles)
-      : `<div class="journal-spreads">${renderEmptyState(entries)}</div>`}
+      : `<div class="contents-empty">${renderEmptyState(entries)}</div>`}
   </div>`;
 
   const bodyClass = isZine ? "page-contents page-zine" : "page-contents";
-  return pageShell({ title: tag || config.site.browserTitle, bodyHtml, bodyClass, reader: orderedEntries.length > 0 });
+  return pageShell({ title: tag || config.site.browserTitle, bodyHtml, bodyClass, reader: orderedEntries.length > 0, row });
 }
 
 // A title containing "/" or ":" (either half- or full-width — "/",
 // "／", ":", "：") is split at the FIRST such character into a main
 // title and a subtitle, rendered as two separate lines (see .title-
-// main/.title-sub in journal.css). No delimiter present just means no
+// main/.title-sub in book.css). No delimiter present just means no
 // subtitle.
 function splitTitleSubtitle(title) {
-  // A ":" inside math isn't a delimiter.
+  const separators = [...(config.typography.subtitleSeparators || "")]
+    .map(c => c.replace(/[\\^\]\-]/g, "\\$&")).join("");
+  if (!separators) return { main: title, sub: null };
+  // A separator inside math isn't one.
   const masked = title.replace(MATH_SEGMENT_RE, m => "x".repeat(m.length));
-  const match = /^(.*?)[/／:：]\s*(.+)$/s.exec(masked);
+  const match = new RegExp(`^(.*?)[${separators}]\\s*(.+)$`, "s").exec(masked);
   if (!match) return { main: title, sub: null };
   const at = match[1].length;
   return { main: title.slice(0, at).trim(), sub: title.slice(at + 1).trim() };
@@ -1465,13 +1569,6 @@ const BOOK_TITLE_RE = /《([^《》]+)》/g;
 function expandBookTitles(markdown) {
   if (!config.typography.bookTitleMarks) return markdown;
   return markdown.replace(BOOK_TITLE_RE, (_, title) => `「**_${title}_**」`);
-}
-
-// A file name that's just a date (e.g. "2026-09-21.md") already says
-// when it was written (see config.byline.hideOnDateFilenames).
-function isDateFilename(id) {
-  const base = path.basename(id, path.extname(id));
-  return /^\d{4}-\d{2}-\d{2}$/.test(base);
 }
 
 function renderTitle(title) {
@@ -1537,41 +1634,96 @@ function renderEntryBody(entry, { mode, showByline = true, zine = false }) {
 }
 
 async function renderEntryPage(entry) {
-  const bodyHtml = `
+  // The Space-key popup: the note's headings, same look as a
+  // collection's list of notes.
+  const topLevel = Math.min(...entry.outline.map(item => item.level));
+  const outlineHtml = entry.outline.length ? `
+  <dialog class="toc-dialog toc-dialog--outline" id="toc-dialog">
+    <div class="toc-tag-label">${renderTitleText(entry.title)}</div>
+    <ul class="toc-list">${entry.outline.map(item => `
+      <li class="toc-item" style="--depth: ${item.level - topLevel}">
+        <button type="button" data-jump="${item.id}">
+          <span class="toc-title">${item.number ? `<span class="toc-number">${escapeHtml(item.number)}</span>` : ""}${item.html}</span>
+        </button>
+      </li>`).join("")}
+    </ul>
+  </dialog>` : "";
+
+  // A note on its own: the single-note layout row (entries are listed
+  // with its private heading already).
+  const row = rowFor(config, null);
+  const isZine = row.layout === "zine";
+  const article = renderEntryBody(entry, { mode: isZine ? "plain" : "running", showByline: showDates(row, entry), zine: isZine });
+  const bodyHtml = `${outlineHtml}
   <div class="entry-page">
-    ${await renderBook(`<article class="paper">${renderEntryBody(entry, { mode: "running" })}</article>`)}
+    ${await renderBook(`<article class="paper${isZine ? " zine-entry" : ""}">${article}</article>`)}
   </div>`;
 
-  // A note on its own always uses the paper layout, but one from a zine
-  // collection keeps the zine's lighter (non-bold) title.
-  const isZine = entry.tags.some(t => layoutOf(config, t) === "zine");
-  const bodyClass = isZine ? "page-entry entry-zine-title" : "page-entry";
-
-  return pageShell({ title: entry.title, bodyHtml, bodyClass, reader: true });
+  const bodyClass = isZine ? "page-entry page-zine" : "page-entry";
+  return pageShell({ title: entry.title, bodyHtml, bodyClass, reader: true, row });
 }
 
 // "/" and "/contents" are the only routes that let someone browse
 // every published entry — that's why they live at HOME_PATH instead
 // of a guessable path. A single entry's own /entry/:hash link (and
 // /static/*) is unaffected either way.
+// Search for the home page: published notes whose title and text hold
+// every word of the query (any case). Lives under the home path, so a
+// hidden home page keeps its search hidden too.
+const SEARCH_PATH = HOME_PATH.replace(/\/$/, "") + "/search";
+
+function searchTextOf(entry) {
+  if (entry.searchText === undefined) {
+    const $ = cheerio.load(`<div>${entry.bodyHtml}</div>`, null, false);
+    $("annotation, .comment-margin-marker").remove();
+    entry.searchText = `${entry.title} ${$.text()}`.replace(/\s+/g, " ").toLowerCase();
+  }
+  return entry.searchText;
+}
+
+app.get(SEARCH_PATH, async (req, res) => {
+  try {
+    const words = String(req.query.q || "").toLowerCase().split(/\s+/).filter(Boolean);
+    const entries = await listEntries();
+    const hits = words.length ? entries.filter(e => words.every(w => searchTextOf(e).includes(w))) : entries;
+    res.json(hits.map(e => e.slug));
+  } catch (error) {
+    res.status(500).json({ error: String(error.message || error) });
+  }
+});
+
 app.get(HOME_PATH, async (_req, res) => {
   try {
     const entries = await listEntries();
     res.type("html").send(resolveVaultLinks(renderHomePage(entries)));
   } catch (error) {
-    res.status(500).type("text").send(`Could not list entries from ${entrySource.label}\n\n${error.stack || error}`);
+    res.status(500).type("text").send(`Could not list notes from ${entrySource.label}\n\n${error.stack || error}`);
   }
 });
 
-// Every note as one book ("/contents"), or one collection.
-app.get([CONTENTS_PATH, `${CONTENTS_PATH}/:tag`], async (req, res) => {
+// One collection as a book.
+app.get(`${CONTENTS_PATH}/:tag`, async (req, res) => {
   try {
     const tag = req.params.tag;
     const entries = await listEntries();
     res.type("html").send(resolveVaultLinks(await renderContentsPage(entries, tag)));
   } catch (error) {
-    res.status(500).type("text").send(`Could not list entries from ${entrySource.label}\n\n${error.stack || error}`);
+    res.status(500).type("text").send(`Could not list notes from ${entrySource.label}\n\n${error.stack || error}`);
   }
+});
+
+// Where a link to a note that isn't published (or doesn't exist) leads.
+function renderUnavailablePage() {
+  const bodyHtml = `
+  <div class="unavailable">
+    <p class="unavailable-title">This note isn't available now.</p>
+    <p class="unavailable-hint">Maybe ask the author to publish it.</p>
+  </div>`;
+  return pageShell({ title: "Not available", bodyHtml, bodyClass: "page-unavailable" });
+}
+
+app.get("/unavailable", (_req, res) => {
+  res.status(404).type("html").send(renderUnavailablePage());
 });
 
 app.get("/entry/:slug", async (req, res) => {
@@ -1579,7 +1731,7 @@ app.get("/entry/:slug", async (req, res) => {
     const entries = await listEntries();
     const entry = entries.find(e => e.slug === req.params.slug);
     if (!entry) {
-      res.status(404).type("text").send(`No entry found for "${req.params.slug}"`);
+      res.status(404).type("html").send(renderUnavailablePage());
       return;
     }
     res.type("html").send(resolveVaultLinks(await renderEntryPage(entry)));
@@ -1588,7 +1740,7 @@ app.get("/entry/:slug", async (req, res) => {
   }
 });
 
-if (entrySource.liveReload) {
+if (LIVE) {
   const watchTargets = [
     entrySource.rootDir,
     path.join(__dirname, "static")
@@ -1600,11 +1752,111 @@ if (entrySource.liveReload) {
     interval: 1000
   }).on("all", (_event, filePath) => {
     if (filePath && filePath.endsWith(".md")) {
-      entryCache.delete(path.relative(entrySource.rootDir, filePath));
+      const id = path.relative(entrySource.rootDir, filePath);
+      for (const key of entryCache.keys()) if (key.startsWith(id + "\u0000")) entryCache.delete(key);
     }
     notifyReload();
   });
 }
+
+// --- Settings page ------------------------------------------------------
+//
+// /settings edits md2book.settings.json (see lib/config.js). Only when
+// the notes are a local folder, and only from this computer: a public
+// deployment never offers it.
+function settingsAvailable() {
+  return LIVE;
+}
+
+function fromThisComputer(req) {
+  const address = req.socket.remoteAddress || "";
+  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
+
+function settingsGuard(req, res, next) {
+  if (settingsAvailable() && fromThisComputer(req)) return next();
+  res.status(404).type("text").send("Not found");
+}
+
+// What the published notes hold, for the settings page to offer: folders (to three
+// levels), frontmatter fields that hold tags (short, one-line values —
+// not ids, dates or text) with the tags they take, inline #tags, and
+// each collection with how many notes it has.
+const NOT_TAG_FIELDS = new Set(["created", "updated", "date", "publish", "title", "aliases", "cssclass", "cssclasses"]);
+
+function isTagValue(value) {
+  return value !== "null" && value.length <= 40 && !/[\n\r]/.test(value);
+}
+
+async function scanVault() {
+  const { notes } = await entrySource.listAll();
+  const all = await Promise.all(notes.map(file => loadEntry(file)));
+  const folders = new Map();
+  const fields = new Map();
+  const inline = new Map();
+  const count = (map, key) => map.set(key, (map.get(key) || 0) + 1);
+  // Folders and tags are offered only as far as published notes have
+  // them (with a publishing field set, notes without it don't count).
+  const published = all.filter(e => e.published);
+  for (const entry of published) {
+    const parts = entry.id.split("/").slice(0, -1);
+    for (let depth = 1; depth <= Math.min(3, parts.length); depth++) count(folders, parts.slice(0, depth).join("/"));
+    for (const [field, value] of Object.entries(entry.frontmatter || {})) {
+      if (value === null || value instanceof Date || (typeof value === "object" && !Array.isArray(value))) continue;
+      if (field.length > 40 || NOT_TAG_FIELDS.has(field.toLowerCase()) || field === config.publish.idField || field === config.publish.require) continue;
+      const values = (Array.isArray(value) ? value : String(value).split(","))
+        .filter(v => v !== null && typeof v !== "object")
+        .map(v => String(v).trim().replace(/^#/, "")).filter(v => v && isTagValue(v));
+      if (!values.length) continue;
+      if (!fields.has(field)) fields.set(field, new Map());
+      for (const v of values) count(fields.get(field), v);
+    }
+    for (const tag of new Set(entry.inlineTags)) count(inline, tag);
+  }
+  const sorted = map => [...map].sort((a, b) => a[0].localeCompare(b[0])).map(([name, notes]) => ({ name, notes }));
+  const collections = new Map();
+  for (const entry of published) for (const tag of entry.tags) count(collections, tag);
+  return {
+    notes: all.length,
+    published: published.length,
+    folders: sorted(folders),
+    fields: [...fields].sort((a, b) => a[0].localeCompare(b[0])).map(([name, values]) => ({ name, values: sorted(values) })),
+    inlineTags: sorted(inline),
+    collections: sorted(collections)
+  };
+}
+
+app.get("/settings", settingsGuard, (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.sendFile(path.join(__dirname, "static", "settings.html"));
+});
+
+app.get("/api/settings", settingsGuard, async (_req, res) => {
+  try {
+    const { file, saved } = readSettings(SETTINGS_DIR);
+    res.json({ file, saved, defaults: DEFAULTS, homePath: HOME_PATH, notesDir: LOCAL_ENTRIES_DIR, vault: await scanVault() });
+  } catch (error) {
+    res.status(500).json({ error: String(error.message || error) });
+  }
+});
+
+app.put("/api/settings", settingsGuard, express.json({ limit: "200kb" }), async (req, res) => {
+  try {
+    const saved = req.body;
+    if (!saved || typeof saved !== "object" || Array.isArray(saved)) throw new Error("Settings must be an object");
+    const next = resolveConfig(saved);
+    const { file } = readSettings(SETTINGS_DIR);
+    writeSettings(file, saved);
+    // Everything reads `config`: swap its contents, re-render notes.
+    for (const key of Object.keys(config)) delete config[key];
+    Object.assign(config, next, { file });
+    entryCache.clear();
+    notifyReload();
+    res.json({ file, vault: await scanVault() });
+  } catch (error) {
+    res.status(400).json({ error: String(error.message || error) });
+  }
+});
 
 // Starts the local server (`npm run dev`, or the md2book command in
 // bin/). Deployed on Vercel, `api/index.js` imports `app` instead and
@@ -1614,7 +1866,7 @@ export function start({ port = PORT, open = process.env.NO_OPEN !== "1" } = {}) 
     const url = `http://localhost:${port}${HOME_PATH}`;
     console.log(`md2book: ${url}`);
     console.log(`Notes:   ${entrySource.label}`);
-    console.log(`Config:  ${config.file || "(none — defaults)"}`);
+    console.log(`Settings: ${settingsAvailable() ? `http://localhost:${port}/settings` : "(md2book.settings.json)"}`);
     if (HOME_PATH !== "/") console.log(`(home path set — plain "/" won't list the notes)`);
 
     if (open) {

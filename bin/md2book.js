@@ -28,6 +28,6 @@ if (!Number.isInteger(port) || port <= 0) {
 }
 
 // server.js reads the folder at import time.
-process.env.JOURNAL_DIR = path.resolve(folder);
+process.env.MD2BOOK_NOTES = path.resolve(folder);
 const { start } = await import("../server.js");
 start({ port, open });

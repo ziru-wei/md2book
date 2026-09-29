@@ -1,0 +1,1046 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>md2book settings</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,300..700;1,8..60,300..700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: rgb(245, 245, 245);
+      --paper: #fbfbfa;
+      --ink: #232527;
+      --muted: #72777b;
+      --rule: #d5d9dc;
+      --accent: #232527;
+      --serif: "Source Serif 4", Georgia, "Songti SC", "Noto Serif SC", serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 15px/1.5 var(--serif);
+    }
+
+    .layout {
+      display: flex;
+      align-items: flex-start;
+      gap: 28px;
+    }
+
+    nav {
+      position: sticky;
+      top: 24px;
+      flex: 0 0 150px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    nav button {
+      border: 0;
+      background: none;
+      text-align: left;
+      font: inherit;
+      font-size: 15px;
+      padding: 8px 12px;
+      border-radius: 5px;
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    nav button:hover { color: var(--ink); }
+
+    nav button[aria-current="true"] {
+      background: var(--paper);
+      color: var(--ink);
+      font-weight: 600;
+      box-shadow: inset 0 0 0 1px var(--rule);
+    }
+
+    #form {
+      flex: 1;
+      min-width: 0;
+    }
+
+    @media (max-width: 700px) {
+      .layout { flex-direction: column; gap: 14px; }
+      nav { position: static; flex-direction: row; flex-wrap: wrap; }
+    }
+
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 40px 20px 120px;
+    }
+
+    header {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      margin-bottom: 8px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 26px;
+      font-weight: 600;
+    }
+
+    .lang {
+      margin-left: auto;
+      display: flex;
+      border: 1px solid var(--rule);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .lang button {
+      border: 0;
+      background: none;
+      font: inherit;
+      font-size: 13px;
+      padding: 3px 12px;
+      cursor: pointer;
+      color: var(--muted);
+    }
+
+    .lang button[aria-pressed="true"] {
+      background: var(--ink);
+      color: #fff;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 13px;
+      margin: 0 0 28px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 16px;
+    }
+
+    .meta code {
+      font-size: 12px;
+      word-break: break-all;
+    }
+
+    .status { margin-left: auto; }
+    .status.error { color: #b22222; }
+
+    section {
+      background: var(--paper);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 20px 22px 8px;
+      margin-bottom: 18px;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .field {
+      margin-bottom: 18px;
+    }
+
+    .field > label.title,
+    .field > .title {
+      display: block;
+      font-weight: 600;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 13px;
+      margin: 2px 0 6px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      max-width: 420px;
+      font: inherit;
+      font-size: 14px;
+      padding: 6px 9px;
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    input[type="text"]:focus {
+      outline: 2px solid rgba(35, 37, 39, .25);
+      border-color: var(--ink);
+    }
+
+    .choices {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 18px;
+    }
+
+    .choices label,
+    .check {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    input[type="radio"],
+    input[type="checkbox"] {
+      accent-color: var(--accent);
+      margin: 0;
+    }
+
+    .list {
+      margin: 8px 0 4px;
+      padding: 8px 10px;
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      background: #fff;
+      max-height: 260px;
+      overflow: auto;
+    }
+
+    .list .check {
+      display: flex;
+      padding: 2px 0;
+    }
+
+    .count {
+      color: var(--muted);
+      font-size: 12px;
+      margin-left: 4px;
+    }
+
+    .empty {
+      color: var(--muted);
+      font-size: 13px;
+      font-style: italic;
+    }
+
+    .tagfield {
+      border-top: 1px solid var(--rule);
+      padding: 8px 0 6px;
+    }
+
+    .tagfield:first-of-type { border-top: 0; }
+
+    .tagfield .sub {
+      margin: 6px 0 0 24px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--rule);
+      font-size: 14px;
+    }
+
+    .row:last-child { border-bottom: 0; }
+
+    .row .choices { flex-wrap: nowrap; }
+
+    .row .rule-note {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      margin: 0 -6px 12px;
+    }
+
+    table.rules {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    table.rules th,
+    table.rules td {
+      padding: 6px 3px;
+      border-bottom: 1px solid var(--rule);
+      text-align: center;
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+
+    table.rules thead th {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--muted);
+      white-space: normal;
+      line-height: 1.2;
+    }
+
+    table.rules tbody th {
+      text-align: left;
+      font-weight: 600;
+    }
+
+    table.rules tbody th.default {
+      font-style: italic;
+    }
+
+    table.rules tbody tr:nth-child(2) th,
+    table.rules tbody tr:nth-child(2) td {
+      border-bottom: 2px solid var(--rule);
+    }
+
+    table.rules select {
+      font: inherit;
+      font-size: 12.5px;
+      padding: 2px 2px;
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      background: #fff;
+      color: var(--ink);
+      max-width: 116px;
+    }
+
+    table.rules input[type="text"] {
+      width: 64px;
+      font-size: 12.5px;
+      padding: 3px 5px;
+    }
+
+    table.rules .na { color: var(--muted); }
+
+    /* Folders / Properties / #Tags: one control, three equal choices. */
+    .segmented {
+      display: inline-flex;
+      padding: 3px;
+      margin-bottom: 14px;
+      background: #eceeef;
+      border-radius: 7px;
+      gap: 2px;
+    }
+
+    .segmented button {
+      border: 0;
+      background: none;
+      font: inherit;
+      font-size: 14px;
+      min-width: 92px;
+      padding: 5px 16px;
+      border-radius: 5px;
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .segmented button[aria-selected="true"] {
+      background: #fff;
+      color: var(--ink);
+      font-weight: 600;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+    }
+
+    /* A title with an explanation on hover. */
+    .tip {
+      cursor: help;
+      text-decoration: underline dotted rgba(114, 119, 123, .6);
+      text-underline-offset: 3px;
+    }
+
+    .remove-rule {
+      border: 0;
+      background: none;
+      font-size: 17px;
+      line-height: 1;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 0 4px;
+    }
+
+    .remove-rule:hover { color: #b22222; }
+
+    .add-rule {
+      font: inherit;
+      font-size: 14px;
+      padding: 6px 12px;
+      border: 1px solid var(--rule);
+      border-radius: 5px;
+      background: #fff;
+      color: var(--ink);
+      cursor: pointer;
+    }
+
+    .add-rule:disabled { color: var(--muted); cursor: default; }
+
+    [hidden] { display: none !important; }
+
+    a { color: inherit; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1 data-t="heading"></h1>
+      <div class="lang" role="group" aria-label="Language">
+        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="zh">中文</button>
+      </div>
+    </header>
+    <p class="meta">
+      <span><span data-t="notesIn"></span> <code id="notes-dir"></code> <span class="hint" data-t="notesHint"></span></span>
+      <span><span data-t="savedTo"></span> <code id="file"></code></span>
+      <a id="open-site" href="/" data-t="openSite"></a>
+      <span class="status" id="status" aria-live="polite"></span>
+    </p>
+    <div class="layout">
+      <nav aria-label="Settings sections">
+        <button type="button" data-pane="publish" data-t="navPublish"></button>
+        <button type="button" data-pane="layout" data-t="navLayout"></button>
+      </nav>
+      <div id="form"></div>
+    </div>
+  </main>
+
+  <script>
+  (() => {
+    "use strict";
+
+    const TEXT = {
+      en: {
+        heading: "Settings",
+        savedTo: "Saved to",
+        notesIn: "Notes in",
+        notesHint: "(to use another folder: node bin/md2book.js <folder>)",
+        navPublish: "Publishing",
+        navLayout: "Layout",
+        openSite: "Open the site →",
+        saving: "Saving…",
+        saved: "Saved",
+        saveFailed: "Couldn't save: ",
+        loadFailed: "Couldn't load the settings: ",
+        needsServer: "This page needs a running md2book (version with settings). Restart md2book, then open /settings on it.",
+        notes: n => (n === 1 ? "1 note" : `${n} notes`),
+
+        site: "Site",
+        title: "Title",
+        titleHint: "The heading of the home page.",
+        browserTitle: "Browser tab title",
+        browserTitleHint: "Leave empty to use the title.",
+        author: "Author",
+        authorHint: "Written into each page's metadata.",
+        homePath: "Home page address",
+        homePathHint: "Where the list of every note lives, e.g. /a1b2c3 to keep it unlisted on a public site. Single notes and collections keep their own links. Takes effect after md2book restarts.",
+
+        publishing: "Publishing",
+        publishWhich: "Which notes are published",
+        publishAll: "Every note, except those with publish: false",
+        publishField: "Only notes that have this frontmatter field:",
+        idField: "Permanent link field",
+        idFieldHint: "A note with this frontmatter field keeps the same address when you rename or move it.",
+
+        collections: "Collections",
+        collectionsHint: "A collection is a group of notes read as one book, at /contents/<name>.",
+        folders: "Folders",
+        foldersHint: "A folder collection holds every note inside it, subfolders included.",
+        srcFolders: "Folders",
+        srcProperties: "Properties",
+        srcInline: "#Tags",
+        inlineHint: "#tags written in the text of notes.",
+        foldersAll: "Every top-level folder",
+        foldersChosen: "Only these folders",
+        foldersNone: "No folders",
+        noFolders: "No folders in your notes.",
+        tagFields: "Tags from frontmatter fields",
+        tagFieldsHint: "Tags in a frontmatter property (e.g. publishTag). Tick a property to turn its tags into collections.",
+        allTags: "All its tags",
+        chosenTags: "Only these tags:",
+        noFields: "No frontmatter fields in your notes.",
+        inlineOff: "Ignore",
+        inlineAll: "All of them",
+        inlineChosen: "Only these:",
+        noInline: "No #tags in your notes.",
+
+        layouts: "Layout",
+        tipNote: "A note opened on its own page.",
+        tipCollection: "Every collection without a row of its own.",
+        tipLayout: "Paper: each note starts a fresh page, columns filled top to bottom. Zine: notes run on one after another.",
+        tipOpen: "Where a collection opens: its newest note, or its first page.",
+        tipDropCap: "A large first letter on a note's opening paragraph.",
+        tipPageNumbers: "\"01/09\" at the foot of each page.",
+        tipFigures: "\"Figure 1.\" under images.",
+        tipTables: "\"Table 1.\" under tables.",
+        tipHeadings: "Section numbers (1, 1.1 …) before headings.",
+        tipColumns: "Body text in one or two columns. Phones and the tablet layout always use one.",
+        tipDates: "The \"written on …, updated …\" line.",
+        tipPrivate: "A level-2 heading with exactly this text: it and everything after it are left out.",
+        colCollection: "",
+        colLayout: "Layout",
+        colOpen: "Opens at",
+        colDropCap: "Drop cap",
+        colPageNumbers: "Page no.",
+        colFigures: "Fig. no.",
+        colTables: "Table no.",
+        colHeadings: "Section no.",
+        colColumns: "Columns",
+        colDates: "Dates",
+        colPrivate: "Private heading",
+        rowNote: "Single note",
+        rowCollection: "Any collection",
+        openNewest: "Newest",
+        openStart: "Start",
+        datesShow: "Show",
+        datesHide: "Hide",
+        none: "none",
+        notInNotes: "(not in notes)",
+        addRule: "+ Rule for a collection",
+        addRuleHint: "Starts as a copy of the collection row.",
+        allHaveRules: "Every collection has its own row.",
+        removeRule: "Remove this row",
+
+        text: "Text and fonts",
+        titleCase: "Title Case for titles and headings",
+        bookTitles: "Set 《book titles》 as 「bold italic」",
+        subtitleSeparators: "Title / subtitle separators",
+        subtitleSeparatorsHint: "A title splits into title and subtitle at the first of these characters. Leave empty to never split.",
+        adobeKit: "Adobe Fonts project ID",
+        adobeKitHint: "Optional, e.g. for a Chinese serif. Adobe only serves it on the domains added to that project."
+      },
+      zh: {
+        heading: "设置",
+        savedTo: "保存在",
+        notesIn: "笔记文件夹",
+        notesHint: "（换一个文件夹：node bin/md2book.js <文件夹路径>）",
+        navPublish: "发布",
+        navLayout: "排版",
+        openSite: "打开站点 →",
+        saving: "正在保存…",
+        saved: "已保存",
+        saveFailed: "保存失败：",
+        loadFailed: "无法读取设置：",
+        needsServer: "这个页面需要正在运行、且带设置功能的 md2book。请重启 md2book，然后打开它的 /settings。",
+        notes: n => `${n} 篇`,
+
+        site: "站点",
+        title: "标题",
+        titleHint: "首页上显示的标题。",
+        browserTitle: "浏览器标签页标题",
+        browserTitleHint: "留空则与标题相同。",
+        author: "作者",
+        authorHint: "写入每个页面的元信息。",
+        homePath: "首页地址",
+        homePathHint: "「所有笔记列表」所在的路径，比如 /a1b2c3，让公开站点不被随意浏览；单篇笔记和合集的链接不受影响。重启 md2book 后生效。",
+
+        publishing: "发布",
+        publishWhich: "哪些笔记会被发布",
+        publishAll: "所有笔记（写了 publish: false 的除外）",
+        publishField: "只发布带有这个 frontmatter 字段的笔记：",
+        idField: "永久链接字段",
+        idFieldHint: "带有这个 frontmatter 字段的笔记，改名或移动后地址不变。",
+
+        collections: "合集",
+        collectionsHint: "合集是一组笔记，在 /contents/<名字> 当作一本书来读。",
+        folders: "文件夹",
+        foldersHint: "文件夹合集包含其中所有笔记，包括各层子文件夹。",
+        srcFolders: "文件夹",
+        srcProperties: "属性",
+        srcInline: "#标签",
+        inlineHint: "笔记正文里写的 #标签。",
+        foldersAll: "每个顶层文件夹",
+        foldersChosen: "只用这些文件夹",
+        foldersNone: "不用文件夹",
+        noFolders: "笔记里没有文件夹。",
+        tagFields: "frontmatter 字段里的标签",
+        tagFieldsHint: "frontmatter 属性（比如 publishTag）里的标签。勾选一个属性，它的标签就会成为合集。",
+        allTags: "所有标签",
+        chosenTags: "只用这些标签：",
+        noFields: "笔记里没有 frontmatter 字段。",
+        inlineOff: "不使用",
+        inlineAll: "全部",
+        inlineChosen: "只用这些：",
+        noInline: "笔记里没有 #标签。",
+
+        layouts: "排版",
+        tipNote: "单独打开的一篇笔记。",
+        tipCollection: "所有没有单独规则的合集。",
+        tipLayout: "Paper：每篇笔记从新的一页开始，栏从上往下排满。Zine：笔记一篇接一篇连续排。",
+        tipOpen: "打开合集时停在最新一篇，还是从第一页开始。",
+        tipDropCap: "笔记第一段的首字放大下沉。",
+        tipPageNumbers: "每页底部的「01/09」。",
+        tipFigures: "图片下方的「Figure 1.」。",
+        tipTables: "表格下方的「Table 1.」。",
+        tipHeadings: "标题前的章节编号（1、1.1……）。",
+        tipColumns: "正文一栏或两栏。手机和平板排版始终是一栏。",
+        tipDates: "「written on …, updated …」这一行。",
+        tipPrivate: "正文里这个文字的二级标题，连同它之后的内容都不会发布。",
+        colCollection: "",
+        colLayout: "排版",
+        colOpen: "打开于",
+        colDropCap: "首字下沉",
+        colPageNumbers: "页码",
+        colFigures: "图号",
+        colTables: "表号",
+        colHeadings: "标题号",
+        colColumns: "栏数",
+        colDates: "日期",
+        colPrivate: "私密标题",
+        rowNote: "单篇笔记",
+        rowCollection: "所有合集",
+        openNewest: "最新一篇",
+        openStart: "第一页",
+        datesShow: "显示",
+        datesHide: "不显示",
+        none: "无",
+        notInNotes: "（笔记里没有）",
+        addRule: "+ 为某个合集添加规则",
+        addRuleHint: "新的一行先复制「所有合集」的设置。",
+        allHaveRules: "每个合集都已有自己的规则。",
+        removeRule: "删除这一行",
+
+        text: "文字与字体",
+        titleCase: "标题和小标题使用 Title Case",
+        bookTitles: "把《书名》排成「粗斜体」",
+        subtitleSeparators: "主副标题分隔符",
+        subtitleSeparatorsHint: "标题在第一个出现的这些字符处分成主标题和副标题。留空则不拆分。",
+        adobeKit: "Adobe Fonts 项目 ID",
+        adobeKitHint: "可选，比如用于中文衬线字体。Adobe 只在该项目里登记过的域名上提供字体。"
+      }
+    };
+
+    let lang = "en";
+    try { lang = localStorage.getItem("md2book-settings-lang") || (navigator.language.startsWith("zh") ? "zh" : "en"); } catch { /* storage unavailable */ }
+    const t = key => TEXT[lang][key] ?? TEXT.en[key] ?? key;
+
+    let defaults = null;
+    // Which collection source the segmented control shows.
+    let source = "folders";
+    let settings = null;   // defaults merged with the saved file
+    let vault = null;
+
+    const $ = (sel, root = document) => root.querySelector(sel);
+    const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+    function isObject(v) { return v && typeof v === "object" && !Array.isArray(v); }
+
+    function merge(base, over) {
+      const out = { ...base };
+      for (const [k, v] of Object.entries(over || {})) out[k] = isObject(v) && isObject(base[k]) ? merge(base[k], v) : v;
+      return out;
+    }
+
+    // Only what differs from the defaults is saved.
+    function diff(value, base) {
+      if (isObject(value) && isObject(base)) {
+        const out = {};
+        for (const [k, v] of Object.entries(value)) {
+          if (k === "tags" && isObject(v)) {
+            if (JSON.stringify(v) !== JSON.stringify(base[k])) out[k] = v;
+            continue;
+          }
+          const d = diff(v, base[k]);
+          if (d !== undefined) out[k] = d;
+        }
+        return Object.keys(out).length ? out : undefined;
+      }
+      return JSON.stringify(value) === JSON.stringify(base) ? undefined : value;
+    }
+
+    // --- saving ----------------------------------------------------------
+
+    let saveTimer = null;
+    // Set when a change alters which notes are published: the lists of
+    // folders and tags are redrawn from the server's answer.
+    let refreshLists = false;
+    // Kept as a key (plus detail) so a language switch re-translates it.
+    let status = null;
+    function setStatus(key, detail = "", error = false) {
+      status = { key, detail, error };
+      showStatus();
+    }
+    function showStatus() {
+      const el = $("#status");
+      el.textContent = status ? t(status.key) + status.detail : "";
+      el.classList.toggle("error", !!(status && status.error));
+    }
+
+    function scheduleSave(immediate = false) {
+      clearTimeout(saveTimer);
+      setStatus("saving");
+      saveTimer = setTimeout(save, immediate ? 0 : 450);
+    }
+
+    async function save() {
+      try {
+        const res = await fetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(diff(settings, defaults) || {})
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || res.status);
+        vault = data.vault;
+        $("#file").textContent = data.file;
+        if (refreshLists) {
+          refreshLists = false;
+          const y = window.scrollY;
+          render();
+          window.scrollTo(0, y);
+        }
+        setStatus("saved");
+      } catch (error) {
+        setStatus("saveFailed", error.message, true);
+      }
+    }
+
+    // --- form helpers ------------------------------------------------------
+
+    function get(path) {
+      return path.split(".").reduce((o, k) => (o == null ? o : o[k]), settings);
+    }
+
+    function set(path, value) {
+      const keys = path.split(".");
+      let o = settings;
+      for (const k of keys.slice(0, -1)) o = o[k] ??= {};
+      o[keys.at(-1)] = value;
+    }
+
+    function textField(path, labelKey, hintKey, { placeholder = "", empty = "" } = {}) {
+      const id = "f-" + path.replace(/\./g, "-");
+      return `<div class="field">
+        <label class="title" for="${id}">${esc(t(labelKey))}</label>
+        ${hintKey ? `<div class="hint">${esc(t(hintKey))}</div>` : ""}
+        <input type="text" id="${id}" data-text="${path}" data-empty="${esc(empty)}" value="${esc(get(path) ?? "")}" placeholder="${esc(placeholder)}" />
+      </div>`;
+    }
+
+    function checkField(path, labelKey) {
+      return `<div class="field"><label class="check"><input type="checkbox" data-bool="${path}" ${get(path) ? "checked" : ""} /> ${esc(t(labelKey))}</label></div>`;
+    }
+
+    function radios(name, options, current) {
+      return `<div class="choices">${options.map(([value, labelKey]) =>
+        `<label><input type="radio" name="${name}" value="${esc(value)}" ${String(current) === String(value) ? "checked" : ""} /> ${esc(t(labelKey))}</label>`
+      ).join("")}</div>`;
+    }
+
+    function checklist(items, chosen, group, emptyKey) {
+      if (!items.length) return `<div class="empty">${esc(t(emptyKey))}</div>`;
+      const set = new Set((chosen || []).map(v => String(v).toLowerCase()));
+      return `<div class="list">${items.map(item => {
+        const depth = group === "folders" ? item.name.split("/").length - 1 : 0;
+        return `<label class="check" style="padding-left:${depth * 18}px"><input type="checkbox" data-group="${esc(group)}" value="${esc(item.name)}" ${set.has(item.name.toLowerCase()) ? "checked" : ""} /> ${esc(depth ? item.name.split("/").at(-1) : item.name)}<span class="count">${esc(t("notes")(item.notes))}</span></label>`;
+      }).join("")}</div>`;
+    }
+
+    // --- rendering -----------------------------------------------------------
+
+    function render() {
+      document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+      document.title = lang === "zh" ? "md2book 设置" : "md2book settings";
+      document.querySelectorAll("[data-t]").forEach(el => { el.textContent = t(el.dataset.t); });
+      document.querySelectorAll(".lang button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
+      showStatus();
+
+      const s = settings;
+      const folders = s.collections.folders;
+      const folderMode = folders === true ? "all" : Array.isArray(folders) ? "chosen" : "none";
+      const inline = s.collections.inlineTags;
+      const inlineMode = inline === true || inline === "*" ? "all" : Array.isArray(inline) ? "chosen" : "off";
+      const tags = s.collections.tags || {};
+
+      const fieldsHtml = vault.fields.length ? vault.fields.map(field => {
+        const rule = tags[field.name];
+        const on = rule !== undefined;
+        const mode = rule === "*" || rule === true ? "all" : "chosen";
+        return `<div class="tagfield" data-field="${esc(field.name)}">
+          <label class="check"><input type="checkbox" data-field-on="${esc(field.name)}" ${on ? "checked" : ""} /> <b>${esc(field.name)}</b><span class="count">${esc(field.values.length)} ${lang === "zh" ? "个值" : "values"}</span></label>
+          <div class="sub" ${on ? "" : "hidden"}>
+            ${radios("tagmode-" + field.name, [["all", "allTags"], ["chosen", "chosenTags"]], mode)}
+            <div ${mode === "chosen" ? "" : "hidden"}>${checklist(field.values, Array.isArray(rule) ? rule : [], "tag:" + field.name, "noFields")}</div>
+          </div>
+        </div>`;
+      }).join("") : `<div class="empty">${esc(t("noFields"))}</div>`;
+
+      $("#form").innerHTML = `
+        <section data-pane="publish">
+          <h2>${esc(t("site"))}</h2>
+          ${textField("site.title", "title", "titleHint")}
+          ${textField("site.browserTitle", "browserTitle", "browserTitleHint", { placeholder: s.site.title })}
+          ${textField("site.author", "author", "authorHint")}
+          ${textField("site.homePath", "homePath", "homePathHint", { empty: "/" })}
+        </section>
+
+        <section data-pane="publish">
+          <h2>${esc(t("publishing"))}</h2>
+          <div class="field">
+            <span class="title">${esc(t("publishWhich"))}</span>
+            <div class="choices" style="flex-direction:column;gap:6px">
+              <label><input type="radio" name="publish" value="all" ${s.publish.require ? "" : "checked"} /> ${esc(t("publishAll"))}</label>
+              <label><input type="radio" name="publish" value="field" ${s.publish.require ? "checked" : ""} /> ${esc(t("publishField"))}
+                <input type="text" id="publish-field" style="width:160px" value="${esc(s.publish.require || "publishID")}" /></label>
+            </div>
+          </div>
+          ${textField("publish.idField", "idField", "idFieldHint")}
+        </section>
+
+        <section data-pane="publish">
+          <h2>${esc(t("collections"))}</h2>
+          <div class="hint" style="margin-top:-8px;margin-bottom:14px">${esc(t("collectionsHint"))}</div>
+          <div class="segmented" role="tablist">
+            ${[["folders", "srcFolders"], ["properties", "srcProperties"], ["inline", "srcInline"]].map(([id, key]) =>
+              `<button type="button" role="tab" data-source="${id}" aria-selected="${source === id}">${esc(t(key))}</button>`).join("")}
+          </div>
+          <div class="field" data-source-panel="folders" ${source === "folders" ? "" : "hidden"}>
+            <div class="hint">${esc(t("foldersHint"))}</div>
+            ${radios("folders", [["all", "foldersAll"], ["chosen", "foldersChosen"], ["none", "foldersNone"]], folderMode)}
+            <div ${folderMode === "chosen" ? "" : "hidden"}>${checklist(vault.folders, Array.isArray(folders) ? folders : [], "folders", "noFolders")}</div>
+          </div>
+          <div class="field" data-source-panel="properties" ${source === "properties" ? "" : "hidden"}>
+            <div class="hint">${esc(t("tagFieldsHint"))}</div>
+            ${fieldsHtml}
+          </div>
+          <div class="field" data-source-panel="inline" ${source === "inline" ? "" : "hidden"}>
+            <div class="hint">${esc(t("inlineHint"))}</div>
+            ${radios("inline", [["off", "inlineOff"], ["all", "inlineAll"], ["chosen", "inlineChosen"]], inlineMode)}
+            <div ${inlineMode === "chosen" ? "" : "hidden"}>${checklist(vault.inlineTags, Array.isArray(inline) ? inline : [], "inline", "noInline")}</div>
+          </div>
+        </section>
+
+        <section data-pane="layout">
+          <h2>${esc(t("layouts"))}</h2>
+          <div class="table-wrap"><table class="rules" id="rules"></table></div>
+          <button type="button" class="add-rule" id="add-rule">${esc(t("addRule"))}</button>
+        </section>
+
+        <section data-pane="layout">
+          <h2>${esc(t("text"))}</h2>
+          ${checkField("typography.titleCase", "titleCase")}
+          ${checkField("typography.bookTitleMarks", "bookTitles")}
+          ${textField("typography.subtitleSeparators", "subtitleSeparators", "subtitleSeparatorsHint")}
+          ${textField("fonts.adobeKit", "adobeKit", "adobeKitHint")}
+        </section>
+      `;
+      renderRules();
+      showPane();
+    }
+
+    // --- navigation: Publishing / Layout ---------------------------------------
+
+    const PANES = ["publish", "layout"];
+    let pane = PANES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "publish";
+
+    function showPane() {
+      document.querySelectorAll("#form section").forEach(section => { section.hidden = section.dataset.pane !== pane; });
+      document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-current", String(b.dataset.pane === pane)));
+    }
+
+    document.querySelectorAll("nav button").forEach(button => button.addEventListener("click", () => {
+      pane = button.dataset.pane;
+      history.replaceState(null, "", "#" + pane);
+      showPane();
+      window.scrollTo(0, 0);
+    }));
+
+    // --- the layout table: single notes, collections, then a row per rule ----
+
+    // [setting, column title, its explanation (a tooltip on the title)]
+    const COLUMNS = [
+      ["layout", "colLayout", "tipLayout"], ["open", "colOpen", "tipOpen"], ["dropCap", "colDropCap", "tipDropCap"],
+      ["pageNumbers", "colPageNumbers", "tipPageNumbers"], ["numberFigures", "colFigures", "tipFigures"],
+      ["numberTables", "colTables", "tipTables"], ["numberHeadings", "colHeadings", "tipHeadings"],
+      ["columns", "colColumns", "tipColumns"], ["dates", "colDates", "tipDates"], ["privateHeading", "colPrivate", "tipPrivate"]
+    ];
+    const tip = key => `class="tip" title="${esc(t(key))}"`;
+
+    function select(key, value, options, disabled = false) {
+      return `<select data-key="${key}" ${disabled ? "disabled" : ""}>${options.map(([v, label]) =>
+        `<option value="${esc(v)}" ${String(v) === String(value) ? "selected" : ""}>${esc(label)}</option>`).join("")}</select>`;
+    }
+
+    function cell(key, row, isNote) {
+      const v = row[key];
+      switch (key) {
+        case "layout": return select(key, v, [["paper", "Paper"], ["zine", "Zine"]]);
+        case "open": return isNote ? `<span class="na">—</span>` : select(key, v, [["latest", t("openNewest")], ["first", t("openStart")]]);
+        case "columns": return select(key, v, [["1", "1"], ["2", "2"]]);
+        case "dates": return select(key, v === "hide" ? "hide" : "show", [["show", t("datesShow")], ["hide", t("datesHide")]]);
+        case "privateHeading": return `<input type="text" data-key="${key}" value="${esc(v || "")}" placeholder="${esc(t("none"))}" />`;
+        default: return `<input type="checkbox" data-key="${key}" ${v ? "checked" : ""} />`;
+      }
+    }
+
+    function collectionNames() {
+      return vault.collections.map(c => c.name);
+    }
+
+    function renderRules() {
+      const table = $("#rules");
+      if (!table) return;
+      const L = settings.layouts;
+      L.rules ||= [];
+      const used = L.rules.map(r => String(r.collection).toLowerCase());
+      const head = `<thead><tr><th>${esc(t("colCollection"))}</th>${COLUMNS.map(([, k, tipKey]) => `<th><span ${tip(tipKey)}>${esc(t(k))}</span></th>`).join("")}<th></th></tr></thead>`;
+      const tr = (label, row, id, isNote, extra = "") =>
+        `<tr data-row="${id}">${label}${COLUMNS.map(([key]) => `<td>${cell(key, row, isNote)}</td>`).join("")}<td>${extra}</td></tr>`;
+      const rows = [
+        tr(`<th scope="row" class="default"><span ${tip("tipNote")}>${esc(t("rowNote"))}</span></th>`, L.note, "note", true),
+        tr(`<th scope="row" class="default"><span ${tip("tipCollection")}>${esc(t("rowCollection"))}</span></th>`, L.collection, "collection", false),
+        ...L.rules.map((rule, i) => {
+          const row = { ...L.collection, ...rule };
+          const names = collectionNames();
+          const options = [...new Set([rule.collection, ...names])]
+            .filter(n => n === rule.collection || !used.includes(n.toLowerCase()))
+            .map(n => [n, names.includes(n) ? n : `${n} ${t("notInNotes")}`]);
+          return tr(`<th scope="row">${select("collection", rule.collection, options)}</th>`, row, i, false,
+            `<button type="button" class="remove-rule" data-remove="${i}" title="${esc(t("removeRule"))}" aria-label="${esc(t("removeRule"))}">×</button>`);
+        })
+      ];
+      table.innerHTML = head + `<tbody>${rows.join("")}</tbody>`;
+      const free = collectionNames().filter(n => !used.includes(n.toLowerCase()));
+      $("#add-rule").disabled = !free.length;
+      $("#add-rule").title = free.length ? t("addRuleHint") : t("allHaveRules");
+    }
+
+    function addRule() {
+      const used = settings.layouts.rules.map(r => String(r.collection).toLowerCase());
+      const name = collectionNames().find(n => !used.includes(n.toLowerCase()));
+      if (!name) return;
+      settings.layouts.rules.push({ collection: name, ...structuredClone(settings.layouts.collection) });
+      renderRules();
+      scheduleSave(true);
+    }
+
+    document.addEventListener("click", event => {
+      const seg = event.target.closest && event.target.closest("[data-source]");
+      if (seg) {
+        source = seg.dataset.source;
+        document.querySelectorAll("[data-source]").forEach(b => b.setAttribute("aria-selected", String(b === seg)));
+        document.querySelectorAll("[data-source-panel]").forEach(p => { p.hidden = p.dataset.sourcePanel !== source; });
+      }
+      if (event.target.id === "add-rule") addRule();
+      const remove = event.target.dataset && event.target.dataset.remove;
+      if (remove !== undefined) {
+        settings.layouts.rules.splice(Number(remove), 1);
+        renderRules();
+        scheduleSave(true);
+      }
+    });
+
+    // A change in the layout table.
+    function onRuleChange(el) {
+      const tr = el.closest("tr[data-row]");
+      const id = tr.dataset.row;
+      const L = settings.layouts;
+      const row = id === "note" ? L.note : id === "collection" ? L.collection : L.rules[Number(id)];
+      const key = el.dataset.key;
+      let value = el.type === "checkbox" ? el.checked : el.value;
+      if (key === "columns") value = Number(value);
+      if (key === "privateHeading") value = value.trim();
+      row[key] = value;
+      if (key === "collection") renderRules();
+    }
+
+    // --- reading the form ------------------------------------------------------
+
+    function chosenIn(group) {
+      return Array.from(document.querySelectorAll(`input[data-group="${CSS.escape(group)}"]:checked`), el => el.value);
+    }
+
+    function onChange(event) {
+      const el = event.target;
+      const s = settings;
+      let rerender = false;
+
+      if (el.dataset.text) {
+        const value = el.value.trim();
+        set(el.dataset.text, value || (el.dataset.empty || null));
+        if (el.dataset.text === "site.title") $("#f-site-browserTitle").placeholder = value;
+      } else if (el.dataset.bool) {
+        set(el.dataset.bool, el.checked);
+      } else if (el.name === "publish" || el.id === "publish-field") {
+        const byField = $('input[name="publish"][value="field"]').checked;
+        s.publish.require = byField ? ($("#publish-field").value.trim() || null) : null;
+        // Not while typing the field name (the redraw would take focus).
+        if (event.type === "change") refreshLists = true;
+      } else if (el.name === "folders") {
+        s.collections.folders = el.value === "all" ? true : el.value === "none" ? false : chosenIn("folders");
+        rerender = true;
+      } else if (el.dataset.group === "folders") {
+        s.collections.folders = chosenIn("folders");
+      } else if (el.dataset.fieldOn) {
+        const tags = { ...(s.collections.tags || {}) };
+        if (el.checked) tags[el.dataset.fieldOn] = "*";
+        else delete tags[el.dataset.fieldOn];
+        s.collections.tags = tags;
+        rerender = true;
+      } else if (el.name && el.name.startsWith("tagmode-")) {
+        const field = el.name.slice("tagmode-".length);
+        s.collections.tags = { ...s.collections.tags, [field]: el.value === "all" ? "*" : chosenIn("tag:" + field) };
+        rerender = true;
+      } else if (el.dataset.group && el.dataset.group.startsWith("tag:")) {
+        const field = el.dataset.group.slice(4);
+        s.collections.tags = { ...s.collections.tags, [field]: chosenIn(el.dataset.group) };
+      } else if (el.name === "inline") {
+        s.collections.inlineTags = el.value === "all" ? true : el.value === "off" ? false : chosenIn("inline");
+        rerender = true;
+      } else if (el.dataset.group === "inline") {
+        s.collections.inlineTags = chosenIn("inline");
+      } else if (el.closest && el.closest("#rules")) {
+        onRuleChange(el);
+      } else {
+        return;
+      }
+
+      if (rerender) {
+        const y = window.scrollY;
+        render();
+        window.scrollTo(0, y);
+      }
+      scheduleSave(el.type !== "text");
+    }
+
+    document.addEventListener("change", onChange);
+    // Text fields save as you type (after a pause).
+    document.addEventListener("input", event => { if (event.target.type === "text") onChange(event); });
+
+    document.querySelectorAll(".lang button").forEach(button => button.addEventListener("click", () => {
+      lang = button.dataset.lang;
+      try { localStorage.setItem("md2book-settings-lang", lang); } catch { /* storage unavailable */ }
+      const y = window.scrollY;
+      render();
+      window.scrollTo(0, y);
+    }));
+
+    fetch("/api/settings").then(async res => {
+      // Anything but JSON: an older md2book, or the file opened on its own.
+      if (!(res.headers.get("content-type") || "").includes("json")) throw Object.assign(new Error(), { needsServer: true });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.status);
+      defaults = data.defaults;
+      // A copy: edits must never change `defaults` (saving compares the two).
+      settings = merge(structuredClone(defaults), data.saved);
+      if (data.saved.collections && data.saved.collections.tags) settings.collections.tags = data.saved.collections.tags;
+      vault = data.vault;
+      $("#file").textContent = data.file;
+      $("#notes-dir").textContent = data.notesDir;
+      $("#open-site").href = data.homePath || "/";
+      render();
+    }).catch(error => {
+      render.failed = true;
+      document.querySelectorAll("[data-t]").forEach(el => { el.textContent = t(el.dataset.t); });
+      if (error.needsServer) setStatus("needsServer", "", true);
+      else setStatus("loadFailed", error.message, true);
+    });
+  })();
+  </script>
+</body>
+</html>

@@ -43,7 +43,7 @@
   // =========================================================
 
   // A block with one of these break-after values stays on the same page
-  // as whatever follows it (titles, teasers — see journal.css).
+  // as whatever follows it (titles, teasers — see book.css).
   const KEEP_WITH_NEXT = new Set(["avoid", "avoid-page"]);
 
   // Leaves that can't be cut into: the page break goes before them.
@@ -143,7 +143,7 @@
       else img.loading = "eager";
     }
     // Phone and tablet pages keep a margin for side comments only when
-    // there are any (see journal.css).
+    // there are any (see book.css).
     root.classList.toggle("has-notes", !!flow.querySelector(".comment-marker"));
     area.appendChild(flow);
 
@@ -716,7 +716,7 @@
     });
   }
 
-  // Margin comments (see .comment-margin-marker in journal.css): each
+  // Margin comments (see .comment-margin-marker in book.css): each
   // note moves out of the text into its page's .page-comments layer, at
   // the height of its anchor, in the margin nearest the anchor's column.
   // A note that would overlap the one above it in the same margin is
@@ -728,6 +728,8 @@
     const layout = root.dataset.layout;
     if (layout === "phone") return "right";
     if (layout === "tablet") return page.classList.contains("page--left") ? "left" : "right";
+    // One column of text: the outer margin of the page in a spread.
+    if (root.classList.contains("cols-1")) return page.classList.contains("page--left") ? "left" : "right";
     return inLeftHalf ? "left" : "right";
   }
 
@@ -786,7 +788,7 @@
       column.forEach((item, i) => { item.note.style.top = tops[i] + "px"; });
     }
     // Phone: only a page with notes moves its text over to make room for
-    // them (see journal.css).
+    // them (see book.css).
     page.classList.add("page--notes");
   }
 
@@ -837,7 +839,7 @@
 
       const next = paginate(prep.firstChild, running, staging);
       prep.remove();
-      numberPages(next);
+      if (!root.classList.contains("no-page-numbers")) numberPages(next);
       next.forEach(placeMarginNotes);
       // A re-cut (late font or image) that lands every line where it
       // already is changes nothing on screen — keep the pages showing.
@@ -873,7 +875,7 @@
   const isTablet = isTouch && Math.min(screen.width, screen.height) >= 600;
   root.classList.toggle("is-touch", isTouch);
 
-  // Which page geometry to cut for (see journal.css):
+  // Which page geometry to cut for (see book.css):
   // - "book": the fixed two-column page, scaled to fit — desktop, and a
   //   portrait tablet.
   // - "phone": the page IS the screen, one column, larger type.
@@ -882,9 +884,9 @@
   // Only "book" pages are independent of the screen; the other two are
   // cut again whenever the screen's shape changes.
   // Desktop: the backslash key switches between the book page and the
-  // tablet-style spread (remembered across visits).
+  // tablet-style spread — for this visit only: a reload opens the page as
+  // the settings lay it out again.
   let wantsTablet = false;
-  try { wantsTablet = localStorage.getItem("md2book-layout") === "tablet"; } catch { /* storage unavailable */ }
 
   function layoutFor() {
     if (!isTouch) return wantsTablet ? "tablet" : "book";
@@ -914,7 +916,7 @@
   }
 
   let pages = [];
-  // The .page size from journal.css, read while pages are still laid
+  // The .page size from book.css, read while pages are still laid
   // out in staging — on screen, all but the current spread are hidden.
   let pageWidth = 0;
   let pageHeight = 0;
@@ -1006,18 +1008,19 @@
     spreads.forEach((spread, i) => spread.classList.toggle("is-current", i === current));
   }
 
-  // Shows the spread holding the start of entry `slug` (its article's
-  // id="card-<slug>" — a split article's continuations carry the same
-  // id, and the first one in page order is where it starts).
-  function jumpToEntry(slug) {
-    const marker = book.querySelector("#card-" + CSS.escape(slug));
+  // Shows the spread where element `id` starts: a note in a collection
+  // (id="card-<slug>") or a heading (id="sec-N"). A split element's
+  // continuations carry the same id; the first in page order is where
+  // it starts.
+  function jumpTo(id) {
+    const marker = book.querySelector("#" + CSS.escape(id));
     const page = marker && marker.closest(".page");
     if (page) show(Math.floor(pages.indexOf(page) / perSpread));
   }
 
   function openingPosition() {
     show(0);
-    if (latestSlug) jumpToEntry(latestSlug);
+    if (latestSlug) jumpTo("card-" + latestSlug);
   }
 
   function setPages(next) {
@@ -1057,7 +1060,6 @@
 
   function toggleTabletLayout() {
     wantsTablet = !wantsTablet;
-    try { localStorage.setItem("md2book-layout", wantsTablet ? "tablet" : "book"); } catch { /* storage unavailable */ }
     if (applyLayout()) recut();
   }
 
@@ -1384,7 +1386,7 @@
     tocDialog.querySelectorAll("[data-jump]").forEach(btn => {
       btn.addEventListener("click", () => {
         navigated = true;
-        jumpToEntry(btn.dataset.jump);
+        jumpTo(btn.dataset.jump);
         tocDialog.close();
       });
     });
@@ -1398,7 +1400,7 @@
 
   // Pinch-zoomed in (the visual viewport scaled up), a finger pans the
   // zoomed page in any direction instead of turning it: .is-zoomed hands
-  // panning back to the browser (see journal.css). Pinch-zoom is analog
+  // panning back to the browser (see book.css). Pinch-zoom is analog
   // and rarely lands back on exactly 1.0, hence the margin.
   //
   // Desktop Safari reports a trackpad pinch through its own gesture

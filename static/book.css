@@ -89,7 +89,7 @@ body {
   font-family: var(--serif);
 }
 
-/* Journal (list) page: light background. */
+/* Home page (the list of notes): light background. */
 body.page-index {
   background: var(--index-bg);
 }
@@ -540,14 +540,6 @@ html.reader.is-zoomed body {
   break-after: avoid-page;
 }
 
-/* A note from a zine collection on its own page: only drops the bold
-   weight, otherwise identical to a normal title (see .page-zine .title
-   below for the zine's fuller typographic treatment, which this
-   deliberately does NOT also pull in here). */
-.entry-zine-title .title {
-  font-weight: 400;
-}
-
 /* A title with "/" or ":" (half- or full-width) splits into these two
    — see splitTitleSubtitle() in server.js. .title-main just inherits
    .title's own size; .title-sub is deliberately smaller/italic and
@@ -670,7 +662,7 @@ html.reader.is-zoomed body {
 /* Drop cap: first letter of the opening paragraph when the body starts
    directly with text (no preceding heading). Server adds .drop-cap class
    only when the first child element is a <p>, not a heading or figure. */
-.body p.drop-cap::first-letter {
+html:not(.no-drop-cap) .body p.drop-cap::first-letter {
   font-size: 2.5em;
   font-weight: 400;
   float: left;
@@ -688,6 +680,18 @@ html.reader.is-zoomed body {
   break-after: avoid-column;
   break-inside: avoid;
   font-family: var(--serif);
+}
+
+/* Numbers a layout turns off (html.no-*-numbers, see rowClasses in
+   server.js): the number goes, and so does a caption that was only a
+   number. */
+.no-figure-numbers .figure-number,
+.no-figure-numbers figure:not(.md-table) > figcaption.caption--bare,
+.no-table-numbers .table-number,
+.no-table-numbers figure.md-table > figcaption.caption--bare,
+.no-heading-numbers .heading-number,
+.no-heading-numbers .toc-number {
+  display: none;
 }
 
 /* Section number ("1.2") before a heading's text, set by server.js. */
@@ -810,6 +814,15 @@ html.reader.is-zoomed body {
      (e.g. wide diagrams) don't overflow the column height */
   max-height: 320px;
   object-fit: contain;
+}
+
+/* An image inside running text (not a figure of its own) still fits
+   the column. */
+.body p img {
+  max-width: 100%;
+  max-height: 320px;
+  height: auto;
+  vertical-align: middle;
 }
 
 /* CUSTOMIZABLE STYLE: 正片叠底 (multiply) on publication figures —
@@ -1186,9 +1199,10 @@ figure.md-table figcaption {
   text-underline-offset: .15em;
 }
 
-/* A link to a note that isn't published: just its text. */
+/* A link to a note that isn't published: dotted, leading to the
+   "not available" page. */
 .wikilink--missing {
-  text-decoration: none;
+  text-decoration-style: dotted;
 }
 
 /* =========================================================
@@ -1245,7 +1259,7 @@ math {
 
 /* Home page: no sidebar, just the logo/author header above a full-width
    waterfall. The logo is the entry point into the contents view. */
-.journal-home {
+.home {
   max-width: 1080px;
   margin: 0 auto;
 }
@@ -1258,24 +1272,24 @@ math {
   border-bottom: none;
 }
 
-.journal-home .journal-waterfall {
+.home .waterfall {
   column-gap: 18px;
 }
 
-.journal-home .wf-card {
+.home .wf-card {
   margin-bottom: 18px;
 }
 
-.journal-home .wf-card-body {
+.home .wf-card-body {
   padding: 15px 16px 16px;
 }
 
-.journal-home .wf-card-title {
+.home .wf-card-title {
   font-family: var(--serif);
   font-size: 16px;
 }
 
-.journal-home .wf-card-excerpt {
+.home .wf-card-excerpt {
   font-family: var(--serif);
   font-size: 12px;
 }
@@ -1291,6 +1305,59 @@ math {
   margin-bottom: 36px;
   padding-bottom: 0;
   border-bottom: none;
+}
+
+/* CUSTOMIZABLE STYLE: the home page search box */
+.note-search {
+  display: block;
+  width: min(340px, 100%);
+  margin: 16px auto 0;
+  padding: 7px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  text-align: center;
+}
+
+.note-search:focus {
+  outline: none;
+  border-color: var(--muted);
+  text-align: left;
+}
+
+.search-empty {
+  text-align: center;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.wf-card[hidden] {
+  display: none;
+}
+
+/* A note that isn't published (see /unavailable in server.js). */
+body.page-unavailable {
+  background: var(--index-bg);
+}
+
+.unavailable {
+  max-width: 520px;
+  margin: 22vh auto 0;
+  text-align: center;
+}
+
+.unavailable-title {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.unavailable-hint {
+  margin: 0;
+  color: var(--muted);
+  font-style: italic;
 }
 
 .index-author {
@@ -1446,6 +1513,24 @@ dialog.toc-dialog::backdrop {
   text-transform: uppercase;
 }
 
+/* A note's outline (Space on its own page): headings indented by level,
+   numbers aligned before them. */
+.toc-dialog--outline .toc-item button {
+  padding-left: calc(4px + var(--depth, 0) * 1.1em);
+}
+
+.toc-number {
+  margin-right: .5em;
+  color: rgba(241, 243, 244, .55);
+  font-variant-numeric: lining-nums;
+}
+
+.toc-dialog--outline .toc-tag-label {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+}
+
 .toc-title {
   display: block;
   color: rgba(241, 243, 244, .92);
@@ -1462,7 +1547,7 @@ dialog.toc-dialog::backdrop {
 }
 
 /* /contents with nothing to show (no reader). */
-.journal-spreads .index-empty {
+.contents-empty .index-empty {
   color: rgba(241, 243, 244, .8);
 }
 
@@ -1472,7 +1557,7 @@ dialog.toc-dialog::backdrop {
    Built with CSS multi-column layout, no JS needed.
    ========================================================= */
 
-.journal-waterfall {
+.waterfall {
   /* CUSTOMIZABLE STYLE: waterfall column count + gutter */
   column-count: 3;
   column-gap: 22px;
@@ -1581,7 +1666,7 @@ dialog.toc-dialog::backdrop {
     padding: 14px;
   }
 
-  .journal-waterfall {
+  .waterfall {
     column-count: 1;
   }
 }
@@ -1595,7 +1680,7 @@ html {
 }
 
 @media (min-width: 761px) and (max-width: 1080px) {
-  .journal-waterfall {
+  .waterfall {
     column-count: 2;
   }
 }
@@ -1749,6 +1834,7 @@ html[data-layout="tablet"]:not(.is-touch) .byline-footer--zine {
   font-size: 11px;
 }
 
+html.cols-1 .body,
 html[data-layout="phone"] .body,
 html[data-layout="tablet"] .body {
   column-count: auto;

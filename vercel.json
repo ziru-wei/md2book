@@ -1,7 +1,7 @@
 {
   "functions": {
     "api/index.js": {
-      "includeFiles": "{static/**,md2book.config.js}"
+      "includeFiles": "{static/**,md2book.settings.json,notes/**}"
     }
   },
   "rewrites": [
