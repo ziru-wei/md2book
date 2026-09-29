@@ -129,6 +129,37 @@
     }
   }
 
+  // Justified text (layout rows with `justify`) is set by Justif
+  // (https://github.com/lyallcooper/justif, MIT): it breaks each
+  // paragraph's lines as a whole, TeX-style, and writes them out as
+  // plain spans with fixed spacing. It runs once the flow is laid out at
+  // its real column width, before anything is measured for cutting;
+  // those spans are then kept as they are (the controller lets go of
+  // them), so cutting pages and moving paragraphs around can't make it
+  // set them again. A paragraph it declines keeps the browser's own
+  // justification.
+  let justifModules = null;
+
+  async function justifyText(area) {
+    let justify, hyphenateEnUS;
+    try {
+      justifModules ||= Promise.all([import("/vendor/justif/index.js"), import("/vendor/justif/hyphenate/en-us.js")]);
+      [{ justify }, { hyphenateEnUS }] = await justifModules;
+    } catch {
+      justifModules = null;
+      return;
+    }
+    const controller = justify(area.querySelectorAll(".body p, .body li:not(.references li)"), {
+      hyphenate: hyphenateEnUS,
+      observeResize: false,
+      cleanClipboard: false
+    });
+    await Promise.race([controller.ready, sleep(3000)]);
+    const set = controller.managed.map(el => [el, el.cloneNode(true)]);
+    controller.destroy();
+    for (const [el, copy] of set) el.replaceWith(copy);
+  }
+
   // Fills `area` with a fresh copy of the flow and readies it for
   // measuring. Returns the running bylines it set aside (article →
   // byline), which go in their entry's first page foot, not the flow.
@@ -156,6 +187,7 @@
     ]);
 
     fitDisplayMath(area);
+    if (root.classList.contains("justify")) await justifyText(area);
 
     for (const img of area.querySelectorAll("img")) {
       if (img.complete && !img.naturalWidth) {

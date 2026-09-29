@@ -132,6 +132,13 @@
     .status { margin-left: auto; }
     .status.error { color: #b22222; }
 
+    .conflicts {
+      color: #b22222;
+      font-size: 13px;
+      margin: 10px 0 0;
+      padding-left: 18px;
+    }
+
     section {
       background: var(--paper);
       border: 1px solid var(--rule);
@@ -419,7 +426,7 @@
         heading: "Settings",
         savedTo: "Saved to",
         notesIn: "Notes in",
-        notesHint: "(to use another folder: node bin/md2book.js <folder>)",
+        notesHint: "(to use another folder: node bin/md2book.js settings <folder>)",
         navPublish: "Publishing",
         navLayout: "Layout",
         openSite: "Open the site →",
@@ -470,11 +477,13 @@
         noInline: "No #tags in your notes.",
 
         layouts: "Layout",
-        tipNote: "A note opened on its own page.",
-        tipCollection: "Every collection without a row of its own.",
+        tipCollection: "Every collection without a rule of its own. A note opened on its own follows its collection; one in several collections laid out differently, or in none, uses this row.",
+        tipApplyToAll: "Notes in this collection use this row when opened on their own, even if they're in other collections too.",
         tipLayout: "Paper: each note starts a fresh page, columns filled top to bottom. Zine: notes run on one after another.",
         tipOpen: "Where a collection opens: its newest note, or its first page.",
         tipDropCap: "A large first letter on a note's opening paragraph.",
+        tipJustify: "Justified body text, with even word spacing and hyphenation (Justif).",
+        tipMultiply: "Images blend into the paper (multiply): white backgrounds take on the paper's tone.",
         tipPageNumbers: "\"01/09\" at the foot of each page.",
         tipFigures: "\"Figure 1.\" under images.",
         tipTables: "\"Table 1.\" under tables.",
@@ -486,6 +495,8 @@
         colLayout: "Layout",
         colOpen: "Opens at",
         colDropCap: "Drop cap",
+        colJustify: "Justify",
+        colMultiply: "Multiply",
         colPageNumbers: "Page no.",
         colFigures: "Fig. no.",
         colTables: "Table no.",
@@ -493,8 +504,10 @@
         colColumns: "Columns",
         colDates: "Dates",
         colPrivate: "Private heading",
-        rowNote: "Single note",
-        rowCollection: "Any collection",
+        rowCollection: "All",
+        colApplyToAll: "Apply to all",
+        conflict: (a, b, notes) => `"${a}" and "${b}" both apply to all their notes, but share ${notes}. Untick one; nothing is saved until then.`,
+        notSaved: "Not saved: two \"apply to all\" collections share notes.",
         openNewest: "Newest",
         openStart: "Start",
         datesShow: "Show",
@@ -502,7 +515,7 @@
         none: "none",
         notInNotes: "(not in notes)",
         addRule: "+ Rule for a collection",
-        addRuleHint: "Starts as a copy of the collection row.",
+        addRuleHint: "Starts as a copy of the All row.",
         allHaveRules: "Every collection has its own row.",
         removeRule: "Remove this row",
 
@@ -518,7 +531,7 @@
         heading: "设置",
         savedTo: "保存在",
         notesIn: "笔记文件夹",
-        notesHint: "（换一个文件夹：node bin/md2book.js <文件夹路径>）",
+        notesHint: "（换一个文件夹：node bin/md2book.js settings <文件夹路径>）",
         navPublish: "发布",
         navLayout: "排版",
         openSite: "打开站点 →",
@@ -569,11 +582,13 @@
         noInline: "笔记里没有 #标签。",
 
         layouts: "排版",
-        tipNote: "单独打开的一篇笔记。",
-        tipCollection: "所有没有单独规则的合集。",
+        tipCollection: "所有没有单独规则的合集。单独打开的笔记跟随它所属的合集；属于多个排版不同的合集、或不属于任何合集的笔记，用这一行。",
+        tipApplyToAll: "这个合集里的笔记单独打开时都用这一行的排版，即使它们也属于别的合集。",
         tipLayout: "Paper：每篇笔记从新的一页开始，栏从上往下排满。Zine：笔记一篇接一篇连续排。",
         tipOpen: "打开合集时停在最新一篇，还是从第一页开始。",
         tipDropCap: "笔记第一段的首字放大下沉。",
+        tipJustify: "正文两端对齐，字距均匀，英文自动断字（Justif）。",
+        tipMultiply: "图片以正片叠底融入纸面，白色背景会变成纸的颜色。",
         tipPageNumbers: "每页底部的「01/09」。",
         tipFigures: "图片下方的「Figure 1.」。",
         tipTables: "表格下方的「Table 1.」。",
@@ -585,6 +600,8 @@
         colLayout: "排版",
         colOpen: "打开于",
         colDropCap: "首字下沉",
+        colJustify: "两端对齐",
+        colMultiply: "正片叠底",
         colPageNumbers: "页码",
         colFigures: "图号",
         colTables: "表号",
@@ -592,8 +609,10 @@
         colColumns: "栏数",
         colDates: "日期",
         colPrivate: "私密标题",
-        rowNote: "单篇笔记",
-        rowCollection: "所有合集",
+        rowCollection: "所有",
+        colApplyToAll: "应用到全部单篇",
+        conflict: (a, b, notes) => `「${a}」和「${b}」都设为应用到全部单篇，但它们有共同的笔记：${notes}。取消其中一个；在此之前不会保存。`,
+        notSaved: "未保存：两个「应用到全部单篇」的合集有共同的笔记。",
         openNewest: "最新一篇",
         openStart: "第一页",
         datesShow: "显示",
@@ -601,7 +620,7 @@
         none: "无",
         notInNotes: "（笔记里没有）",
         addRule: "+ 为某个合集添加规则",
-        addRuleHint: "新的一行先复制「所有合集」的设置。",
+        addRuleHint: "新的一行先复制「所有」的设置。",
         allHaveRules: "每个合集都已有自己的规则。",
         removeRule: "删除这一行",
 
@@ -671,8 +690,44 @@
       el.classList.toggle("error", !!(status && status.error));
     }
 
+    // Pairs of "apply to all" collections that share notes: a note opened
+    // on its own can't follow both.
+    function conflicts() {
+      const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+      const forced = (settings.layouts.rules || []).filter(r => r.applyToAll).map(r => r.collection);
+      const pairs = new Map();
+      for (const note of (vault && vault.shared) || []) {
+        const hits = forced.filter(name => note.collections.some(c => same(c, name)));
+        for (let i = 0; i < hits.length; i++) {
+          for (let j = i + 1; j < hits.length; j++) {
+            const key = hits[i] + "\u0000" + hits[j];
+            if (!pairs.has(key)) pairs.set(key, { a: hits[i], b: hits[j], notes: [] });
+            pairs.get(key).notes.push(note.title);
+          }
+        }
+      }
+      return [...pairs.values()];
+    }
+
+    function showConflicts() {
+      const list = $("#conflicts");
+      if (!list) return;
+      const found = conflicts();
+      const quote = lang === "zh" ? n => `《${n}》` : n => `"${n}"`;
+      list.innerHTML = found.map(({ a, b, notes }) => {
+        const shown = notes.slice(0, 3).map(quote).join(lang === "zh" ? "、" : ", ") + (notes.length > 3 ? " …" : "");
+        return `<li>${esc(t("conflict")(a, b, shown))}</li>`;
+      }).join("");
+      list.hidden = !found.length;
+      return found.length > 0;
+    }
+
     function scheduleSave(immediate = false) {
       clearTimeout(saveTimer);
+      if (showConflicts()) {
+        setStatus("notSaved", "", true);
+        return;
+      }
       setStatus("saving");
       saveTimer = setTimeout(save, immediate ? 0 : 450);
     }
@@ -688,6 +743,9 @@
         if (!res.ok) throw new Error(data.error || res.status);
         vault = data.vault;
         $("#file").textContent = data.file;
+        // Changed collections can make notes shared that weren't: list
+        // the clash (later changes won't save until it's resolved).
+        showConflicts();
         if (refreshLists) {
           refreshLists = false;
           const y = window.scrollY;
@@ -818,6 +876,7 @@
         <section data-pane="layout">
           <h2>${esc(t("layouts"))}</h2>
           <div class="table-wrap"><table class="rules" id="rules"></table></div>
+          <ul class="conflicts" id="conflicts" hidden></ul>
           <button type="button" class="add-rule" id="add-rule">${esc(t("addRule"))}</button>
         </section>
 
@@ -855,9 +914,11 @@
     // [setting, column title, its explanation (a tooltip on the title)]
     const COLUMNS = [
       ["layout", "colLayout", "tipLayout"], ["open", "colOpen", "tipOpen"], ["dropCap", "colDropCap", "tipDropCap"],
+      ["justify", "colJustify", "tipJustify"], ["multiplyImages", "colMultiply", "tipMultiply"],
       ["pageNumbers", "colPageNumbers", "tipPageNumbers"], ["numberFigures", "colFigures", "tipFigures"],
       ["numberTables", "colTables", "tipTables"], ["numberHeadings", "colHeadings", "tipHeadings"],
-      ["columns", "colColumns", "tipColumns"], ["dates", "colDates", "tipDates"], ["privateHeading", "colPrivate", "tipPrivate"]
+      ["columns", "colColumns", "tipColumns"], ["dates", "colDates", "tipDates"], ["privateHeading", "colPrivate", "tipPrivate"],
+      ["applyToAll", "colApplyToAll", "tipApplyToAll"]
     ];
     const tip = key => `class="tip" title="${esc(t(key))}"`;
 
@@ -866,11 +927,12 @@
         `<option value="${esc(v)}" ${String(v) === String(value) ? "selected" : ""}>${esc(label)}</option>`).join("")}</select>`;
     }
 
-    function cell(key, row, isNote) {
+    function cell(key, row, isAll) {
       const v = row[key];
       switch (key) {
         case "layout": return select(key, v, [["paper", "Paper"], ["zine", "Zine"]]);
-        case "open": return isNote ? `<span class="na">—</span>` : select(key, v, [["latest", t("openNewest")], ["first", t("openStart")]]);
+        case "open": return select(key, v, [["latest", t("openNewest")], ["first", t("openStart")]]);
+        case "applyToAll": return isAll ? `<span class="na">—</span>` : `<input type="checkbox" data-key="${key}" ${v ? "checked" : ""} />`;
         case "columns": return select(key, v, [["1", "1"], ["2", "2"]]);
         case "dates": return select(key, v === "hide" ? "hide" : "show", [["show", t("datesShow")], ["hide", t("datesHide")]]);
         case "privateHeading": return `<input type="text" data-key="${key}" value="${esc(v || "")}" placeholder="${esc(t("none"))}" />`;
@@ -889,11 +951,10 @@
       L.rules ||= [];
       const used = L.rules.map(r => String(r.collection).toLowerCase());
       const head = `<thead><tr><th>${esc(t("colCollection"))}</th>${COLUMNS.map(([, k, tipKey]) => `<th><span ${tip(tipKey)}>${esc(t(k))}</span></th>`).join("")}<th></th></tr></thead>`;
-      const tr = (label, row, id, isNote, extra = "") =>
-        `<tr data-row="${id}">${label}${COLUMNS.map(([key]) => `<td>${cell(key, row, isNote)}</td>`).join("")}<td>${extra}</td></tr>`;
+      const tr = (label, row, id, isAll, extra = "") =>
+        `<tr data-row="${id}">${label}${COLUMNS.map(([key]) => `<td>${cell(key, row, isAll)}</td>`).join("")}<td>${extra}</td></tr>`;
       const rows = [
-        tr(`<th scope="row" class="default"><span ${tip("tipNote")}>${esc(t("rowNote"))}</span></th>`, L.note, "note", true),
-        tr(`<th scope="row" class="default"><span ${tip("tipCollection")}>${esc(t("rowCollection"))}</span></th>`, L.collection, "collection", false),
+        tr(`<th scope="row" class="default"><span ${tip("tipCollection")}>${esc(t("rowCollection"))}</span></th>`, L.collection, "collection", true),
         ...L.rules.map((rule, i) => {
           const row = { ...L.collection, ...rule };
           const names = collectionNames();
@@ -905,6 +966,7 @@
         })
       ];
       table.innerHTML = head + `<tbody>${rows.join("")}</tbody>`;
+      showConflicts();
       const free = collectionNames().filter(n => !used.includes(n.toLowerCase()));
       $("#add-rule").disabled = !free.length;
       $("#add-rule").title = free.length ? t("addRuleHint") : t("allHaveRules");
@@ -940,13 +1002,14 @@
       const tr = el.closest("tr[data-row]");
       const id = tr.dataset.row;
       const L = settings.layouts;
-      const row = id === "note" ? L.note : id === "collection" ? L.collection : L.rules[Number(id)];
+      const row = id === "collection" ? L.collection : L.rules[Number(id)];
       const key = el.dataset.key;
       let value = el.type === "checkbox" ? el.checked : el.value;
       if (key === "columns") value = Number(value);
       if (key === "privateHeading") value = value.trim();
       row[key] = value;
-      if (key === "collection") renderRules();
+      if (key === "applyToAll" && !value) delete row.applyToAll;
+      if (key === "collection" || key === "applyToAll") renderRules();
     }
 
     // --- reading the form ------------------------------------------------------
@@ -1029,6 +1092,8 @@
       // A copy: edits must never change `defaults` (saving compares the two).
       settings = merge(structuredClone(defaults), data.saved);
       if (data.saved.collections && data.saved.collections.tags) settings.collections.tags = data.saved.collections.tags;
+      // Single notes follow their collections now (no row of their own).
+      delete settings.layouts.note;
       vault = data.vault;
       $("#file").textContent = data.file;
       $("#notes-dir").textContent = data.notesDir;

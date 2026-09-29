@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { exec } from "node:child_process";
 import { Readable } from "node:stream";
 import { createEntrySource } from "./lib/source.js";
-import { loadConfig, rowFor, allowed, readSettings, resolveConfig, writeSettings, DEFAULTS } from "./lib/config.js";
+import { loadConfig, rowFor, rowForNote, allowed, readSettings, resolveConfig, writeSettings, DEFAULTS } from "./lib/config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -32,12 +32,11 @@ const entrySource = createEntrySource(LOCAL_ENTRIES_DIR);
 // layouts...) — see lib/config.js.
 // Local notes keep their settings in their own folder; a deployment
 // reading GitHub uses the file next to the app.
-const SETTINGS_DIR = entrySource.liveReload ? LOCAL_ENTRIES_DIR : null;
 
 // Watching notes and reloading pages is for running md2book on your own
 // computer; a deployed site (Vercel) serves a fixed copy.
 const LIVE = entrySource.liveReload && !process.env.VERCEL;
-const config = loadConfig(SETTINGS_DIR);
+const config = loadConfig();
 
 // Where the home page (the list of every note) lives — see
 // config.site.homePath. Nothing meant to be shared out (a note's
@@ -134,6 +133,12 @@ app.use("/static", express.static(path.join(__dirname, "static"), {
   lastModified: false,
   setHeaders: res => res.set("Cache-Control", "no-store")
 }));
+
+// Justif (https://github.com/lyallcooper/justif, MIT), which sets
+// justified text for layout rows with `justify` (see static/reader.js).
+const JUSTIF_DIR = path.join(__dirname, "node_modules/justif");
+app.use("/vendor/justif", express.static(path.join(JUSTIF_DIR, "dist"), { maxAge: "30d" }));
+app.get("/vendor/justif/LICENSE", (req, res) => res.type("text/plain").sendFile(path.join(JUSTIF_DIR, "LICENSE")));
 
 const clients = new Set();
 
@@ -1215,9 +1220,17 @@ function inlineTagsOf(content) {
   return tags;
 }
 
+// A note as it reads on its own page: with the private heading of its
+// own layout row, which depends on its collections.
+async function loadNote(file) {
+  const entry = await loadEntry(file);
+  const heading = rowForNote(config, entry.tags).privateHeading || "";
+  return heading === (rowFor(config, null).privateHeading || "") ? entry : loadEntry(file, heading);
+}
+
 async function listEntries() {
   const { notes, assets } = await entrySource.listAll();
-  const entries = (await Promise.all(notes.map(file => loadEntry(file)))).filter(entry => entry.published);
+  const entries = (await Promise.all(notes.map(loadNote))).filter(entry => entry.published);
   updateVaultIndex(entries, assets);
   return entries;
 }
@@ -1233,6 +1246,8 @@ function rowClasses(row) {
     row.columns === 1 && "cols-1",
     !row.pageNumbers && "no-page-numbers",
     !row.dropCap && "no-drop-cap",
+    row.justify && "justify",
+    row.multiplyImages === false && "no-multiply",
     !row.numberFigures && "no-figure-numbers",
     !row.numberTables && "no-table-numbers",
     !row.numberHeadings && "no-heading-numbers"
@@ -1649,9 +1664,9 @@ async function renderEntryPage(entry) {
     </ul>
   </dialog>` : "";
 
-  // A note on its own: the single-note layout row (entries are listed
-  // with its private heading already).
-  const row = rowFor(config, null);
+  // A note on its own follows its collections (entries are listed with
+  // its row's private heading already).
+  const row = rowForNote(config, entry.tags);
   const isZine = row.layout === "zine";
   const article = renderEntryBody(entry, { mode: isZine ? "plain" : "running", showByline: showDates(row, entry), zine: isZine });
   const bodyHtml = `${outlineHtml}
@@ -1816,13 +1831,17 @@ async function scanVault() {
   const sorted = map => [...map].sort((a, b) => a[0].localeCompare(b[0])).map(([name, notes]) => ({ name, notes }));
   const collections = new Map();
   for (const entry of published) for (const tag of entry.tags) count(collections, tag);
+  // Notes in more than one collection — the settings page checks that
+  // no two "apply to all" collections share one.
+  const shared = published.filter(e => e.tags.length > 1).map(e => ({ title: e.title, collections: e.tags }));
   return {
     notes: all.length,
     published: published.length,
     folders: sorted(folders),
     fields: [...fields].sort((a, b) => a[0].localeCompare(b[0])).map(([name, values]) => ({ name, values: sorted(values) })),
     inlineTags: sorted(inline),
-    collections: sorted(collections)
+    collections: sorted(collections),
+    shared
   };
 }
 
@@ -1833,7 +1852,7 @@ app.get("/settings", settingsGuard, (_req, res) => {
 
 app.get("/api/settings", settingsGuard, async (_req, res) => {
   try {
-    const { file, saved } = readSettings(SETTINGS_DIR);
+    const { file, saved } = readSettings();
     res.json({ file, saved, defaults: DEFAULTS, homePath: HOME_PATH, notesDir: LOCAL_ENTRIES_DIR, vault: await scanVault() });
   } catch (error) {
     res.status(500).json({ error: String(error.message || error) });
@@ -1845,7 +1864,7 @@ app.put("/api/settings", settingsGuard, express.json({ limit: "200kb" }), async 
     const saved = req.body;
     if (!saved || typeof saved !== "object" || Array.isArray(saved)) throw new Error("Settings must be an object");
     const next = resolveConfig(saved);
-    const { file } = readSettings(SETTINGS_DIR);
+    const { file } = readSettings();
     writeSettings(file, saved);
     // Everything reads `config`: swap its contents, re-render notes.
     for (const key of Object.keys(config)) delete config[key];
@@ -1861,7 +1880,7 @@ app.put("/api/settings", settingsGuard, express.json({ limit: "200kb" }), async 
 // Starts the local server (`npm run dev`, or the md2book command in
 // bin/). Deployed on Vercel, `api/index.js` imports `app` instead and
 // Vercel handles listening.
-export function start({ port = PORT, open = process.env.NO_OPEN !== "1" } = {}) {
+export function start({ port = PORT, open = process.env.NO_OPEN !== "1", openPath = HOME_PATH } = {}) {
   return app.listen(port, () => {
     const url = `http://localhost:${port}${HOME_PATH}`;
     console.log(`md2book: ${url}`);
@@ -1873,7 +1892,7 @@ export function start({ port = PORT, open = process.env.NO_OPEN !== "1" } = {}) 
       const opener = process.platform === "darwin" ? "open"
         : process.platform === "win32" ? "start \"\""
         : "xdg-open";
-      exec(`${opener} ${url}`);
+      exec(`${opener} http://localhost:${port}${openPath}`);
     }
   });
 }

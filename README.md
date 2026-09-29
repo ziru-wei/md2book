@@ -4,6 +4,8 @@
 
 "Share your Markdown notes the way you'd hand a friend a book."
 
+![md2book](img.png)
+
 Markdown has become a good medium for talking with agents. I made this tool to share Markdown just as well with your human friends: when you present what you share with care, it is listened to with care, and you may get feedback that matters to you and start conversations that open minds.
 
 It works with a local folder or a GitHub repository. The local version needs a redeploy after your notes change; the repository version pulls automatically and stays in sync with the repo.
@@ -19,6 +21,7 @@ No apps, plugins or exports needed.
    - Want a nice way to write CriticMarkup in Obsidian? Try the plugin [Simple Commentor](https://github.com/ziru-wei/obsidian-criticmarkup/tree/ziru-custom).
 - Citations: links become numbered references.
 - Figures, tables and headings are numbered automatically; figures and tables can span both columns.
+- Justified text, per collection: each paragraph broken as a whole, with even spacing and English hyphenation (set by [Justif](https://github.com/lyallcooper/justif)).
 - Desktop, phone and tablet layouts; pinch to zoom.
 - Print from the browser to a clean PDF.
 
@@ -44,13 +47,14 @@ Your browser opens `http://localhost:3000`, and the page reloads when your notes
 
 ## Settings
 
-While md2book is running, open:
-
+```bash
+cd md2book
+node bin/md2book.js settings path/to/your/notes
 ```
-http://localhost:3000/settings
-```
 
-Changes are saved right away to `md2book.settings.json` in your notes folder.
+The settings page opens in your browser. Changes are saved right away to `md2book.settings.json` in the md2book folder (kept out of git), which is uploaded with the code when you deploy. Press `Ctrl+C` when you're done.
+
+Layout is set per collection: the "All" row applies to every collection, and you can add a row for any one collection. A note opened on its own follows its collection's layout; if it's in several collections laid out differently, it uses the "All" row, unless one of them has "Apply to all" ticked.
 
 
 ## Deploy online (using Vercel as an example)
@@ -90,14 +94,15 @@ Edit:
 
 ```bash
 cd md2book
-node bin/md2book.js path/to/your/notes
+node bin/md2book.js settings path/to/your/notes
 ```
-Open `http://localhost:3000/settings`, make your changes, then press `Ctrl+C`.
+Make your changes on the settings page that opens, then press `Ctrl+C`.
+
+It saves your settings to `md2book.settings.json` in the md2book folder, so you can also edit that file directly.
 
 Upload your changes:
 
 ```bash
-rsync -a --delete --exclude '.*' path/to/your/notes/ notes/
 vercel deploy --prod
 ```
 
@@ -129,13 +134,12 @@ Run it on the copy of your notes repository on your computer:
 
 ```bash
 cd md2book
-node bin/md2book.js ~/my-notes-repo
+node bin/md2book.js settings ~/my-notes-repo
 ```
 
-Open `http://localhost:3000/settings`, make your changes, press `Ctrl+C`, then:
+Make your changes on the settings page that opens, press `Ctrl+C`, then:
 
 ```bash
-cp ~/my-notes-repo/md2book.settings.json ./md2book.settings.json
 vercel deploy --prod
 ```
 
@@ -221,3 +225,7 @@ Mark lines under an image to add a caption and to make it a teaser (header image
 ## How it works
 
 `server.js` turns each note into HTML; in the browser, `static/reader.js` cuts the content into pages. Each page's body is a two-column box exactly as tall as the space left on that page, and whatever the browser can't fit, overflowing into a third column, becomes the start of the next page. Column and page breaks are left entirely to the browser's own layout engine instead of a separate simulation. Pages are laid out at a fixed size, then scaled as a whole to fit the screen. P.S. WebKit and Paged.js have bugs with nested multi-column layout, so in keeping with this project's purpose, sharing, and so readers can browse on any platform, I dropped Paged.js and reinvented a few wheels.
+
+## Acknowledgements
+
+Justified text is set by [Justif](https://github.com/lyallcooper/justif) (© Lyall Cooper, [MIT License](https://github.com/lyallcooper/justif/blob/main/LICENSE)), installed unmodified as an npm dependency; the site serves its license at `/vendor/justif/LICENSE`. English hyphenation uses the patterns by Donald E. Knuth and Frank M. Liang from TeX's hyphen.tex.

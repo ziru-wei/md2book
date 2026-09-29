@@ -150,6 +150,14 @@ html:has(body.page-contents) {
   overflow: hidden;
 }
 
+/* Justified text (see reader.js) hangs punctuation at line ends, and
+   nudges some letters, a little way into the margin: clip only past
+   that. */
+html.justify .page-area {
+  overflow: visible;
+  clip-path: inset(0 calc(-1.2 * var(--body-size)));
+}
+
 /* The bottom margin below the text area — holds /entry's byline on
    its first page, vertically centered in the margin. */
 .page-foot {
@@ -659,6 +667,14 @@ html.reader.is-zoomed body {
   margin: 0 0 1em;
 }
 
+/* Layout rows with `justify`: reader.js has Justif set these paragraphs
+   (whole-paragraph line breaking, hyphenation); what it can't set keeps
+   the browser's own justification. */
+html.justify .body p,
+html.justify .body li:not(.references li) {
+  text-align: justify;
+}
+
 /* Drop cap: first letter of the opening paragraph when the body starts
    directly with text (no preceding heading). Server adds .drop-cap class
    only when the first child element is a <p>, not a heading or figure. */
@@ -836,6 +852,13 @@ html:not(.no-drop-cap) .body p.drop-cap::first-letter {
   mix-blend-mode: multiply;
 }
 
+/* Layout rows with multiplyImages off. */
+html.no-multiply .body figure img,
+html.no-multiply .teaser-figure img,
+html.no-multiply .span-placed img {
+  mix-blend-mode: normal;
+}
+
 /* A "//span" figure, lifted out of the columns to the top of the page
    it lands on (see liftSpanFigure in reader.js), across the full text
    width. Its image height is capped so it always leaves room for text
@@ -935,7 +958,7 @@ figure.md-table figcaption {
 
 .reference-marker {
   white-space: nowrap;
-  margin-left: .10em;
+  padding-left: .10em;
 
   /* CUSTOMIZABLE STYLE: inline [N] */
   color: #44536f;
@@ -954,7 +977,7 @@ figure.md-table figcaption {
    [1, 2], instead of separate [1][2] markers. */
 .reference-marker-group {
   white-space: nowrap;
-  margin-left: .10em;
+  padding-left: .10em;
   color: inherit;
   font-size: .82em;
 }

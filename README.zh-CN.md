@@ -4,9 +4,12 @@
 
 “分享你的 Markdown 笔记，如同给你的朋友递一本书。”
 
+![md2book](img.png)
+
 Markdown 成为了和 agent 交流的好媒介。我制作这个工具的初衷是为了把 Markdown 同样以一种好的方式分享给你的人类朋友：当你认真地呈现你的分享，就会被认真地倾听，并得到也许对你来说很重要的反馈，开启一些启迪心灵的交流。
 
 可以用于本地文件夹或者 Github 仓库：本地版需要在发生改动后更新部署，远端仓库版会自动拉取，和仓库同步；
+如果你想在轻量的学术写作中摆脱 Overleaf，也许你也应该尝试一下，这个项目是纯 CSS 渲染，所以可以摆脱漫长的编译。
 不需要任何软件、插件或者导出。
 
 ## 功能
@@ -19,6 +22,7 @@ Markdown 成为了和 agent 交流的好媒介。我制作这个工具的初衷�
    - 如何在 Obsidian 中优雅地 CriticMarkup？欢迎使用插件 [Simple Commentor](https://github.com/ziru-wei/obsidian-criticmarkup/tree/ziru-custom)
 - 支持引用格式，链接会变成带编号的引用。
 - 图、表、标题自动编号；图、表均支持跨栏排版。
+- 可按合集开启两端对齐：整段一起断行，字距均匀，英文自动断字（由 [Justif](https://github.com/lyallcooper/justif) 排版）。
 - 支持桌面、手机、平板三种版式；支持双指缩放；
 - 支持浏览器内打印为干净的 pdf。
 
@@ -44,13 +48,14 @@ node bin/md2book.js 你的笔记文件夹路径
 
 ## 设置
 
-md2book 运行时，浏览器打开：
-
+```bash
+cd md2book
+node bin/md2book.js settings 你的笔记文件夹路径
 ```
-http://localhost:3000/settings
-```
 
-改动即时保存到笔记文件夹里的 `md2book.settings.json`。
+浏览器会直接打开设置页，改动即时保存到 md2book 文件夹里的 `md2book.settings.json`（不会提交到 git），部署时随代码一起上传。改完按 `Ctrl+C`。
+
+排版按合集设置：「所有」一行对所有合集生效，也可以给某个合集单独加一行。单独打开一篇笔记时，它跟随所属合集的排版；如果它同时属于几个排版不同的合集，就用「所有」那一行，除非其中一个合集勾选了「应用到全部单篇」。
 
 
 ## 以 Vercel 为例部署上线
@@ -90,14 +95,15 @@ vercel deploy --prod
 
 ```bash
 cd md2book
-node bin/md2book.js 你的笔记文件夹路径
+node bin/md2book.js settings 你的笔记文件夹路径
 ```
-打开 `http://localhost:3000/settings` 改好后按 `Ctrl+C`
+在打开的设置页改好后按 `Ctrl+C`
+
+它会把你的配置保存到 md2book 文件夹里的 `md2book.settings.json`，所以你也可以直接改这个文件。
 
 上传你的修改：
 
 ```bash
-rsync -a --delete --exclude '.*' 你的笔记文件夹路径/ notes/
 vercel deploy --prod
 ```
 
@@ -129,13 +135,12 @@ vercel deploy --prod
 
 ```bash
 cd md2book
-node bin/md2book.js ~/我的笔记仓库
+node bin/md2book.js settings ~/我的笔记仓库
 ```
 
-打开 `http://localhost:3000/settings` 改好后按 `Ctrl+C`，然后：
+在打开的设置页改好后按 `Ctrl+C`，然后：
 
 ```bash
-cp ~/我的笔记仓库/md2book.settings.json ./md2book.settings.json
 vercel deploy --prod
 ```
 
@@ -221,3 +226,7 @@ publish: true
 ## 实现
 
 `server.js` 把每篇笔记转换成 HTML；到了浏览器端，`static/reader.js` 负责把内容切成一页一页：每一页的正文是一个双栏的框，高度正好是这一页剩下的空间，浏览器排不下、溢出到第三栏的内容，就成了下一页的开头——换栏和换页因此完全交给浏览器自己的排版引擎决定，而不是另外模拟一套。页面先按固定尺寸排好版，再整体缩放到适配屏幕。p.s. Webkit 和 Paged.js 有多栏排版 nesting 的 bug，所以基于这个项目的初衷，也就是“分享”，笔者为了能让读者在翻阅中不受平台限制，舍弃了使用 Paged.js，重新造了一些轮子。
+
+## 致谢
+
+两端对齐由 [Justif](https://github.com/lyallcooper/justif)（© Lyall Cooper，[MIT 许可](https://github.com/lyallcooper/justif/blob/main/LICENSE)）排版，作为 npm 依赖安装，未经修改；站点在 `/vendor/justif/LICENSE` 附带它的许可证。英文断字规则来自 Donald E. Knuth 与 Frank M. Liang 为 TeX 编写的 hyphen.tex。
