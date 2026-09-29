@@ -12,28 +12,35 @@
   --rule: #aeb5ba;
   --highlight: #dfe3c8;
 
-  /* CUSTOMIZABLE STYLE: fixed physical page size (Paged.js paginates
-     content into boxes of exactly this size; overflow becomes a new
-     page instead of growing the box taller). This is a genuinely
-     fixed value — Paged.js parses this stylesheet's own text to size
-     pages, so it can't be changed at runtime from JS (that was tried
-     and silently desynced the double-page grid math from the actual
-     page size Paged.js was using, breaking it). Widened from 820 to
-     cut down on the empty margin beside the page on typical screens;
-     it still won't reach every viewport width exactly. */
+  /* CUSTOMIZABLE STYLE: fixed physical page size. Content is cut into
+     pages of exactly this size (overflow becomes a new page, never a
+     taller one), and whole pages are then scaled to fit the screen —
+     so every size below is relative to this page, on every device.
+     reader.js reads the size from the rendered .page, so this is the
+     only place it's set. */
   --paper-width: 850px;
   --page-height: 1100px;
 
-  /* CUSTOMIZABLE STYLE: page margins (become each page's inner
-     content inset via the @page rule below — that rule uses a literal
-     copy of this value since Paged.js's @page parser can't resolve
-     CSS custom properties; keep both in sync by hand) */
+  /* CUSTOMIZABLE STYLE: page margins around the text area */
   --pad-x: 150px;
   --pad-top: 84px;
-  --pad-bottom: 100px;
+  --pad-bottom: 160px;
+
+  /* Left/right page margins: equal here; the phone and tablet layouts
+     (end of file) widen the side that holds margin comments. */
+  --pad-left: var(--pad-x);
+  --pad-right: var(--pad-x);
+
+  --area-width: calc(var(--paper-width) - var(--pad-left) - var(--pad-right));
+  --area-height: calc(var(--page-height) - var(--pad-top) - var(--pad-bottom));
 
   /* CUSTOMIZABLE STYLE: two-column geometry */
   --column-gap: 38px;
+
+  /* CUSTOMIZABLE STYLE: margin comment box, and its distance from the
+     page edge */
+  --note-width: 120px;
+  --note-inset: 20px;
 
   /* CUSTOMIZABLE STYLE: typography — Source Serif 4 (Google Fonts,
      variable weight/optical-size) for Latin text, Libre Baskerville
@@ -113,138 +120,58 @@ html:has(body.page-contents) {
 }
 
 /* =========================================================
-   Pagination (Paged.js)
-   Each md's content is sliced into fixed-size page boxes; overflow
-   becomes a new page instead of a taller box. The "paper" look now
-   lives on .pagedjs_page (the generated page box), with the shadow
-   sitting in the gap BETWEEN stacked pages, not inside a page's
-   two-column gutter.
+   Pages (see static/reader.js)
+   The entry flow is cut into fixed-size .page sheets. Each has a text
+   area (.page-area) inset by the page margins, in which a .body is a
+   two-column box as tall as the room left on that page — whatever
+   doesn't fit its two columns is the next page. Pages are measured at
+   this real size and only then scaled to fit the screen.
    ========================================================= */
 
-/* Server-rendered on <html> for every paginated page (see pageShell in
-   server.js). On desktop this is now short-lived — a MutationObserver
-   removes it (via revealPagedReader()) as soon as the first usable
-   page/pair exists, while Paged.js is still mid-preview() generating
-   the rest; touch waits for setupTouchBook() instead (its own separate
-   gate, below, keyed off .touch-book-ready). Either way: visibility,
-   not display — #pagedjs-target must stay measurable while hidden. */
-html.paged-loading #pagedjs-target {
-  visibility: hidden;
-}
+.page {
+  position: relative;
+  flex: none;
+  width: var(--paper-width);
+  height: var(--page-height);
 
-#paged-loader {
-  display: none;
-}
-
-html.paged-loading #paged-loader {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  pointer-events: none;
-  z-index: 10;
-}
-
-#paged-loader::before {
-  content: "";
-  width: 22px;
-  height: 22px;
-  border: 2px solid rgba(255, 255, 255, .18);
-  border-top-color: rgba(255, 255, 255, .72);
-  border-radius: 50%;
-  animation: paged-spin .9s linear infinite;
-}
-
-@keyframes paged-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Literal pixel values here, not var(--paper-width)/var(--page-height):
-   verified with a real headless-browser render that Paged.js's CSS
-   parser does not resolve custom properties inside @page's `size` —
-   it silently fell back to its own default (~816x1056, US Letter),
-   while every other rule below correctly picked up the variable,
-   desyncing the grid/zoom math from the actual generated page size.
-   If --paper-width is ever changed, this literal must be updated to
-   match by hand. */
-@page {
-  size: 850px 1100px;
-
-  /* Literal, not var(--pad-top)/var(--pad-x)/var(--pad-bottom) — same
-     issue as `size` above: Paged.js's @page parser doesn't resolve
-     custom properties here, so this was silently falling back to its
-     own default margin no matter what the variables were set to.
-     Update this by hand if those variables ever change. */
-  margin: 84px 150px 160px;
-
-  /* No @bottom-center page-number box here anymore: Paged.js's
-     counter(page) is a genuine live CSS counter, recomputed from
-     whichever .pagedjs_page elements are actually rendered — the
-     desktop pager's display:none on every page but the current one
-     (see showUnit in server.js) means it only ever counted the 1-2
-     still-visible pages, so it was stuck showing "1"/"2" regardless
-     of real position in the document. Replaced by real per-page
-     .page-number elements (below) instead. */
-}
-
-/* Page 1 only — the byline (see .byline-footer's position: running())
-   lands here, in the reserved bottom margin, never in the content
-   area body text can reach. */
-@page :first {
-  @bottom-left {
-    content: element(byline);
-  }
-}
-
-.pagedjs_page {
   /* CUSTOMIZABLE STYLE: the physical page sheet — no outer shadow by
      default; a shadow only appears at the seam in double-page mode
      below. */
-  background: var(--paper) !important;
+  background: var(--paper);
   border: 1px solid rgba(40, 40, 40, .12);
-
-  /* CUSTOMIZABLE STYLE: gap between stacked pages */
-  margin: 0 auto 40px !important;
-
-  /* Explicit (not relying on whatever Paged.js may or may not set
-     internally) — gives .page-comments an unambiguous, one-page-only
-     positioning anchor. See journal.css's "Margin comments" section. */
-  position: relative;
 }
 
-/* Desktop pager (see activateDesktopPager in server.js): exactly one
-   page/spread is ever display:none-free at a time, so there's nothing
-   left to scroll to — overflow:hidden here is belt-and-suspenders on
-   top of that, and the 40px stacking gap above (meant for the page
-   below in the old scrollable view) no longer applies to anything.
-   body's own small top/bottom padding (see body.page-entry/
-   page-contents) is zeroed too — applySinglePageZoom/fitSpreadWidth
-   size the page to exactly fill the viewport height, so any padding
-   on top of that pushes the bottom of the page below the fold with
-   nothing left to scroll it back into view. */
-html.desktop-pager,
-html.desktop-pager body {
+.page-area {
+  position: absolute;
+  top: var(--pad-top);
+  left: var(--pad-left);
+  width: var(--area-width);
+  height: var(--area-height);
   overflow: hidden;
-  height: 100%;
-  padding: 0 !important;
 }
 
-html.desktop-pager .pagedjs_page {
-  margin: 0 auto !important;
+/* The bottom margin below the text area — holds /entry's byline on
+   its first page, vertically centered in the margin. */
+.page-foot {
+  position: absolute;
+  top: calc(var(--pad-top) + var(--area-height));
+  left: var(--pad-left);
+  width: var(--area-width);
+  height: var(--pad-bottom);
+  display: flex;
+  align-items: center;
 }
 
-/* Custom "01/09"-style page number, one real element per .pagedjs_page
-   (see createPageIndicators in server.js) instead of a single shared
-   viewport overlay — each page carries its own already-correct label,
-   so it's naturally right for whichever page(s) the pager shows (both
-   halves of a spread included) and naturally survives print's
-   display:block override with no separate print-only rule needed.
-   .pagedjs_page already has position:relative (above), so this anchors
-   to that specific page's own box, roughly where the old @page
-   @bottom-center counter(page) used to sit. */
-.pagedjs_page .page-number {
+/* The tablet spread's right-hand page mirrors the margins (wide outer
+   margin on the right). */
+html[data-layout="tablet"] .page--right .page-area,
+html[data-layout="tablet"] .page--right .page-foot {
+  left: var(--pad-right);
+}
+
+/* "01/09"-style page number, one per page (see numberPages in
+   reader.js). */
+.page .page-number {
   position: absolute;
   left: 50%;
   bottom: 24px;
@@ -257,95 +184,231 @@ html.desktop-pager .pagedjs_page {
   pointer-events: none;
 }
 
-/* Each md starts on its own fresh page in the "/contents" flow. */
-.spread {
-  /* No position:relative here (it used to anchor a link that's since
-     been removed) — .references below needs to escape past this
-     element to Paged.js's own per-page positioned box, so it can pin
-     itself to the actual page's bottom edge rather than to this
-     wrapper's own auto-sized content height. */
+/* Each entry starts on a fresh page (dream mode's continuous flow
+   overrides this, below). */
+.paper {
   break-before: page;
 }
 
-/* Injected by JS only when the first render finds an overlap — body
-   content running into the byline-footer pinned to the bottom of
-   page 1 (pushes that content to page 2 instead, leaving the footer's
-   spot clear). */
-.force-page-break {
-  break-before: page;
-  height: 0;
-  margin: 0;
-  padding: 0;
-}
-
-/* Invisible in-flow block whose height matches the absolutely-
-   positioned .references section that follows it.  Prevents Paged.js
-   from placing body text where the references will render, without
-   forcing a page break when there's room. */
+/* Invisible stand-in for the pinned .references box, holding its
+   height at the spot in the flow where it must fit (see prepareFlow in
+   reader.js). */
 .references-spacer {
   visibility: hidden;
   break-inside: avoid;
+}
+
+/* An element split across a page break continues on the next page
+   with this attribute (see split() in reader.js) — a list item's
+   second half doesn't get a second bullet. */
+.body li[data-continued] {
+  list-style-type: none;
+}
+
+/* =========================================================
+   Reader: one page, or a two-page spread, per screen — reader.js
+   scales each .spread-inner to fit, and only the current spread is on
+   screen; pages turn with the page-turn below.
+   ========================================================= */
+
+html.reader,
+html.reader body {
+  height: 100%;
   margin: 0;
   padding: 0;
+  overflow: hidden;
+}
+
+/* The trackpad flip gesture reads horizontal wheel deltas — without
+   this, Chrome/Safari can take the same swipe as "navigate back/
+   forward" before reader.js's wheel handler can preventDefault() it. */
+html.reader:not(.is-touch),
+html.reader:not(.is-touch) body {
+  overscroll-behavior-x: none;
+}
+
+/* Server-rendered on <html> for every reader page (see pageShell in
+   server.js), lifted once the first pages are in place. */
+html.reader-loading .book {
+  visibility: hidden;
+}
+
+#reader-loader {
+  display: none;
+}
+
+html.reader-loading #reader-loader {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 10;
+}
+
+#reader-loader::before {
+  content: "";
+  width: 22px;
+  height: 22px;
+  border: 2px solid rgba(255, 255, 255, .18);
+  border-top-color: rgba(255, 255, 255, .72);
+  border-radius: 50%;
+  animation: reader-spin .9s linear infinite;
+}
+
+@keyframes reader-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Where reader.js lays pages out, offscreen and unscaled, before they
+   go on screen. */
+.book-staging {
+  position: absolute;
+  top: 0;
+  left: -100000px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.spread {
+  width: 100vw;
+  height: 100svh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.spread:not(.is-current) {
+  display: none;
+}
+
+.spread-inner {
+  display: flex;
+  flex: none;
+  transform-origin: center center;
+}
+
+/* Two pages side by side, touching at the seam — a fixed double width,
+   so a lone last page still sits in the left-hand slot. */
+.spread-inner.is-double {
+  width: calc(2 * var(--paper-width));
+}
+
+.is-double .page {
+  border: none;
+}
+
+/* CUSTOMIZABLE STYLE: the blank right-hand page facing an odd last
+   page — light grey, slightly cool. */
+.page-blank {
+  background: #e3e6ea;
+}
+
+/* Touch devices: the reader handles horizontal drags (page turns). */
+html.is-touch,
+html.is-touch body {
+  overscroll-behavior: none;
+}
+
+html.is-touch .book {
+  touch-action: pan-y pinch-zoom;
+}
+
+/* Zoomed in: pan in every direction; no page turns (see reader.js). */
+html.is-touch.is-zoomed .book {
+  touch-action: auto;
+}
+
+/* Desktop Safari pans a zoomed page by scrolling the root, which the
+   reader otherwise locks. The page fits the window exactly, so this
+   changes nothing but the zoomed panning. */
+html.reader.is-zoomed,
+html.reader.is-zoomed body {
+  overflow: visible;
+  overscroll-behavior: auto;
 }
 
 /* =========================================================
-   Double-page (spread) view: toggled by the #spread-toggle
-   checkbox. Shows two pages side by side, book-style, with a faint
-   shadow at the seam between them (not inside either page's own
-   two-column text). Paged.js nests the actual page boxes inside its
-   own .pagedjs_pages wrapper, so that — not #pagedjs-target itself —
-   is what becomes the grid.
-
-   Two 820px pages need 1640px+ of width, which a sidebar layout
-   doesn't have. Rather than scroll to see them (cramped, one page
-   visible at a time), JS sets `zoom` on .pagedjs_pages (see the
-   fitSpreadWidth script) so the pair always exactly fills the
-   available width — zoom (unlike `transform: scale`) shrinks the
-   actual layout box too, not just the pixels, so the grid sizes
-   correctly around the smaller pages.
+   Page turn (see "Page turning" in reader.js): while a page turns,
+   a .turn-stage stands in for the spread — the pages underneath in
+   .turn-slots, and the turning page (.turn-sheet) folding over them.
    ========================================================= */
 
-/* =========================================================
-   SPREAD MODE — TWO-PAGE LAYOUT
-   ========================================================= */
-
-#pagedjs-target.spread-mode .pagedjs_pages {
-  display: grid !important;
-  grid-template-columns: repeat(2, var(--paper-width)) !important;
-  justify-content: center !important;
-
-  /* CUSTOMIZABLE STYLE:
-     Keep both pages touching at the center seam. */
-  gap: 0 !important;
-
-  /* fitSpreadWidth() keeps --spread-zoom in sync and overrides this
-     with an inline zoom once it runs — this is just the approximate
-     scale a page is born at if Paged.js inserts it mid-preview, before
-     fitSpreadWidth has had a chance to measure the finished set. */
-  zoom: var(--spread-zoom, 1);
-}
-
-#pagedjs-target.spread-mode .pagedjs_page {
+.turn-stage {
   position: relative;
-
-  /* CUSTOMIZABLE STYLE:
-     Vertical spacing between page rows. */
-  margin: 0 0 40px !important;
-
-  border: none !important;
-
-  /* Old inset shadows are disabled.
-     The gutter is rendered with ::after instead. */
-  box-shadow: none !important;
+  display: flex;
+  flex: none;
+  transform-origin: center center;
 }
 
+.turn-stage.is-double {
+  width: calc(2 * var(--paper-width));
+}
+
+.turn-slot {
+  position: relative;
+  flex: none;
+  width: var(--paper-width);
+  height: var(--page-height);
+}
+
+/* The turning page: .turn-front (the part still lying flat),
+   .turn-cast (its shadow on the uncovered page) and .turn-back (the
+   folded-over flap), each clipped and placed by reader.js. */
+.turn-sheet {
+  position: absolute;
+  top: 0;
+  width: var(--paper-width);
+  height: var(--page-height);
+}
+
+.turn-front,
+.turn-cast,
+.turn-back {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.turn-cast,
+.turn-back {
+  overflow: visible;
+  pointer-events: none;
+}
+
+.turn-back {
+  transform-origin: 0 0;
+}
+
+/* The back of a lone page. */
+.turn-paper {
+  width: 100%;
+  height: 100%;
+  background: var(--paper);
+}
+
+/* CUSTOMIZABLE STYLE: page-turn light and shade — bands along the fold,
+   drawn by reader.js (drawTurn). */
+.turn-band {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
 
 /* =========================================================
    CENTER GUTTER
+   A faint shadow at the seam of a two-page spread, drawn on each
+   page's inner edge (not inside either page's own two-column text).
    ========================================================= */
 
-#pagedjs-target.spread-mode .pagedjs_page::after {
+.is-double .page::after {
   content: "";
   position: absolute;
   top: 0;
@@ -385,7 +448,7 @@ html.desktop-pager .pagedjs_page {
    The dark core is intentionally very narrow.
    ========================================================= */
 
-#pagedjs-target.spread-mode .pagedjs_page:nth-child(odd)::after {
+.is-double .page--left::after {
   right: 0;
 
   background:
@@ -423,7 +486,7 @@ html.desktop-pager .pagedjs_page {
    Intentionally asymmetric from the left page.
    ========================================================= */
 
-#pagedjs-target.spread-mode .pagedjs_page:nth-child(even)::after {
+.is-double .page--right::after {
   left: 0;
 
   background:
@@ -471,6 +534,10 @@ html.desktop-pager .pagedjs_page {
   line-height: 1.03;
   font-weight: 700;
   text-wrap: balance;
+
+  /* Never the last thing on a page: goes to the next page along with
+     the start of its entry (see breakBefore in reader.js). */
+  break-after: avoid-page;
 }
 
 /* Standalone /entry/:slug page for a dream-tagged entry: only drops
@@ -501,23 +568,13 @@ html.desktop-pager .pagedjs_page {
 
 /* =========================================================
    Byline footer
-   Replaces the old Author/Created/Updated grid — a small italic
-   note instead, pinned to the bottom-left of page 1's first column
-   (mirrors .references, which pins to the bottom-right — the two
-   share a page without colliding since each is capped to ~45% width
-   on opposite sides). Same escape-past-.spread/.paper trick applies.
+   A small italic note with the entry's dates. On /entry it sits in
+   the first page's bottom margin, under the first column (.page-foot,
+   see paginate() in reader.js) — .references pins to the bottom-right
+   of the text area, so the two never collide. On /contents it's a
+   right-aligned line right after the entry's last paragraph.
    ========================================================= */
 
-/* Native CSS Paged Media running-element mechanism — the same
-   machinery the @bottom-center page number below uses, which is why
-   that one never had any overlap problem: margin-box content lives in
-   space the page layout already reserves and body text is laid out to
-   never reach, by spec, not by JS measuring things after the fact.
-   position: running() pulls this element out of the normal flow
-   entirely (Paged.js hides the original in place) and @page :first's
-   @bottom-left (below) clones it into page 1's bottom-left margin box
-   — roughly under the first column, since the left page margin lines
-   up with where that column starts. No JS, no overlap possible. */
 .byline-footer {
   padding-top: .6em;
   border-top: 1px solid var(--rule);
@@ -531,35 +588,25 @@ html.desktop-pager .pagedjs_page {
   line-height: 1.3;
 }
 
-/* /entry/:hash: each entry is its own standalone Paged.js document, so
-   @page :first correctly means "this entry's first page" — use the
-   native running-element mechanism (element(byline) above). */
 .byline-footer--running {
-  position: running(byline);
   width: 74%;
   margin: 1.4em 0 0;
   text-align: left;
 }
 
-.byline-footer--inline {
+/* Follows the entry's .body, so it and the last lines of text always
+   share a page (see fitColumns in reader.js); .byline-footer--dream is
+   the date-only dream-mode variant. */
+.byline-footer--inline,
+.byline-footer--dream {
   width: auto;
-  margin: .8em 0 0;
+  margin: 0 0 1em;
   padding: 0;
   border: none;
   text-align: right;
   font-size: 8.5px;
   font-style: italic;
   color: inherit;
-  break-inside: avoid;
-
-  /* break-before: avoid-column was tried here and confirmed (via an
-     actual print) NOT to stop the orphan — .body's column-fill:
-     balance overrides it, same as column-fill interfering with the
-     page-level title-orphan case elsewhere. Spanning both columns
-     sidesteps the conflict entirely: a spanning element isn't
-     assigned to either column, so there's no column-break placement
-     decision for "avoid" to lose. */
-  column-span: all;
 }
 
 /* =========================================================
@@ -569,6 +616,9 @@ html.desktop-pager .pagedjs_page {
 .teaser-slot {
   /* CUSTOMIZABLE STYLE: teaser spacing under metadata */
   margin: 22px 0 36px;
+
+  /* Stays on the page where its entry's text starts, like .title. */
+  break-after: avoid-page;
 }
 
 .teaser-figure {
@@ -593,11 +643,9 @@ html.desktop-pager .pagedjs_page {
   column-count: 2;
   column-gap: var(--column-gap);
 
-  /* Fills the left column completely before starting the right one,
-     instead of the browser default (balance), which tries to equalize
-     both columns' heights within a single page fragment — that was
-     the actual cause of body content stopping halfway down the page
-     instead of using its full height. */
+  /* Fills the left column down to the page foot before starting the
+     right one (reader.js gives each page's .body the page's remaining
+     height). Dream mode balances the two instead, see below. */
   column-fill: auto;
 
   font-family: var(--serif);
@@ -640,6 +688,13 @@ html.desktop-pager .pagedjs_page {
   break-after: avoid-column;
   break-inside: avoid;
   font-family: var(--serif);
+}
+
+/* Section number ("1.2") before a heading's text, set by server.js. */
+.heading-number {
+  /* CUSTOMIZABLE STYLE: section number spacing */
+  margin-right: .5em;
+  font-variant-numeric: lining-nums;
 }
 
 .body h2 {
@@ -763,22 +818,66 @@ html.desktop-pager .pagedjs_page {
    index. Scoped to these two selectors only, not `img` globally, so
    the owl logo and any UI chrome stay unaffected. */
 .body figure img,
-.teaser-figure img {
+.teaser-figure img,
+.span-placed img {
   mix-blend-mode: multiply;
 }
 
-/* Managed raw-GitHub PNGs (see hydratePagedImages in server.js): a
-   flat, light background while the real image is still loading behind
-   its already-correctly-sized placeholder box — removed as soon as
-   that image fires load/error. No shimmer, no skeleton, doesn't touch
-   pagination geometry (the box is already the real image's own size). */
-.body figure img.paged-image-loading,
-.teaser-figure img.paged-image-loading {
+/* A "//span" figure, lifted out of the columns to the top of the page
+   it lands on (see liftSpanFigure in reader.js), across the full text
+   width. Its image height is capped so it always leaves room for text
+   on that page. */
+.span-placed {
+  /* CUSTOMIZABLE STYLE: page-top figure spacing */
+  margin: 0 0 1.8em;
+  break-after: avoid-page;
+}
+
+/* A "//span" table: body-sized type, caption above it. */
+.span-placed.span-table {
+  font-family: var(--serif);
+  font-size: var(--body-size);
+  line-height: var(--body-leading);
+}
+
+/* Every table sits in a figure with its numbered caption under it; the
+   figure, unlike an image's, may break across columns and pages
+   (between rows — see keepHeadingsWithText in reader.js). */
+.body figure.md-table {
+  break-inside: auto;
+  margin: .9em 0 1.1em;
+}
+
+figure.md-table table {
+  margin: 0;
+}
+
+figure.md-table figcaption {
+  margin-top: .5em;
+}
+
+.span-placed img {
+  display: block;
+  width: 100%;
+  height: auto;
+
+  /* CUSTOMIZABLE STYLE: page-top figure maximum height */
+  max-height: calc(var(--area-height) * .45);
+  object-fit: contain;
+}
+
+/* A flat, light background while an image is still downloading into
+   its already-correctly-sized box (see watchImages in reader.js) —
+   removed as soon as it fires load/error. No shimmer, no skeleton. */
+.body figure img.is-loading,
+.teaser-figure img.is-loading,
+.span-placed img.is-loading {
   background: rgba(0, 0, 0, 0.045);
 }
 
 .body figcaption,
-.teaser-slot figcaption {
+.teaser-slot figcaption,
+.span-placed figcaption {
   /* CUSTOMIZABLE STYLE: numbered figure caption ("Figure N. ...").
      The teaser lives in .teaser-slot, outside .body, so it needs its
      own selector here too. */
@@ -858,17 +957,16 @@ html.desktop-pager .pagedjs_page {
 
 /* =========================================================
    Margin comments
-   %%text{>>{...}@@comment<<}%% — numbered independently from
+   CriticMarkup comments on a replacement or highlight (see
+   expandCriticMarkup in server.js) — numbered independently from
    References (own counter, no bottom list). Each note is positioned
    at the same height as its own anchor in the text, in whichever
    margin is nearest — left margin for an anchor in the left column,
-   right margin for the right column — server.js's layoutPageComments()
-   measures every .comment-marker's real position with
-   getBoundingClientRect() once Paged.js's layout is fully settled
-   (same "read the finished output as a plain fact" approach as the
-   page numbers and the title/byline orphan fixes), moves each
-   .comment-margin-marker into .page-comments, and sets its own
-   absolute `top` to match — falling back to nudging a note down just
+   right margin for the right column. reader.js's placeMarginNotes()
+   measures every .comment-marker's real position once its page is
+   laid out, moves each .comment-margin-marker into .page-comments,
+   and sets its absolute `top` to match — falling back to nudging a
+   note down just
    enough to clear whichever one is directly above it IN THE SAME
    MARGIN if two same-side anchors sit close enough that their notes
    would otherwise overlap (left- and right-margin notes never compete
@@ -884,12 +982,8 @@ html.desktop-pager .pagedjs_page {
 }
 
 .page-comments {
-  /* Full-page box — unlike the old single right-margin stack, notes
-     can land on either side now, so this container itself no longer
-     picks a side; each .comment-margin-marker positions itself
-     (left/right + top, all set by JS) within it. .pagedjs_page is
-     position:relative (above), so this inset:0 unambiguously spans
-     just that one physical page, regardless of how many exist. */
+  /* Full-page layer; each .comment-margin-marker positions itself
+     (left/right + top, set by JS) within it. */
   position: absolute;
   inset: 0;
 }
@@ -897,8 +991,7 @@ html.desktop-pager .pagedjs_page {
 .comment-margin-marker {
   position: absolute;
 
-  /* CUSTOMIZABLE STYLE: margin note width */
-  width: 120px;
+  width: var(--note-width);
 
   /* CUSTOMIZABLE STYLE: margin note text — same color as body text,
      not muted/gray */
@@ -910,7 +1003,7 @@ html.desktop-pager .pagedjs_page {
 /* Right-margin note (anchor was in the right column): rule faces
    inward (left edge, toward the page's text block), same as before. */
 .comment-margin-marker--right {
-  right: 20px;
+  right: var(--note-inset);
   padding-left: .55em;
   border-left: 1px solid var(--rule);
   text-align: left;
@@ -919,7 +1012,7 @@ html.desktop-pager .pagedjs_page {
 /* Left-margin note (anchor was in the left column): mirrored — rule
    faces inward (right edge, toward the text block) instead. */
 .comment-margin-marker--left {
-  left: 20px;
+  left: var(--note-inset);
   padding-right: .55em;
   border-right: 1px solid var(--rule);
   text-align: right;
@@ -927,13 +1020,10 @@ html.desktop-pager .pagedjs_page {
 
 /* =========================================================
    References
-   Taken out of the normal two-column flow entirely (position:
-   absolute) and pinned to the bottom-right of whichever page it
-   lands on — normally the entry's last page, since it's the last
-   thing in the source content. Escapes past .spread/.paper (neither
-   sets position:relative) up to Paged.js's own per-page positioned
-   box, so "bottom: 0" aligns with that page's actual lower edge
-   rather than some arbitrary wrapper's auto-sized height.
+   Taken out of the two-column flow entirely (position: absolute) and
+   pinned to the bottom-right of the text area of the page where their
+   entry ends — .page-area is the positioned box they escape to. The
+   flow keeps their height free with a .references-spacer.
    ========================================================= */
 
 .references {
@@ -944,7 +1034,10 @@ html.desktop-pager .pagedjs_page {
   /* CUSTOMIZABLE STYLE: References width/spacing */
   width: 45%;
   text-align: left;
-  break-inside: avoid;
+
+  /* Set here, not inherited: the gap below is in em, and References
+     sit inside .body on /entry but after it on /contents. */
+  font-size: var(--body-size);
 
   /* No padding-top here — the ::before rule's own margins below define
      the entire ~3em gap (same total as before), just distributed
@@ -961,8 +1054,9 @@ html.desktop-pager .pagedjs_page {
 }
 
 .reference-list {
-  margin: 0;
-  padding: 0;
+  /* CUSTOMIZABLE STYLE: indent/spacing (same as a body list's) */
+  margin: .40em 0 .72em;
+  padding: 0 0 0 1.18em;
   list-style: none;
 
   /* CUSTOMIZABLE STYLE: reference typography */
@@ -1012,6 +1106,102 @@ html.desktop-pager .pagedjs_page {
   border: 1px solid #c1c7cb;
   background: #e7eaec;
   line-height: 1.35;
+}
+
+/* =========================================================
+   Tables (Markdown | a | b |)
+   Fitted to the column: smaller type, columns sized by their content
+   but never wider than the column, and only horizontal rules (a heavy
+   rule above and below, a lighter one under the header, hairlines
+   between rows). Rows never split across a column or page; a table
+   that runs over repeats its header row (see split() in reader.js).
+   A "//span" table (.span-table) spans the page instead.
+   ========================================================= */
+
+:is(.body, .span-table) table {
+  width: 100%;
+  margin: .9em 0 1.1em;
+  border-collapse: collapse;
+  table-layout: auto;
+
+  /* CUSTOMIZABLE STYLE: table typography */
+  font-size: .74em;
+  line-height: 1.3;
+
+  border-top: 1.2px solid var(--ink);
+  border-bottom: 1.2px solid var(--ink);
+}
+
+:is(.body, .span-table) thead th {
+  border-bottom: .8px solid var(--ink);
+  font-weight: 600;
+  vertical-align: bottom;
+}
+
+:is(.body, .span-table) th,
+:is(.body, .span-table) td {
+  padding: .35em .45em;
+  text-align: left;
+  vertical-align: top;
+  /* Break long words only when they can't fit at all — no hyphenation,
+     which would let a column shrink to a sliver of broken syllables. */
+  overflow-wrap: break-word;
+  hyphens: manual;
+}
+
+:is(.body, .span-table) th:first-child,
+:is(.body, .span-table) td:first-child {
+  padding-left: 0;
+}
+
+:is(.body, .span-table) th:last-child,
+:is(.body, .span-table) td:last-child {
+  padding-right: 0;
+}
+
+:is(.body, .span-table) tbody tr + tr td {
+  border-top: .5px solid var(--rule);
+}
+
+:is(.body, .span-table) tr {
+  break-inside: avoid;
+}
+
+/* A table continued in the next column (see splitTableAt in reader.js)
+   starts flush at the column top. */
+.body table[data-row-split] {
+  margin-top: 0;
+}
+
+/* =========================================================
+   Math (Obsidian $...$ / $$...$$, rendered to MathML by Temml in
+   server.js; its own stylesheet picks the math font)
+   ========================================================= */
+
+/* A display equation: centered on its own lines, never split across a
+   column or page, and set smaller if it's wider than its column (see
+   fitDisplayMath in reader.js). */
+.math-block {
+  display: block;
+  break-inside: avoid;
+  margin: .6em 0 .9em;
+}
+
+.math-block math {
+  margin: 0;
+}
+
+/* CUSTOMIZABLE STYLE: math size relative to the text around it */
+math {
+  font-size: 1.08em;
+}
+
+/* Unparseable math: its source, in red, where the equation would be
+   (the error shows on hover). */
+.math-error {
+  color: #b22222;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: .82em;
 }
 
 /* =========================================================
@@ -1253,12 +1443,7 @@ dialog.toc-dialog::backdrop {
   line-height: 1.3;
 }
 
-/* =========================================================
-   Reading-mode spreads: every published entry stacked in full,
-   each starting on its own page (see .spread's break-before, and
-   .pagedjs_page for the actual page-to-page shadow, above).
-   ========================================================= */
-
+/* /contents with nothing to show (no reader). */
 .journal-spreads .index-empty {
   color: rgba(241, 243, 244, .8);
 }
@@ -1355,11 +1540,9 @@ dialog.toc-dialog::backdrop {
 
 /* =========================================================
    Entry page
-   No side chrome anymore (back link + double-page toggle dropped —
-   use the browser's own Back and the '/' key instead; the TOC moved
-   into a Space-triggered popup, see dialog.toc-dialog above) — /entry
-   and /contents now share this exact same simple centering, with
-   nothing reserving side margins for a persistent panel.
+   No side chrome: use the browser's own Back and the '/' key; the TOC
+   is a Space-triggered popup (see dialog.toc-dialog above). /entry and
+   /contents share the same reader.
    ========================================================= */
 
 .entry-page {
@@ -1367,17 +1550,12 @@ dialog.toc-dialog::backdrop {
   box-sizing: border-box;
 }
 
-#pagedjs-target:not(.spread-mode) {
-  width: min(100%, var(--paper-width));
-  margin: 0 auto;
-}
-
 /* =========================================================
    Mobile fallback
    ========================================================= */
 
 /* No .title / .body overrides here: entry content is always laid out
-   on the fixed 850x1100 page and then zoomed to fit the screen, so it
+   on the fixed-size page and then scaled to fit the screen, so it
    must render exactly as on desktop — reflowing it to one column on a
    narrow screen would change the page's proportions, not just its size. */
 @media (max-width: 760px) {
@@ -1390,126 +1568,12 @@ dialog.toc-dialog::backdrop {
   }
 }
 
-/* Touch devices get this the instant they're detected, BEFORE
-   Paged.js paginates anything — deliberately visibility-only. Actual
-   touch viewer presentation (.touch-book, below) must not exist yet
-   while pagination is still running: Paged.js has to see the exact
-   same neutral 850x1100 layout desktop does, or its output gets
-   corrupted (a page/teaser landing alone, content breaking too early,
-   duplicated figures). Swapped for real touch-book presentation only
-   once activateTouchBook() runs, after the final page DOM is known —
-   see server.js. */
-html.touch-pending #pagedjs-target {
-  visibility: hidden;
-}
-
-/* =========================================================
-   Touch e-reader (phones, tablets): see setupTouchBook/
-   activateTouchBook in server.js. Pages are always paginated at the
-   same fixed 850x1100 size as desktop (see @page above); a horizontal
-   scroll-snap track of full-viewport ".touch-slide"s — one per
-   screen, swipe to turn — each center a ".touch-slide-inner" holding
-   one page (or, on a landscape tablet, a page pair) transform:scale()'d
-   to fit. The slide itself is never scaled, only that inner wrapper.
-   ========================================================= */
-
-html.touch-book,
-html.touch-book body {
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  overscroll-behavior: none;
-  touch-action: pan-x;
-}
-
-/* iOS inflates text it thinks is too small to read in wide boxes —
-   that changed line breaks between pagination and display, so text
-   spilled past page edges. Keep text at its authored size. */
+/* iOS inflates text it thinks is too small to read in wide boxes,
+   which would change line breaks between measuring a page and showing
+   it. Keep text at its authored size. */
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
-}
-
-/* Hidden while Paged.js renders the unscaled 850px pages and until
-   setupTouchBook has grouped and scaled them to fit — no visible
-   jumping. */
-html.touch-book:not(.touch-book-ready) #pagedjs-target {
-  visibility: hidden;
-}
-
-html.touch-book .entry-page {
-  padding: 0 !important;
-}
-
-html.touch-book #pagedjs-target {
-  width: 100% !important;
-  margin: 0 !important;
-}
-
-html.touch-book .pagedjs_pages {
-  display: flex !important;
-  align-items: center;
-  width: 100%;
-  height: 100svh;
-
-  overflow-x: auto;
-  overflow-y: hidden;
-  scroll-snap-type: x mandatory;
-  overscroll-behavior-x: contain;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-
-html.touch-book .pagedjs_pages::-webkit-scrollbar {
-  display: none;
-}
-
-/* One full-viewport slide per screen — the scroll-snap unit. Never
-   scaled itself; centers its (fixed-size) .touch-slide-inner. */
-html.touch-book .touch-slide {
-  flex: 0 0 100vw;
-  width: 100vw;
-  height: 100svh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
-}
-
-/* Holds one page (or, paired, two side by side at their real
-   850x1100 / 1700x1100 size) — JS sets its transform:scale() in
-   setupTouchBook. transform (not zoom) so the slide around it stays
-   a fixed, unscaled 100vw/100svh regardless of the scale factor. */
-html.touch-book .touch-slide-inner {
-  flex: 0 0 auto;
-  transform-origin: center center;
-}
-
-html.touch-book .touch-slide-inner.is-spread {
-  display: flex;
-}
-
-/* .pagedjs_page keeps its own margin only in the desktop stacked
-   view; nested in a touch slide it's already centered/spaced by the
-   slide and inner wrapper above, so both the plain and (higher-
-   specificity, desktop) spread-mode margins need clearing here. */
-html.touch-book .pagedjs_page,
-html.touch-book #pagedjs-target.spread-mode .pagedjs_page {
-  margin: 0 !important;
-}
-
-/* Landscape tablets reuse the desktop spread styling (center gutter,
-   odd/even pairing on whichever page is nth-child(odd)/(even) within
-   its own .touch-slide-inner) — but the outer track stays this flex
-   swipe row, not the desktop grid. Start-aligned: a centered
-   overflowing flex row would leave its first slides unreachable by
-   scrolling. */
-html.touch-book #pagedjs-target.spread-mode .pagedjs_pages {
-  display: flex !important;
-  justify-content: flex-start !important;
 }
 
 @media (min-width: 761px) and (max-width: 1080px) {
@@ -1523,11 +1587,15 @@ html.touch-book #pagedjs-target.spread-mode .pagedjs_pages {
    left margin. Activated when the tag contains "dream".
    ========================================================= */
 
+/* Entries follow one another on the same page instead of each
+   starting a fresh one. */
 .dream-entry {
   break-before: auto;
   margin-top: 3em;
 }
 
+/* First on its page — including an entry pushed to the top of a new
+   page. */
 .dream-entry:first-child {
   margin-top: 0;
 }
@@ -1536,70 +1604,23 @@ html.touch-book #pagedjs-target.spread-mode .pagedjs_pages {
   font-family: "Cormorant SC", var(--serif);
   font-size: 18px;
   font-weight: 400;
-
-  /* Continuous flow (.dream-entry has no break-before, unlike the
-     forced-fresh-page .spread) means a title can land right at the
-     bottom of a page with its own entry's body pushed entirely to
-     the next one. avoid-page (not the generic avoid, which also
-     covers column breaks and seems to get lost crossing into .body's
-     own multi-column formatting context below) is the explicit
-     page-fragmentation signal Paged.js's break resolution reads most
-     reliably here — reinforced from the other side by .body's own
-     break-before below, and by .teaser-slot for entries with a teaser
-     image between title and body. */
-  break-after: avoid-page;
-}
-
-/* Entries with a teaser image between the title and body (see
-   renderEntryBody) need the same avoid-page as .title itself, or an
-   entry whose title fits but whose teaser doesn't would just move the
-   same orphan one element later. */
-.page-dream .teaser-slot {
-  break-after: avoid-page;
 }
 
 .page-dream .body {
   font-optical-sizing: auto;
   column-fill: balance;
-
-  /* Reinforces .title/.teaser-slot's break-after: avoid-page from the
-     other side of the boundary — belt-and-suspenders in case Paged.js
-     only reliably honors one direction of the pairing. */
-  break-before: avoid-page;
 }
 
-.byline-footer--dream {
-  width: auto;
-  margin: .8em 0 0;
-  padding: 0;
-  border: none;
-  text-align: right;
-  font-size: 8.5px;
-  font-style: italic;
-  color: inherit;
-  break-inside: avoid;
-
-  /* break-before: avoid-column was tried here and confirmed (via an
-     actual print) NOT to stop the orphan — .body's column-fill:
-     balance overrides it, same as column-fill interfering with the
-     page-level title-orphan case elsewhere. Spanning both columns
-     sidesteps the conflict entirely: a spanning element isn't
-     assigned to either column, so there's no column-break placement
-     decision for "avoid" to lose. */
-  column-span: all;
-}
-
-/* References--inline directly follows the byline (see renderEntryBody
-   in server.js) and sits in exactly the same spot in the flow, so it's
-   just as exposed to the same column-balance override — spans for the
-   same reason as .byline-footer--dream/--inline above. */
+/* A plain full-width list right after the byline (see renderEntryBody
+   in server.js), instead of pinned to the page corner. */
 .references--inline {
   position: static;
+  /* Keeps the list's own margins inside the box rather than collapsing
+     through it. */
+  display: flow-root;
   width: auto;
   text-align: left;
   margin: 1.2em 0 0;
-  break-inside: avoid;
-  column-span: all;
 }
 
 .references--inline::before {
@@ -1609,4 +1630,207 @@ html.touch-book #pagedjs-target.spread-mode .pagedjs_pages {
 .references--inline .reference-list {
   font-size: 8.5px;
   color: inherit;
+}
+
+/* =========================================================
+   Phone and tablet layouts (html[data-layout], set by reader.js; the
+   tablet one is also on laptops via the backslash key).
+   Instead of shrinking the fixed desktop page, pages are cut to the
+   screen itself: a phone page is the whole screen, a landscape
+   tablet page half of it, side by side. One column of larger type,
+   and the page's outer margin — right on a phone, left/right on the
+   tablet's left/right page — widens to hold margin comments when the
+   document has any (html.has-notes).
+   ========================================================= */
+
+html[data-layout="phone"] {
+  /* CUSTOMIZABLE STYLE: phone page */
+  --pad-x: 22px;
+  --pad-top: 54px;
+  --pad-bottom: 56px;
+  --body-size: 15px;
+  --body-leading: 1.5;
+  --note-inset: 10px;
+  --note-width: calc(var(--pad-right) - 2 * var(--note-inset));
+}
+
+/* A document with side comments sets its text a little narrower. Pages
+   with comments shift it left to open a right margin for them; the
+   others keep it centered. */
+html[data-layout="phone"].has-notes {
+  --pad-right: 92px;
+}
+
+html[data-layout="phone"] .page:not(.page--notes) .page-area,
+html[data-layout="phone"] .page:not(.page--notes) .page-foot {
+  left: calc((var(--paper-width) - var(--area-width)) / 2);
+}
+
+html[data-layout="tablet"] {
+  /* CUSTOMIZABLE STYLE: landscape tablet page (one side of the spread) */
+  --pad-x: 56px;
+  --pad-top: 48px;
+  --pad-bottom: 64px;
+  --body-size: 13px;
+  --body-leading: 1.42;
+  --note-inset: 14px;
+  --note-width: calc(var(--pad-left) - 2 * var(--note-inset));
+}
+
+/* Wider outer margin (left on a left-hand page — mirrored on the right
+   one), narrower gutter. */
+html[data-layout="tablet"].has-notes {
+  --pad-left: 108px;
+  --pad-right: 40px;
+}
+
+/* The same spread on a laptop (backslash key): a bigger window, so
+   roomier margins, larger type and smaller images. */
+html[data-layout="tablet"]:not(.is-touch) {
+  /* CUSTOMIZABLE STYLE: laptop tablet-style page */
+  --pad-x: 160px;
+  --pad-top: 100px;
+  --pad-bottom: 116px;
+  --body-size: 15px;
+  --body-leading: 1.45;
+  /* Side comments keep a clear strip of paper between them and the
+     page edge. */
+  --note-inset: 64px;
+  --note-width: calc(var(--pad-left) - var(--note-inset) - 14px);
+}
+
+html[data-layout="tablet"]:not(.is-touch).has-notes {
+  --pad-left: 250px;
+  --pad-right: 120px;
+}
+
+html[data-layout="tablet"]:not(.is-touch) .body figure img,
+html[data-layout="tablet"]:not(.is-touch) .teaser-figure img {
+  width: 60%;
+  margin-inline: auto;
+}
+
+html[data-layout="tablet"]:not(.is-touch) .body blockquote {
+  font-size: 13px;
+}
+
+html[data-layout="tablet"]:not(.is-touch) .body figcaption,
+html[data-layout="tablet"]:not(.is-touch) .teaser-slot figcaption {
+  font-size: 12.5px;
+}
+
+html[data-layout="tablet"]:not(.is-touch) .comment-margin-marker {
+  font-size: 10px;
+}
+
+html[data-layout="tablet"]:not(.is-touch) .reference-list,
+html[data-layout="tablet"]:not(.is-touch) .references--inline .reference-list,
+html[data-layout="tablet"]:not(.is-touch) .byline-footer,
+html[data-layout="tablet"]:not(.is-touch) .byline-footer--inline,
+html[data-layout="tablet"]:not(.is-touch) .byline-footer--dream {
+  font-size: 11px;
+}
+
+html[data-layout="phone"] .body,
+html[data-layout="tablet"] .body {
+  column-count: auto;
+  column-width: 10000px;
+}
+
+html[data-layout="phone"] .page {
+  border: none;
+}
+
+html[data-layout="phone"] .title,
+html[data-layout="tablet"] .title {
+  margin-bottom: 28px;
+}
+
+html[data-layout="phone"] .page-dream .title,
+html[data-layout="tablet"] .page-dream .title {
+  font-size: 20px;
+}
+
+html[data-layout="phone"] .teaser-slot {
+  margin: 12px 0 24px;
+}
+
+html[data-layout="phone"] .body blockquote {
+  font-size: 13px;
+}
+
+html[data-layout="tablet"] .body blockquote {
+  font-size: 11.5px;
+}
+
+html[data-layout="phone"] .body figcaption,
+html[data-layout="phone"] .teaser-slot figcaption {
+  font-size: 12px;
+}
+
+html[data-layout="tablet"] .body figcaption,
+html[data-layout="tablet"] .teaser-slot figcaption {
+  font-size: 11px;
+}
+
+/* One column: References take the full text width. */
+html[data-layout="phone"] .references,
+html[data-layout="tablet"] .references {
+  width: 100%;
+}
+
+html[data-layout="phone"] .reference-list,
+html[data-layout="phone"] .references--inline .reference-list {
+  font-size: 11px;
+}
+
+html[data-layout="tablet"] .reference-list,
+html[data-layout="tablet"] .references--inline .reference-list {
+  font-size: 10px;
+}
+
+html[data-layout="phone"] .byline-footer {
+  font-size: 11px;
+}
+
+html[data-layout="phone"] .byline-footer--inline,
+html[data-layout="phone"] .byline-footer--dream {
+  font-size: 10.5px;
+}
+
+html[data-layout="tablet"] .byline-footer,
+html[data-layout="tablet"] .byline-footer--inline,
+html[data-layout="tablet"] .byline-footer--dream {
+  font-size: 10px;
+}
+
+/* The page number sits in the bottom margin too: keep the byline above
+   it. */
+html[data-layout="phone"] .page-foot,
+html[data-layout="tablet"] .page-foot {
+  height: calc(var(--pad-bottom) - 26px);
+}
+
+html[data-layout="phone"] .byline-footer--running,
+html[data-layout="tablet"] .byline-footer--running {
+  margin-top: .4em;
+}
+
+/* A narrow page needs the full width to keep the byline to one line. */
+html[data-layout="phone"] .byline-footer--running {
+  width: 100%;
+}
+
+html[data-layout="phone"] .page .page-number,
+html[data-layout="tablet"] .page .page-number {
+  bottom: 14px;
+  font-size: 10px;
+}
+
+html[data-layout="phone"] .comment-margin-marker {
+  font-size: 9.5px;
+}
+
+html[data-layout="tablet"] .comment-margin-marker {
+  font-size: 9px;
 }

@@ -1,0 +1,5 @@
+# Vercel CLI uploads everything not listed here (it does not read .gitignore).
+node_modules/
+.env
+entries/
+.claude/

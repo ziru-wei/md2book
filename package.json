@@ -7,11 +7,13 @@
     "dev": "node --env-file-if-exists=.env server.js"
   },
   "dependencies": {
+    "@vscode/markdown-it-katex": "^1.1.2",
     "cheerio": "^1.1.2",
     "chokidar": "^4.0.3",
     "express": "^5.1.0",
     "gray-matter": "^4.0.3",
     "markdown-it": "^14.1.0",
-    "markdown-it-mark": "^4.0.0"
+    "markdown-it-mark": "^4.0.0",
+    "temml": "^0.13.5"
   }
 }
