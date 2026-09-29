@@ -1243,7 +1243,7 @@ async function listEntries() {
 function rowClasses(row) {
   if (!row) return "";
   return [
-    row.columns === 1 && "cols-1",
+    row.columns === 1 && "desktop-tablet",
     !row.pageNumbers && "no-page-numbers",
     !row.dropCap && "no-drop-cap",
     row.justify && "justify",

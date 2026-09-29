@@ -760,8 +760,6 @@
     const layout = root.dataset.layout;
     if (layout === "phone") return "right";
     if (layout === "tablet") return page.classList.contains("page--left") ? "left" : "right";
-    // One column of text: the outer margin of the page in a spread.
-    if (root.classList.contains("cols-1")) return page.classList.contains("page--left") ? "left" : "right";
     return inLeftHalf ? "left" : "right";
   }
 
@@ -915,10 +913,11 @@
   //   screen, one column.
   // Only "book" pages are independent of the screen; the other two are
   // cut again whenever the screen's shape changes.
-  // Desktop: the backslash key switches between the book page and the
-  // tablet-style spread — for this visit only: a reload opens the page as
-  // the settings lay it out again.
-  let wantsTablet = false;
+  // Desktop: opens on the book page, or — layout rows with one column
+  // (.desktop-tablet) — on the tablet-style spread. The backslash key
+  // switches between the two for this visit only: a reload opens the
+  // page as the settings lay it out again.
+  let wantsTablet = root.classList.contains("desktop-tablet");
 
   function layoutFor() {
     if (!isTouch) return wantsTablet ? "tablet" : "book";

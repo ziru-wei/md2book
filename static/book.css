@@ -1857,7 +1857,6 @@ html[data-layout="tablet"]:not(.is-touch) .byline-footer--zine {
   font-size: 11px;
 }
 
-html.cols-1 .body,
 html[data-layout="phone"] .body,
 html[data-layout="tablet"] .body {
   column-count: auto;
