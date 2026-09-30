@@ -45,6 +45,14 @@
   // A block with one of these break-after values stays on the same page
   // as whatever follows it (titles, teasers — see book.css).
   const KEEP_WITH_NEXT = new Set(["avoid", "avoid-page"]);
+  // Titles, teasers and lifted //span figures (break-after: avoid-page in
+  // book.css) — named here too, since Firefox doesn't know avoid-page and
+  // reports "auto".
+  const KEEPS_WITH_NEXT = ".title, .teaser-slot, .span-placed";
+
+  function keepsWithNext(el) {
+    return el.matches(KEEPS_WITH_NEXT) || KEEP_WITH_NEXT.has(getComputedStyle(el).breakAfter);
+  }
 
   // Leaves that can't be cut into: the page break goes before them.
   const ATOMIC = "img, svg, video, iframe, hr, .references-spacer, math";
@@ -317,6 +325,36 @@
     return { lines: tops.size, continues: false };
   }
 
+  // How many lines of text multi-column `block` has before `point`, in
+  // all its columns. Boxes on one line (bold, a raised footnote number)
+  // start within half a line of each other.
+  function linesBefore(block, point) {
+    const cols = columnsOf(block);
+    const half = (parseFloat(getComputedStyle(block).lineHeight) || 14) / 2;
+    const r = document.createRange();
+    r.setStart(block, 0);
+    r.setEnd(point.node, point.offset);
+    const tops = new Map();
+    for (const rect of r.getClientRects()) {
+      if (!rect.width || rect.height < 5) continue;
+      const col = cols.of(rect.left);
+      if (!tops.has(col)) tops.set(col, []);
+      tops.get(col).push(rect.top);
+    }
+    let lines = 0;
+    for (const list of tops.values()) {
+      list.sort((a, b) => a - b);
+      let last = -Infinity;
+      for (const top of list) {
+        if (top - last > half) {
+          lines++;
+          last = top;
+        }
+      }
+    }
+    return lines;
+  }
+
   // What moves when a whole table moves over: its figure, when the table
   // opens it (a continued part moves on its own).
   function tableBox(row) {
@@ -432,14 +470,31 @@
     const limit = box.left + count * (width + gap) - gap / 2;
     const floor = box.top + height + 1;
 
+    const items = laidOutLeaves(block);
+    const lo = firstLeafPast(items, limit);
+
+    for (let i = 0; i < lo; i++) {
+      if (items[i].rects.some(r => r.bottom > floor)) {
+        return { point: { node: items[i].node.parentNode, offset: indexOf(items[i].node) }, atStart: i === 0 };
+      }
+    }
+    if (lo === items.length) return null;
+    return { point: pointPast(items[lo], limit), atStart: lo === 0 };
+  }
+
+  // A block's in-flow leaves with where each was laid out.
+  function laidOutLeaves(block) {
     const items = [];
     for (const node of collectLeaves(block, [])) {
       const rects = rectsOf(node);
       if (rects.length) items.push({ node, rects });
     }
+    return items;
+  }
 
-    // Columns fill in document order, so "reaches past the last column"
-    // is false up to some leaf and true from there on.
+  // Columns fill in document order, so "reaches past x = `limit`" is
+  // false up to some leaf and true from there on: that leaf's index.
+  function firstLeafPast(items, limit) {
     let lo = 0;
     let hi = items.length;
     while (lo < hi) {
@@ -448,19 +503,15 @@
       if (rects[rects.length - 1].left >= limit) hi = mid;
       else lo = mid + 1;
     }
+    return lo;
+  }
 
-    for (let i = 0; i < lo; i++) {
-      if (items[i].rects.some(r => r.bottom > floor)) {
-        return { point: { node: items[i].node.parentNode, offset: indexOf(items[i].node) }, atStart: i === 0 };
-      }
-    }
-    if (lo === items.length) return null;
-
-    const { node, rects } = items[lo];
+  // Where leaf `item`, the first to reach past `limit`, crosses it.
+  function pointPast({ node, rects }, limit) {
     if (node.nodeType === Node.TEXT_NODE && rects[0].left < limit) {
-      return { point: { node, offset: firstOffsetPast(node, limit) }, atStart: false };
+      return { node, offset: firstOffsetPast(node, limit) };
     }
-    return { point: { node: node.parentNode, offset: indexOf(node) }, atStart: lo === 0 };
+    return { node: node.parentNode, offset: indexOf(node) };
   }
 
   // How a page's share of a .body is shown: filled column by column down
@@ -579,6 +630,7 @@
         continue;
       }
       copy.setAttribute("data-continued", "");
+      orig.setAttribute("data-runs-on", "");
       copy.classList.remove("drop-cap");
       if (orig.tagName === "OL") {
         copy.start = orig.start + orig.querySelectorAll(":scope > li").length - (innerKept ? 1 : 0);
@@ -591,6 +643,7 @@
         if (!orig.querySelector("tbody tr")) {
           orig.remove();
           copy.removeAttribute("data-continued");
+          copy.removeAttribute("data-runs-on");
           innerKept = false;
           continue;
         }
@@ -608,7 +661,7 @@
   function breakBefore(area, article, blocks, i) {
     const first = article === area.firstElementChild;
     let j = i;
-    while (j > 0 && KEEP_WITH_NEXT.has(getComputedStyle(blocks[j - 1]).breakAfter)) j--;
+    while (j > 0 && keepsWithNext(blocks[j - 1])) j--;
     if (j === 0 && first) j = i;
     if (j === 0) {
       // Doesn't fit even at the top of an empty page: let it overflow.
@@ -676,7 +729,11 @@
         const cut = fitColumns(block, bottom, tail);
         if (liftSpanFigure(block, cut, area)) return fitArticle(area, article);
         if (cut) {
-          const rest = cut.atStart ? breakBefore(area, article, blocks, i) : split(area, cut.point);
+          // An entry's title (and teaser) stays at the foot of a page only
+          // with a few lines of its text under it, like a heading does.
+          const opening = blocks.slice(0, i).every(keepsWithNext);
+          const tooFew = !cut.atStart && opening && linesBefore(block, cut.point) < MIN_LINES_AFTER_HEADING;
+          const rest = cut.atStart || tooFew ? breakBefore(area, article, blocks, i) : split(area, cut.point);
           if (block.isConnected) relayoutColumns(block);
           return rest;
         }
@@ -688,6 +745,38 @@
       }
     }
     return [];
+  }
+
+  // Once a page is cut, its columns are made plain: each multi-column
+  // .body becomes side-by-side boxes holding exactly what the browser
+  // put in each column, so the page looks the same but nothing is left
+  // to lay out as columns again. (Printing does: Safari prints a
+  // multi-column box inside a printed page as one wide column.)
+  function freezeColumns(block) {
+    const cols = columnsOf(block);
+    const items = laidOutLeaves(block);
+    // Every column's start is measured before anything moves.
+    const points = [];
+    for (let k = 1; k < cols.count; k++) {
+      const limit = cols.box.left + k * (cols.width + cols.gap) - cols.gap / 2;
+      const i = firstLeafPast(items, limit);
+      points.push(i < items.length ? pointPast(items[i], limit) : null);
+    }
+    // Cut from the last column back, so earlier points stay put.
+    const parts = points.reverse().map(point => (point ? split(block, point) : [])).reverse();
+    const boxes = [Array.from(block.children), ...parts].map(children => {
+      const column = document.createElement("div");
+      column.className = "body-column";
+      column.append(...children);
+      return column;
+    });
+    block.replaceChildren(...boxes);
+    block.classList.add("body--columns");
+    // Forced column breaks mean nothing now; printed, they could be
+    // taken for page breaks.
+    for (const el of block.querySelectorAll("*")) {
+      if (el.style.breakBefore === "column") setColumnBreak(el, false);
+    }
   }
 
   // Distributes the prepared flow's articles over as many pages as it
@@ -862,20 +951,100 @@
     document.body.appendChild(staging);
 
     try {
-      const prep = newPage();
-      staging.appendChild(prep);
-      const running = await prepareFlow(prep.firstChild);
-      if (run !== renderRun) return;
-
-      const next = paginate(prep.firstChild, running, staging);
-      prep.remove();
-      if (!root.classList.contains("no-page-numbers")) numberPages(next);
-      next.forEach(placeMarginNotes);
+      const next = await cutPages(staging, () => run !== renderRun);
+      if (!next) return;
       // A re-cut (late font or image) that lands every line where it
       // already is changes nothing on screen — keep the pages showing.
       if (!force && pages.length && layoutSignature(next) === layoutSignature(pages)) return;
       watchImages(next);
       setPages(next);
+      schedulePrintPages();
+    } finally {
+      staging.remove();
+    }
+  }
+
+  // Cuts a fresh copy of the flow into finished pages inside `staging`
+  // (an offscreen .book-staging; pages take any page-size variables set
+  // on it). Null if `stale()` says a newer cut has started meanwhile.
+  async function cutPages(staging, stale) {
+    const prep = newPage();
+    staging.appendChild(prep);
+    const running = await prepareFlow(prep.firstChild);
+    if (stale()) return null;
+
+    const next = paginate(prep.firstChild, running, staging);
+    prep.remove();
+    for (const page of next) {
+      for (const block of page.querySelectorAll(".body")) if (isColumns(block)) freezeColumns(block);
+    }
+    if (!root.classList.contains("no-page-numbers")) numberPages(next);
+    next.forEach(placeMarginNotes);
+    return next;
+  }
+
+  // How far a printed page of `width` x `height` is zoomed (print.css):
+  // to fill a Letter sheet (816x1056 at 96dpi), a hair under so rounding
+  // never spills a page onto a second sheet. Safari prints inside the
+  // printer's margins rather than print.css's (on a Mac's default Letter
+  // setup, WebKit then has about 900px of height per sheet), so for it,
+  // to fit 720x890 — with room to spare, margins or none.
+  function setPrintZoom(el, width, height) {
+    el.style.setProperty("--print-zoom", Math.floor(Math.min(816 / width, 1056 / height) * 1000) / 1000 - 0.002);
+    el.style.setProperty("--print-zoom-safari", Math.floor(Math.min(720 / width, 890 / height) * 1000) / 1000);
+  }
+
+  // Pages for printing. The book page has a sheet's proportions already,
+  // but phone and tablet pages are cut to the screen's: printed, they'd
+  // leave a wide strip of every sheet empty. In those layouts a second
+  // set is cut in the background — the same layout, on pages as wide as
+  // the screen's and as tall as a Letter sheet's proportions make them —
+  // and printed instead (print.css). Printing before it's ready prints
+  // the pages on screen.
+  const printBook = div("print-book");
+  printBook.setAttribute("aria-hidden", "true");
+  document.body.appendChild(printBook);
+  let printRun = 0;
+  let printTimer = null;
+
+  function schedulePrintPages() {
+    clearTimeout(printTimer);
+    printRun++;
+    root.classList.remove("has-print-book");
+    printBook.replaceChildren();
+    if (root.dataset.layout !== "book") printTimer = setTimeout(cutPrintPages, 800);
+  }
+
+  async function cutPrintPages() {
+    const run = ++printRun;
+    const width = pageWidth;
+    const height = Math.floor(width * 1056 / 816);
+    const staging = div("book-staging");
+    staging.setAttribute("aria-hidden", "true");
+    staging.style.setProperty("--paper-width", width + "px");
+    staging.style.setProperty("--page-height", height + "px");
+    // On paper, Chrome's and Safari's prints of these pages look heavy
+    // at the foot: some of the bottom margin moves to the top. (Firefox
+    // prints them evenly as they are.)
+    if (!/Firefox\//.test(navigator.userAgent)) {
+      const style = getComputedStyle(root);
+      const top = parseFloat(style.getPropertyValue("--pad-top"));
+      const bottom = parseFloat(style.getPropertyValue("--pad-bottom"));
+      const shift = Math.round(bottom * 0.3);
+      staging.style.setProperty("--pad-top", top + shift + "px");
+      staging.style.setProperty("--pad-bottom", bottom - shift + "px");
+    }
+    // Worked out on :root from its page size; again here, from these.
+    staging.style.setProperty("--area-width", "calc(var(--paper-width) - var(--pad-left) - var(--pad-right))");
+    staging.style.setProperty("--area-height", "calc(var(--page-height) - var(--pad-top) - var(--pad-bottom))");
+    document.body.appendChild(staging);
+    try {
+      const next = await cutPages(staging, () => run !== printRun);
+      if (!next) return;
+      printBook.style.cssText = staging.style.cssText;
+      setPrintZoom(printBook, width, height);
+      printBook.replaceChildren(...next);
+      root.classList.add("has-print-book");
     } finally {
       staging.remove();
     }
@@ -903,6 +1072,9 @@
   // phones always one. Every iPad's short side is >= 744 CSS px, every
   // phone's well under 600.
   const isTablet = isTouch && Math.min(screen.width, screen.height) >= 600;
+  // Safari (and every iOS browser — all WebKit) prints differently (see
+  // print.css).
+  root.classList.toggle("is-webkit-print", navigator.vendor === "Apple Computer, Inc.");
   root.classList.toggle("is-touch", isTouch);
 
   // Which page geometry to cut for (see book.css):
@@ -1060,6 +1232,7 @@
     const progress = pages.length ? (current * perSpread) / pages.length : 0;
     pageWidth = next[0].offsetWidth;
     pageHeight = next[0].offsetHeight;
+    setPrintZoom(root, pageWidth, pageHeight);
     pages = next;
     buildSpreads();
     if (navigated) show(Math.floor(Math.round(progress * pages.length) / perSpread));
@@ -1084,9 +1257,24 @@
     renderTimer = setTimeout(() => render(true), 150);
   }
 
-  window.addEventListener("resize", () => {
+  // Printing lays the document out at paper size, which fires resize
+  // too: the pages already cut are what gets printed (see print.css), so
+  // nothing is re-cut or re-sized for it — a phone or tablet layout would
+  // otherwise squeeze its pages to the paper's width mid-print.
+  const printMedia = matchMedia("print");
+  let printing = false;
+
+  function onResize() {
+    if (printing || printMedia.matches) return;
     if (applyLayout()) recut();
     else relayout();
+  }
+
+  window.addEventListener("resize", onResize);
+  window.addEventListener("beforeprint", () => { printing = true; });
+  window.addEventListener("afterprint", () => {
+    printing = false;
+    onResize();
   });
 
   function toggleTabletLayout() {
@@ -1550,13 +1738,14 @@
         return;
       }
 
-      if (e.key === "\\") {
+      // By key code too: a Chinese input method types 、 on that key.
+      if (e.key === "\\" || e.code === "Backslash") {
         e.preventDefault();
         toggleTabletLayout();
         return;
       }
 
-      if (e.key === "/") {
+      if (e.key === "/" || e.code === "Slash") {
         e.preventDefault();
         toggleDouble();
         return;

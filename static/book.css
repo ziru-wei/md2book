@@ -275,6 +275,12 @@ html.reader-loading #reader-loader {
 
 /* Where reader.js lays pages out, offscreen and unscaled, before they
    go on screen. */
+/* Pages for printing, cut in the background in the phone and tablet
+   layouts (see print.css and cutPrintPages in reader.js). */
+.print-book {
+  display: none;
+}
+
 .book-staging {
   position: absolute;
   top: 0;
@@ -661,8 +667,42 @@ html.reader.is-zoomed body {
   /* hyphens: auto; */
 }
 
-.body > :first-child {
+.body > :first-child,
+.body-column > :first-child {
   margin-top: 0;
+}
+
+/* A cut page's columns, made plain (see freezeColumns in reader.js):
+   side-by-side boxes, each holding what was laid out in one column. */
+.body.body--columns {
+  display: flex;
+  gap: var(--column-gap);
+  column-count: auto !important;
+  column-width: auto !important;
+}
+
+.body-column {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* A multi-column box drops the margin under the last thing in each
+   column (it falls at a column break, or the columns' balanced end) —
+   and pages are cut to that height. The boxes drop it too, or they'd
+   come out taller than they were cut, and push what follows off the
+   page. (Also the margin of a last child's own last child, which would
+   otherwise show through it.) */
+.body-column > :last-child,
+.body-column > :last-child > :last-child,
+.body-column > :last-child > :last-child > :last-child {
+  margin-bottom: 0;
+}
+
+/* A justified paragraph cut at a column or page end: its last line
+   there isn't the paragraph's last, so it is justified too. (Justif's
+   lines are set to full width already.) */
+html.justify .body [data-runs-on]:not([data-justif]) {
+  text-align-last: justify;
 }
 
 .body p {

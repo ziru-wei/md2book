@@ -66,13 +66,14 @@ html.reader body {
   border: none !important;
   background: #fff !important;
 
-  /* 850x1100 and 816x1056 (Letter at 96dpi) share the same 0.7727
-     aspect ratio, so a uniform 0.96 zoom maps one exactly onto the
-     other with no distortion and no browser "shrink to fit" guessing.
-     zoom (not transform: scale) actually shrinks the layout box, so
-     the page's footprint fits the zero-margin Letter @page above
-     instead of overflowing it. */
-  zoom: 0.96;
+  /* Just under a Letter sheet (816x1056 at 96dpi): reader.js sets
+     --print-zoom from the page's size (0.958 for the 850x1100 book page,
+     which shares Letter's aspect ratio). zoom, not transform: Safari and
+     Firefox break sheets by the layout, where a transformed page (and
+     everything in it) keeps its full size — it would spill onto a blank
+     second sheet, taking the page number with it. zoom shrinks the
+     layout itself. */
+  zoom: var(--print-zoom, 0.958);
 
   break-after: page;
   break-inside: avoid;
@@ -80,6 +81,56 @@ html.reader body {
 
 .spread:last-child .page:last-child,
 .spread:last-child .page:has(+ .page-blank) {
+  break-after: auto;
+}
+
+/* The text area prints unclipped (there's nothing past its columns
+   once a page is cut), and its paper (see html.justify .page-area in
+   book.css) prints white like the page. */
+.page-area {
+  overflow: visible !important;
+  clip-path: none !important;
+  background: #fff !important;
+}
+
+/* Pages are already cut: nothing inside one may start another sheet.
+   (A note's break-before: page — how reader.js starts each note on a
+   fresh page — would, in Safari and Firefox.) */
+.page * {
+  break-before: auto !important;
+  break-after: auto !important;
+  break-inside: auto !important;
+}
+
+/* Safari: pages sized to the printer's imageable area (see reader.js),
+   centered across it. */
+html.is-webkit-print .page {
+  zoom: var(--print-zoom-safari, 0.809);
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+/* At Safari's print zoom, text comes out about 1% wider than on
+   screen, so Justif's fixed-width lines (see reader.js) no longer fit
+   the room beside a drop cap and drop below it. Some slack past the
+   right edge: the lines keep their own widths, so nothing moves. */
+html.is-webkit-print .body p[data-justif],
+html.is-webkit-print .body li[data-justif] {
+  margin-right: -0.5em;
+}
+
+/* Phone and tablet layouts: the pages cut for printing, shaped like a
+   sheet (see cutPrintPages in reader.js), print instead of the ones on
+   screen. */
+html.has-print-book .book {
+  display: none !important;
+}
+
+html.has-print-book .print-book {
+  display: block !important;
+}
+
+.print-book .page:last-child {
   break-after: auto;
 }
 
