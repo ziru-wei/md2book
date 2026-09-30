@@ -193,7 +193,7 @@ Each collection lives at `/contents/<collection name>`.
 
 `![[image.png]]` finds the image by file name anywhere in your vault, as Obsidian does; `![alt](attachments/image.png)` (relative to the current note) and hosted image links work too.
 
-Mark lines under an image with `//` to add a caption, make it a teaser (header image) or a span (across both columns), or set its width as a percentage of the full text width (e.g. `//40`; without it, the default width — in two columns, each about half as wide, `//40` is 80% of a column and 50 or more fills it). The marks can go in any order. The caption starts at the image's left edge and wraps at its right edge.
+Mark lines under an image with `//` to add a caption, make it a teaser (header image) or a span (across both columns), or set its width as a percentage of the full text width (e.g. `//40`; without it, the default width — in two columns, and on phones, a column is about half as wide, so `//40` is 80% of it and 50 or more fills it). The marks can go in any order. The caption starts at the image's left edge and wraps at its right edge.
 
 ```md
 ![[kyoto.jpg]]

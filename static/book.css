@@ -881,7 +881,8 @@ html:not(.no-drop-cap) .body p.drop-cap::first-letter {
    the figure — and the image — to 40% of the text's full width: in one
    column, 40% of it; in one of two columns, about half as wide, 80% of
    the column (and 50 or more fills it); across the page (//span) or as
-   the teaser, 40% of the page's text. */
+   the teaser, 40% of the page's text. A phone's narrow column counts
+   as one of two. */
 .body figure.md-figure,
 figure.md-figure.span-placed {
   display: flex;
@@ -903,11 +904,18 @@ figure.md-figure.span-placed img {
   width: min(100%, calc(var(--figure-width) * 2%));
 }
 
-html[data-layout="phone"] .body figure.md-figure.has-width,
 html[data-layout="tablet"] .body figure.md-figure.has-width,
 figure.md-figure.span-placed.has-width,
 .teaser-figure.has-width {
   width: calc(var(--figure-width) * 1%);
+}
+
+/* A phone's one column is about as narrow as one of two: sized like
+   that, teasers and //span figures too. */
+html[data-layout="phone"] .body figure.md-figure.has-width,
+html[data-layout="phone"] figure.md-figure.span-placed.has-width,
+html[data-layout="phone"] .teaser-figure.has-width {
+  width: min(100%, calc(var(--figure-width) * 2%));
 }
 
 .body figure.md-figure.has-width img,
