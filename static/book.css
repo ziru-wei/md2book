@@ -875,6 +875,54 @@ html:not(.no-drop-cap) .body p.drop-cap::first-letter {
   object-fit: contain;
 }
 
+/* An image's figure is as wide as the image (centered in the column),
+   so its caption starts at the image's left edge and wraps at its right
+   one. "//40" under an image (see parseFigureLines in server.js) sizes
+   the figure — and the image — to 40% of the text's full width: in one
+   column, 40% of it; in one of two columns, about half as wide, 80% of
+   the column (and 50 or more fills it); across the page (//span) or as
+   the teaser, 40% of the page's text. */
+.body figure.md-figure,
+figure.md-figure.span-placed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.body figure.md-figure img,
+figure.md-figure.span-placed img {
+  width: auto;
+  max-width: 100%;
+}
+
+.body figure.md-figure.has-width {
+  width: min(100%, calc(var(--figure-width) * 2%));
+}
+
+html[data-layout="phone"] .body figure.md-figure.has-width,
+html[data-layout="tablet"] .body figure.md-figure.has-width,
+figure.md-figure.span-placed.has-width,
+.teaser-figure.has-width {
+  width: calc(var(--figure-width) * 1%);
+}
+
+.body figure.md-figure.has-width img,
+figure.md-figure.span-placed.has-width img {
+  width: 100%;
+  max-height: none;
+}
+
+/* The caption takes the figure's width, never widens it. */
+.body figure.md-figure > figcaption,
+figure.md-figure.span-placed > figcaption {
+  width: 0;
+  min-width: 100%;
+}
+
 /* An image inside running text (not a figure of its own) still fits
    the column. */
 .body p img {
@@ -1873,8 +1921,17 @@ html[data-layout="tablet"]:not(.is-touch).has-notes {
   --pad-right: 120px;
 }
 
-html[data-layout="tablet"]:not(.is-touch) .body figure img,
-html[data-layout="tablet"]:not(.is-touch) .teaser-figure img {
+/* The figure itself, so its caption follows; one with its own width
+   ("//40") keeps it. */
+html[data-layout="tablet"]:not(.is-touch) .body figure.md-figure:not(.has-width) {
+  width: 60%;
+}
+
+html[data-layout="tablet"]:not(.is-touch) .body figure.md-figure:not(.has-width) img {
+  width: 100%;
+}
+
+html[data-layout="tablet"]:not(.is-touch) .teaser-figure:not(.has-width) img {
   width: 60%;
   margin-inline: auto;
 }

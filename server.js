@@ -789,7 +789,7 @@ function postProcessMarkdown(renderedHtml, noteId = "", privateHeadingText = "")
   function parseFigureLines(html) {
     const lines = String(html || "").split(/<br\s*\/?>|\n/i).map(line => line.trim()).filter(Boolean);
     if (!lines.length) return null;
-    const out = { isTeaser: false, isSpan: false, captionHtml: null };
+    const out = { isTeaser: false, isSpan: false, captionHtml: null, width: null };
     const addCaption = caption => {
       caption = caption.trim();
       if (caption) out.captionHtml = out.captionHtml ? `${out.captionHtml} ${caption}` : caption;
@@ -797,7 +797,11 @@ function postProcessMarkdown(renderedHtml, noteId = "", privateHeadingText = "")
     for (const line of lines) {
       const text = cheerio.load(`<i>${line}</i>`, null, false).text().trim();
       const kind = /^\/\/\s*(teaser|span)\s*(?:\((.*)\))?$/is.exec(text);
-      if (kind) {
+      // "//40": the image 40% as wide as the column.
+      const width = /^\/\/\s*(\d{1,3})\s*%?$/.exec(text);
+      if (width && +width[1] >= 1 && +width[1] <= 100) {
+        out.width = +width[1];
+      } else if (kind) {
         if (kind[1].toLowerCase() === "teaser") out.isTeaser = true;
         else out.isSpan = true;
         if (kind[2]) addCaption(/\(([\s\S]*)\)\s*$/.exec(line)?.[1] ?? escapeHtml(kind[2]));
@@ -842,10 +846,11 @@ function postProcessMarkdown(renderedHtml, noteId = "", privateHeadingText = "")
 
     const img = $(imgNodes[0]);
     const trailingHtml = contents.filter(node => node !== imgNodes[0]).map(node => $.html(node)).join("").trim();
-    const lines = { isTeaser: false, isSpan: false, captionHtml: null };
+    const lines = { isTeaser: false, isSpan: false, captionHtml: null, width: null };
     const take = parsed => {
       lines.isTeaser ||= parsed.isTeaser;
       lines.isSpan ||= parsed.isSpan;
+      lines.width = parsed.width || lines.width;
       if (parsed.captionHtml) lines.captionHtml = lines.captionHtml ? `${lines.captionHtml} ${parsed.captionHtml}` : parsed.captionHtml;
     };
     if (trailingHtml) {
@@ -865,6 +870,8 @@ function postProcessMarkdown(renderedHtml, noteId = "", privateHeadingText = "")
     img.attr("loading", "lazy");
     img.attr("decoding", "async");
     const figure = $("<figure class='md-figure'></figure>");
+    // Its share of the text's full width; see .has-width in book.css.
+    if (lines.width) figure.addClass("has-width").attr("style", `--figure-width: ${lines.width}`);
     figure.append(img.clone());
     // Every figure is numbered, caption or not — teasers and page-top
     // figures included.
