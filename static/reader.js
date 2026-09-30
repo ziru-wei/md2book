@@ -225,7 +225,8 @@
       const spacer = document.createElement("div");
       spacer.className = "references-spacer";
       spacer.setAttribute("aria-hidden", "true");
-      spacer.style.height = refs.offsetHeight + "px";
+      // Rounded up: a fraction short, and they'd overlap the last line.
+      spacer.style.height = Math.ceil(refs.getBoundingClientRect().height) + "px";
       refs.before(spacer);
     }
 
@@ -454,6 +455,11 @@
       }
       const orphan = Array.from(block.querySelectorAll(HEADINGS)).reverse().find(h => {
         if (h.style.breakBefore === "column" || !h.previousElementSibling) return false;
+        // One right after another heading moves with it: only a run's
+        // first heading is ever moved (its text is counted past the
+        // run). WebKit can still report the next one where it was, and
+        // moving it too would strand the first.
+        if (/^H[2-6]$/.test(h.previousElementSibling.tagName)) return false;
         const own = rectsOf(h);
         if (!own.length) return false;
         // Already at the top of its column: moving it gains nothing.
@@ -627,16 +633,27 @@
     // a continuation — no second drop cap, no second list marker for a
     // split item, and a split <ol> keeps counting.
     let innerKept = false;
+    // Only the innermost block cut through runs on mid-line (a list
+    // around it doesn't; its other items end as usual).
+    let runsOnMarked = !(point.node.nodeType === Node.TEXT_NODE || (chain[0] && /^inline/.test(getComputedStyle(chain[0]).display)));
     for (let i = 0; i < chain.length; i++) {
       const orig = chain[i];
       const copy = clones[i];
       if (isBlank(orig)) {
+        // A block cut at its very start: it all goes on, nothing runs on
+        // mid-line here.
+        if (!/^inline/.test(getComputedStyle(orig).display)) runsOnMarked = true;
         orig.remove();
         innerKept = false;
         continue;
       }
       copy.setAttribute("data-continued", "");
-      orig.setAttribute("data-runs-on", "");
+      // (A copy of one marked by an earlier cut doesn't run on itself.)
+      copy.removeAttribute("data-runs-on");
+      if (!runsOnMarked && /^(block|list-item)$/.test(getComputedStyle(orig).display)) {
+        orig.setAttribute("data-runs-on", "");
+        runsOnMarked = true;
+      }
       copy.classList.remove("drop-cap");
       if (orig.tagName === "OL") {
         copy.start = orig.start + orig.querySelectorAll(":scope > li").length - (innerKept ? 1 : 0);
@@ -683,7 +700,13 @@
   // the page (title included). Moves the first one found on this page
   // (before `cut`, if the text runs on) and says whether it did; the
   // page is then laid out again, which may pull up the next one.
-  function liftSpanFigure(block, cut, area) {
+  // //span figures found not to fit on the page being filled (see
+  // liftSpanFigure); started afresh with each page. `carried`: those
+  // taken out of it, to start the next page's share of their entry.
+  let deferredLifts = new Set();
+  let carried = [];
+
+  function liftSpanFigure(block, cut, area, bottom, tail) {
     if (cut && cut.atStart) return false;
     let limit = null;
     if (cut) {
@@ -691,27 +714,59 @@
       limit.setStart(cut.point.node, cut.point.offset);
     }
     const figure = Array.from(block.querySelectorAll(":scope > figure.span-figure"))
-      .find(fig => !limit || limit.comparePoint(fig, 0) < 0);
+      .find(fig => !deferredLifts.has(fig) && (!limit || limit.comparePoint(fig, 0) < 0));
     if (!figure) return false;
+    const home = figure.nextSibling;
+    // Its place in the text, to see whether that stays on this page.
+    const mark = document.createElement("span");
+    figure.before(mark);
     // A table split to fit the columns goes up whole.
     joinSplitTables(figure);
     for (const el of [figure, ...figure.querySelectorAll("table")]) setColumnBreak(el, false);
     figure.classList.add("span-placed");
+    const putBack = () => {
+      figure.classList.remove("span-placed");
+      block.insertBefore(figure, home);
+    };
     if (!figure.classList.contains("span-table")) {
       block.before(figure);
-      return true;
+    } else {
+      const article = block.parentElement;
+      const placed = article.querySelectorAll(":scope > .span-table.span-placed");
+      if (placed.length) placed[placed.length - 1].after(figure);
+      else article.prepend(figure);
+      // A table too tall to head a page stays in the columns instead of
+      // being cut off.
+      if (figure.getBoundingClientRect().height > area.clientHeight * 0.7) {
+        mark.remove();
+        putBack();
+        figure.classList.remove("span-figure");
+        return true;
+      }
     }
-    const home = figure.nextSibling;
-    const article = block.parentElement;
-    const placed = article.querySelectorAll(":scope > .span-table.span-placed");
-    if (placed.length) placed[placed.length - 1].after(figure);
-    else article.prepend(figure);
-    // A table too tall to head a page stays in the columns instead of
-    // being cut off.
-    if (figure.getBoundingClientRect().height > area.clientHeight * 0.7) {
-      figure.classList.remove("span-placed", "span-figure");
-      block.insertBefore(figure, home);
+    // With it at the top, its place in the text must still be on this
+    // page — else the page would show it ahead of the text it belongs to
+    // (and what it pushes on can leave gaps). A trial fit says; if not,
+    // it waits for the page its place lands on.
+    // (One with nothing before it here — carried over, say — stays.)
+    const first = !Array.from(block.childNodes).some(n => n !== mark && (n.nodeType === Node.ELEMENT_NODE || n.data.trim()) && mark.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_PRECEDING);
+    const trial = first ? null : fitColumns(block, bottom, tail);
+    let stays = true;
+    if (trial) {
+      const r = document.createRange();
+      r.setStart(trial.point.node, trial.point.offset);
+      stays = !trial.atStart && r.comparePoint(mark, 0) < 0;
     }
+    mark.remove();
+    if (!stays) {
+      putBack();
+      deferredLifts.add(figure);
+      // Out of this page altogether (see paginate): in the columns here
+      // it would show at column width.
+      figure.remove();
+      carried.push(figure);
+    }
+    // Either way the layout changed: the page is fitted again.
     return true;
   }
 
@@ -733,7 +788,7 @@
         const spacerAt = after.findIndex(el => el.matches(".references-spacer"));
         const tail = spacerAt === -1 ? after : after.slice(0, spacerAt);
         const cut = fitColumns(block, bottom, tail);
-        if (liftSpanFigure(block, cut, area)) return fitArticle(area, article);
+        if (liftSpanFigure(block, cut, area, bottom, tail)) return fitArticle(area, article);
         if (cut) {
           // An entry's title (and teaser) stays at the foot of a page only
           // with a few lines of its text under it, like a heading does.
@@ -759,6 +814,8 @@
   // to lay out as columns again. (Printing does: Safari prints a
   // multi-column box inside a printed page as one wide column.)
   function freezeColumns(block) {
+    // WebKit may still show an older column layout (see relayoutColumns).
+    relayoutColumns(block);
     const cols = columnsOf(block);
     const items = laidOutLeaves(block);
     // Every column's start is measured before anything moves.
@@ -792,6 +849,7 @@
     let page;
     let area;
     const startPage = () => {
+      deferredLifts = new Set();
       page = newPage();
       // Left- or right-hand page of a two-page spread: the tablet layout
       // mirrors its margins (wider outer margin for side comments).
@@ -812,6 +870,22 @@
       }
 
       const rest = fitArticle(area, article);
+
+      // //span figures put off to the next page (see liftSpanFigure)
+      // start it; if the entry ends here, they get a page of their own.
+      if (carried.length) {
+        let body = rest[0] && rest[0].querySelector(":scope > .body");
+        if (!body) {
+          const shell = article.cloneNode(false);
+          shell.setAttribute("data-continued", "");
+          body = document.createElement("main");
+          body.className = "body";
+          shell.appendChild(body);
+          rest.unshift(shell);
+        }
+        body.prepend(...carried.map(figure => (figure.classList.remove("span-placed"), figure)));
+        carried = [];
+      }
 
       const byline = running.get(article);
       if (byline && article.parentNode === area) {
@@ -992,6 +1066,12 @@
     for (const page of next) {
       for (const block of page.querySelectorAll(".body")) if (isColumns(block)) freezeColumns(block);
     }
+    // Pinned References stay exactly where and as wide as they are:
+    // Safari prints their percentage width narrower, and the longer list
+    // ran up over the text.
+    for (const refs of staging.querySelectorAll(".references:not(.references--inline)")) {
+      refs.style.width = refs.getBoundingClientRect().width + "px";
+    }
     if (!root.classList.contains("no-page-numbers")) numberPages(next);
     next.forEach(placeMarginNotes);
     return next;
@@ -1005,7 +1085,8 @@
   // to fit 720x890 — with room to spare, margins or none.
   function setPrintZoom(el, width, height) {
     el.style.setProperty("--print-zoom", Math.floor(Math.min(816 / width, 1056 / height) * 1000) / 1000 - 0.002);
-    el.style.setProperty("--print-zoom-safari", Math.floor(Math.min(720 / width, 890 / height) * 1000) / 1000);
+    // (Safari's pages print with a 72px strip on top, see print.css.)
+    el.style.setProperty("--print-zoom-safari", Math.floor(Math.min(720 / width, 890 / (height + 72)) * 1000) / 1000);
   }
 
   // Pages for printing. The book page has a sheet's proportions already,

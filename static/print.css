@@ -105,7 +105,11 @@ html.reader body {
 /* Safari: pages sized to the printer's imageable area (see reader.js),
    centered across it. */
 html.is-webkit-print .page {
-  zoom: var(--print-zoom-safari, 0.809);
+  zoom: var(--print-zoom-safari, 0.783);
+  /* Safari prints each page at the top of its sheet, and all the room
+     to spare below it: a strip on top brings the page down a little.
+     (A border: the page's contents are placed from inside it.) */
+  border-top: 72px solid #fff !important;
   margin-left: auto !important;
   margin-right: auto !important;
 }

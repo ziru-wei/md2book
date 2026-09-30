@@ -653,6 +653,25 @@ function startsWithLetter($, el) {
   return false;
 }
 
+// Chinese/Japanese runs in the text, each wrapped in <span class="cjk">,
+// so English body text can be set a little heavier without touching them
+// (see .cjk in book.css). Code and math are left as they are.
+const CJK = "\u2E80-\u2FDF\u3000-\u303F\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFFEF";
+const CJK_TEST = new RegExp(`[${CJK}]`);
+const CJK_RUNS = new RegExp(`[${CJK}]+`, "g");
+const NO_CJK_MARKS = new Set(["code", "pre", "math", "script", "style", "annotation"]);
+
+function markCjkRuns($, node) {
+  for (const child of [...(node.children || [])]) {
+    if (child.type === "text") {
+      if (!CJK_TEST.test(child.data)) continue;
+      $(child).replaceWith(escapeHtml(child.data).replace(CJK_RUNS, run => `<span class="cjk">${run}</span>`));
+    } else if (child.type === "tag" && !NO_CJK_MARKS.has(child.name)) {
+      markCjkRuns($, child);
+    }
+  }
+}
+
 function postProcessMarkdown(renderedHtml, noteId = "", privateHeadingText = "") {
   // Wrap rendered fragment so Cheerio can safely transform it.
   const $ = cheerio.load(`<main id="root">${renderedHtml}</main>`, null, false);
@@ -1104,6 +1123,8 @@ function postProcessMarkdown(renderedHtml, noteId = "", privateHeadingText = "")
     firstChild.addClass("drop-cap");
   }
 
+  markCjkRuns($, root[0]);
+
   // Plain-text excerpt for card previews on the list page: the first
   // remaining text paragraph (image-only paragraphs became figures above
   // and don't count).
@@ -1279,7 +1300,7 @@ function pageShell({ title, bodyHtml, bodyClass, reader = false, row = null }) {
   ${config.site.author ? `<meta name="author" content="${escapeHtml(config.site.author)}" />` : ""}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+SC:wght@300;400;500;600;700&family=Libre+Baskerville:ital,wght@0,400..700;1,400..700&family=Source+Serif+4:ital,opsz,wght@0,8..60,200..900;1,8..60,200..900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+SC:wght@300;400;500;600;700&family=Libertinus+Serif:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&family=Source+Serif+4:ital,opsz,wght@0,8..60,200..900;1,8..60,200..900&display=swap" rel="stylesheet" />
 ${adobeFontsHtml()}
 ${bodyHtml.includes("<math") ? `<link rel="stylesheet" href="${MATH_CSS}" crossorigin />
   ` : ""}<link rel="stylesheet" href="/static/book.css" />

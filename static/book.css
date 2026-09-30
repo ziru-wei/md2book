@@ -42,16 +42,16 @@
   --note-width: 120px;
   --note-inset: 20px;
 
-  /* CUSTOMIZABLE STYLE: typography — Source Serif 4 (Google Fonts,
-     variable weight/optical-size) for Latin text, Libre Baskerville
-     right behind it as a second Latin fallback; Source Han Serif SC
-     (Adobe Fonts kit vlg3xva, 400/700/900) covers Chinese glyphs
-     neither of those has, so the browser falls through to it
-     automatically per-character in mixed 中文/English text. Georgia
-     etc. stay as the pre-webfont-load fallback. */
-  --serif: "Source Serif 4", "Libre Baskerville", "source-han-serif-sc", Georgia, "Times New Roman", Times, serif;
-  --body-size: 11.5px;
-  --body-leading: 1.22;
+  /* CUSTOMIZABLE STYLE: typography — Libertinus Serif (Google Fonts)
+     for Latin text, titles aside: those are in Source Serif 4 (Google
+     Fonts, variable weight/optical-size). Source Han Serif SC (the
+     Adobe Fonts kit, if set) covers the Chinese glyphs neither has, so
+     the browser falls through to it per character in mixed 中文/English
+     text. Georgia etc. stay as the pre-webfont-load fallback. */
+  --serif: "Libertinus Serif", "source-han-serif-sc", Georgia, "Times New Roman", Times, serif;
+  --title-serif: "Source Serif 4", "source-han-serif-sc", Georgia, "Times New Roman", Times, serif;
+  --body-size: 10.5px;
+  --body-leading: 1.2;
 
   /* CUSTOMIZABLE STYLE: per-page-type background colors */
   --index-bg: rgb(245, 245, 245);
@@ -189,7 +189,7 @@ html[data-layout="tablet"] .page--right .page-foot {
   transform: translateX(-50%);
 
   font-family: var(--serif);
-  font-size: 8px;
+  font-size: calc(var(--body-size) * 8 / 11);
   letter-spacing: .12em;
   color: rgba(17, 17, 17);
   pointer-events: none;
@@ -544,10 +544,11 @@ html.reader.is-zoomed body {
   max-width: 86%;
 
   text-align: center;
-  font-family: var(--serif);
+  font-family: var(--title-serif);
 
-  /* CUSTOMIZABLE STYLE: title typography */
-  font-size: 24px;
+  /* CUSTOMIZABLE STYLE: title typography — in proportion to the body
+     text of each layout (24px beside the book page's 11px). */
+  font-size: calc(var(--body-size) * 24 / 11);
   line-height: 1.03;
   font-weight: 700;
   text-wrap: balance;
@@ -592,7 +593,7 @@ html.reader.is-zoomed body {
   font-family: var(--serif);
 
   /* CUSTOMIZABLE STYLE: typography */
-  font-size: 9px;
+  font-size: calc(var(--body-size) * 9 / 11);
   font-style: italic;
   line-height: 1.3;
 }
@@ -613,7 +614,7 @@ html.reader.is-zoomed body {
   padding: 0;
   border: none;
   text-align: right;
-  font-size: 8.5px;
+  font-size: calc(var(--body-size) * 8.5 / 11);
   font-style: italic;
   color: inherit;
 }
@@ -710,6 +711,22 @@ html.justify .body [data-runs-on]:not([data-justif]) {
   margin: 0 0 1em;
 }
 
+/* CUSTOMIZABLE STYLE: English body text. Libertinus's hairlines get
+   thin at reading size (it has no optical sizes), so a hair of stroke
+   fills them out — bold included, by the same amount. Chinese runs
+   (<span class="cjk">, see markCjkRuns in server.js) keep their own
+   weight. */
+.body p,
+.body li,
+.body blockquote,
+.body td {
+  -webkit-text-stroke: 0.35px currentColor;
+}
+
+.body .cjk {
+  -webkit-text-stroke: 0;
+}
+
 /* Layout rows with `justify`: reader.js has Justif set these paragraphs
    (whole-paragraph line breaking, hyphenation); what it can't set keeps
    the browser's own justification. */
@@ -738,7 +755,8 @@ html:not(.no-drop-cap) .body p.drop-cap::first-letter {
 .body h4 {
   break-after: avoid-column;
   break-inside: avoid;
-  font-family: var(--serif);
+  font-family: var(--title-serif);
+  font-weight: 700;
 }
 
 /* Numbers a layout turns off (html.no-*-numbers, see rowClasses in
@@ -761,20 +779,20 @@ html:not(.no-drop-cap) .body p.drop-cap::first-letter {
 }
 
 .body h2 {
-  /* CUSTOMIZABLE STYLE: H2 */
   margin: 1.45em 0 .55em;
-  font-size: 20px;
+  font-size: calc(var(--body-size) * 14 / 11);
   line-height: 1.18;
-  font-weight: 600;
+  font-weight: 650;
   letter-spacing: -.015em;
+  text-transform: uppercase;
 }
 
 .body h3 {
   /* CUSTOMIZABLE STYLE: H3 */
   margin: 1.25em 0 .45em;
-  font-size: 16px;
+  font-size: calc(var(--body-size) * 12 / 11);
   line-height: 1.15;
-  font-weight: 600;
+  font-weight: 650;
 }
 
 /* =========================================================
@@ -850,7 +868,7 @@ html:not(.no-drop-cap) .body p.drop-cap::first-letter {
   /* CUSTOMIZABLE STYLE: smaller than surrounding body text — line-height
      left to inherit .body's normal value so quoted lines don't look
      inconsistently spaced next to regular paragraphs */
-  font-size: 9.6px;
+  font-size: calc(var(--body-size) * 9.6 / 11);
 }
 
 /* =========================================================
@@ -1020,9 +1038,9 @@ figure.md-table figcaption {
   text-align: left;
   color: inherit;
   font-family: var(--serif);
-  font-size: 10.5px;
+  font-size: calc(var(--body-size) * 10 / 11);
   font-style: italic;
-  line-height: 1.3;
+  line-height: 1.2;
 }
 
 /* Fallback shown only if a remote image fails to load. */
@@ -1036,7 +1054,7 @@ figure.md-table figcaption {
   border: 1px solid var(--rule);
   background: #e2e6e8;
   color: var(--muted);
-  font-size: 11px;
+  font-size: calc(var(--body-size) * 11 / 11);
   line-height: 1;
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -1110,6 +1128,15 @@ figure.md-table figcaption {
    and sits on whichever side faces the page's own text block.
    ========================================================= */
 
+/* Superscripts (side-note numbers among them) are lifted, not raised
+   with vertical-align — which would open up their line. */
+.body sup {
+  position: relative;
+  top: -0.45em;
+  vertical-align: baseline;
+  line-height: 0;
+}
+
 .comment-number {
   /* CUSTOMIZABLE STYLE: in-text superscript marker — same color as
      body text, not muted/gray */
@@ -1130,7 +1157,7 @@ figure.md-table figcaption {
 
   /* CUSTOMIZABLE STYLE: margin note text — same color as body text,
      not muted/gray */
-  font-size: 7.5px;
+  font-size: calc(var(--body-size) * 7.5 / 11);
   line-height: 1.35;
   color: inherit;
 }
@@ -1195,7 +1222,7 @@ figure.md-table figcaption {
   list-style: none;
 
   /* CUSTOMIZABLE STYLE: reference typography */
-  font-size: 9.5px;
+  font-size: calc(var(--body-size) * 9.5 / 11);
   line-height: 1;
 }
 
@@ -1260,8 +1287,8 @@ figure.md-table figcaption {
   table-layout: auto;
 
   /* CUSTOMIZABLE STYLE: table typography */
-  font-size: .74em;
-  line-height: 1.3;
+  font-size: .9em;
+  line-height: 1.1;
 
   border-top: 1.2px solid var(--ink);
   border-bottom: 1.2px solid var(--ink);
@@ -1407,7 +1434,7 @@ math {
 }
 
 .home .wf-card-title {
-  font-family: var(--serif);
+  font-family: var(--title-serif);
   font-size: 16px;
 }
 
@@ -1738,7 +1765,7 @@ dialog.toc-dialog::backdrop {
 
 .wf-card-title {
   margin: 0 0 8px;
-  font-family: var(--serif);
+  font-family: var(--title-serif);
 
   /* CUSTOMIZABLE STYLE: card title typography */
   font-size: 18px;
@@ -1826,8 +1853,9 @@ html {
 }
 
 .page-zine .title {
-  font-family: "Cormorant SC", var(--serif);
-  font-size: 18px;
+  font-family: "Cormorant SC", var(--title-serif);
+  /* 18px beside the book page's 11px. */
+  font-size: calc(var(--body-size) * 18 / 11);
   font-weight: 400;
 }
 
@@ -1853,7 +1881,7 @@ html {
 }
 
 .references--inline .reference-list {
-  font-size: 8.5px;
+  font-size: calc(var(--body-size) * 8.5 / 11);
   color: inherit;
 }
 
@@ -1944,27 +1972,6 @@ html[data-layout="tablet"]:not(.is-touch) .teaser-figure:not(.has-width) img {
   margin-inline: auto;
 }
 
-html[data-layout="tablet"]:not(.is-touch) .body blockquote {
-  font-size: 13px;
-}
-
-html[data-layout="tablet"]:not(.is-touch) .body figcaption,
-html[data-layout="tablet"]:not(.is-touch) .teaser-slot figcaption {
-  font-size: 12.5px;
-}
-
-html[data-layout="tablet"]:not(.is-touch) .comment-margin-marker {
-  font-size: 10px;
-}
-
-html[data-layout="tablet"]:not(.is-touch) .reference-list,
-html[data-layout="tablet"]:not(.is-touch) .references--inline .reference-list,
-html[data-layout="tablet"]:not(.is-touch) .byline-footer,
-html[data-layout="tablet"]:not(.is-touch) .byline-footer--inline,
-html[data-layout="tablet"]:not(.is-touch) .byline-footer--zine {
-  font-size: 11px;
-}
-
 html[data-layout="phone"] .body,
 html[data-layout="tablet"] .body {
   column-count: auto;
@@ -1980,62 +1987,14 @@ html[data-layout="tablet"] .title {
   margin-bottom: 28px;
 }
 
-html[data-layout="phone"] .page-zine .title,
-html[data-layout="tablet"] .page-zine .title {
-  font-size: 20px;
-}
-
 html[data-layout="phone"] .teaser-slot {
   margin: 12px 0 24px;
-}
-
-html[data-layout="phone"] .body blockquote {
-  font-size: 13px;
-}
-
-html[data-layout="tablet"] .body blockquote {
-  font-size: 11.5px;
-}
-
-html[data-layout="phone"] .body figcaption,
-html[data-layout="phone"] .teaser-slot figcaption {
-  font-size: 12px;
-}
-
-html[data-layout="tablet"] .body figcaption,
-html[data-layout="tablet"] .teaser-slot figcaption {
-  font-size: 11px;
 }
 
 /* One column: References take the full text width. */
 html[data-layout="phone"] .references,
 html[data-layout="tablet"] .references {
   width: 100%;
-}
-
-html[data-layout="phone"] .reference-list,
-html[data-layout="phone"] .references--inline .reference-list {
-  font-size: 11px;
-}
-
-html[data-layout="tablet"] .reference-list,
-html[data-layout="tablet"] .references--inline .reference-list {
-  font-size: 10px;
-}
-
-html[data-layout="phone"] .byline-footer {
-  font-size: 11px;
-}
-
-html[data-layout="phone"] .byline-footer--inline,
-html[data-layout="phone"] .byline-footer--zine {
-  font-size: 10.5px;
-}
-
-html[data-layout="tablet"] .byline-footer,
-html[data-layout="tablet"] .byline-footer--inline,
-html[data-layout="tablet"] .byline-footer--zine {
-  font-size: 10px;
 }
 
 /* The page number sits in the bottom margin too: keep the byline above
@@ -2058,13 +2017,4 @@ html[data-layout="phone"] .byline-footer--running {
 html[data-layout="phone"] .page .page-number,
 html[data-layout="tablet"] .page .page-number {
   bottom: 14px;
-  font-size: 10px;
-}
-
-html[data-layout="phone"] .comment-margin-marker {
-  font-size: 9.5px;
-}
-
-html[data-layout="tablet"] .comment-margin-marker {
-  font-size: 9px;
 }
