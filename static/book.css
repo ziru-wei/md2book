@@ -156,6 +156,9 @@ html:has(body.page-contents) {
 html.justify .page-area {
   overflow: visible;
   clip-path: inset(0 calc(-1.2 * var(--body-size)));
+  /* clip-path sets the area apart for blending: without a paper of its
+     own, multiplied images (see below) would blend with nothing. */
+  background: var(--paper);
 }
 
 /* The bottom margin below the text area — holds /entry's byline on
