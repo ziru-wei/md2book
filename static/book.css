@@ -714,17 +714,18 @@ html.justify .body [data-runs-on]:not([data-justif]) {
 /* CUSTOMIZABLE STYLE: English body text. Libertinus's hairlines get
    thin at reading size (it has no optical sizes), so a hair of stroke
    fills them out — bold included, by the same amount. Chinese runs
-   (<span class="cjk">, see markCjkRuns in server.js) keep their own
-   weight. */
+   (<span class="cjk">, see markCjkRuns in server.js) get a subtler
+   one, below. */
 .body p,
 .body li,
 .body blockquote,
 .body td {
-  -webkit-text-stroke: 0.35px currentColor;
+  -webkit-text-stroke: 0.25px currentColor;
 }
 
+/* Chinese: denser strokes, so a subtler touch. */
 .body .cjk {
-  -webkit-text-stroke: 0;
+  -webkit-text-stroke-width: 0.12px;
 }
 
 /* Layout rows with `justify`: reader.js has Justif set these paragraphs
@@ -1160,6 +1161,9 @@ figure.md-table figcaption {
   font-size: calc(var(--body-size) * 7.5 / 11);
   line-height: 1.35;
   color: inherit;
+  /* Small type: a subtle stroke keeps it from going spindly — Chinese
+     and English alike. */
+  -webkit-text-stroke: 0.2px currentColor;
 }
 
 /* Right-margin note (anchor was in the right column): rule faces
@@ -1294,6 +1298,11 @@ figure.md-table figcaption {
   border-bottom: 1.2px solid var(--ink);
 }
 
+/* Column widths fitted to the table's content (see table-fit.js). */
+:is(.body, .span-table) table.table--fitted {
+  table-layout: fixed;
+}
+
 :is(.body, .span-table) thead th {
   border-bottom: .8px solid var(--ink);
   font-weight: 600;
@@ -1314,6 +1323,9 @@ figure.md-table figcaption {
 :is(.body, .span-table) th:first-child,
 :is(.body, .span-table) td:first-child {
   padding-left: 0;
+  /* CUSTOMIZABLE STYLE: the first column (row labels) is set flush
+     right, against the columns it labels. */
+  text-align: right;
 }
 
 :is(.body, .span-table) th:last-child,

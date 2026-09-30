@@ -137,6 +137,46 @@
     }
   }
 
+  // Tables' column widths (static/table-fit.js), fitted before anything
+  // is measured for cutting — so the page cut, the screen and printing
+  // all use the same widths — at the width each will be shown at: its
+  // column, or (a //span table) the full text width. Remembered per
+  // width and table, so re-cutting doesn't search again.
+  const tableFits = new Map();
+
+  function fitTables(area) {
+    const fit = window.md2bookTableFit;
+    const tables = area.querySelectorAll(".body figure.md-table > table");
+    if (!fit || !tables.length) return;
+    // Hidden copies are laid out here: a .body of its own, so they're
+    // styled like the real thing, but without columns.
+    const host = document.createElement("div");
+    host.className = "body";
+    host.setAttribute("aria-hidden", "true");
+    host.style.cssText = "position:absolute;left:0;top:0;visibility:hidden;columns:auto;column-count:auto;column-width:auto;height:auto;";
+    area.appendChild(host);
+    for (const table of tables) {
+      const figure = table.parentElement;
+      const width = Math.floor(figure.classList.contains("span-table") ? area.clientWidth : columnsOf(figure.closest(".body")).width);
+      const key = width + "\u0000" + table.innerHTML;
+      if (!tableFits.has(key)) {
+        host.style.width = width + "px";
+        let fitted = null;
+        try {
+          if (fit.fitTable(table, width, host)) fitted = table.querySelector(":scope > colgroup").outerHTML;
+        } catch { /* the browser's own widths stay */ }
+        tableFits.set(key, fitted);
+        continue;
+      }
+      const fitted = tableFits.get(key);
+      if (fitted) {
+        table.insertAdjacentHTML("afterbegin", fitted);
+        table.classList.add("table--fitted");
+      }
+    }
+    host.remove();
+  }
+
   // Justified text (layout rows with `justify`) is set by Justif
   // (https://github.com/lyallcooper/justif, MIT): it breaks each
   // paragraph's lines as a whole, TeX-style, and writes them out as
@@ -201,6 +241,7 @@
     }
 
     fitDisplayMath(area);
+    fitTables(area);
     if (root.classList.contains("justify")) await justifyText(area);
 
     for (const img of area.querySelectorAll("img")) {
@@ -386,6 +427,8 @@
     const table = row.closest("table");
     const rest = table.cloneNode(false);
     rest.setAttribute("data-row-split", "");
+    const colgroup = table.querySelector(":scope > colgroup");
+    if (colgroup) rest.appendChild(colgroup.cloneNode(true));
     if (table.tHead) rest.appendChild(table.tHead.cloneNode(true));
     const body = document.createElement("tbody");
     for (let r = row; r; ) {
@@ -663,6 +706,9 @@
         // nothing but its header moves over whole.
         const head = orig.tHead;
         if (head && !copy.tHead) copy.prepend(head.cloneNode(true));
+        // And keeps its fitted column widths (see fitTables).
+        const colgroup = orig.querySelector(":scope > colgroup");
+        if (colgroup && !copy.querySelector(":scope > colgroup")) copy.prepend(colgroup.cloneNode(true));
         if (!orig.querySelector("tbody tr")) {
           orig.remove();
           copy.removeAttribute("data-continued");

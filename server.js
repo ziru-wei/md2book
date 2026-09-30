@@ -1294,7 +1294,7 @@ function pageShell({ title, bodyHtml, bodyClass, reader = false, row = null }) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="${reader
-    ? "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    ? "width=device-width, initial-scale=1, viewport-fit=cover"
     : "width=device-width, initial-scale=1"}" />
   <title>${escapeHtml(title)}</title>
   ${config.site.author ? `<meta name="author" content="${escapeHtml(config.site.author)}" />` : ""}
@@ -1329,7 +1329,8 @@ ${bodyHtml.includes("<math") ? `<link rel="stylesheet" href="${MATH_CSS}" crosso
     events.addEventListener("reload", () => location.reload());
     ` : ""}
   </script>
-  ${reader ? `<script src="/static/reader.js"></script>` : ""}
+  ${reader ? `<script src="/static/table-fit.js"></script>
+  <script src="/static/reader.js"></script>` : ""}
 </body>
 </html>`;
 }
