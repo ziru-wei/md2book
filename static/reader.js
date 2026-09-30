@@ -194,6 +194,12 @@
       Promise.race([document.fonts.ready, sleep(3000)])
     ]);
 
+    // An image whose size still isn't known is laid out without it; its
+    // pages are cut again once it's known (see watchImages).
+    for (const img of area.querySelectorAll("img")) {
+      if (!img.naturalWidth && !(img.getAttribute("width") && img.getAttribute("height"))) img.dataset.unsized = "";
+    }
+
     fitDisplayMath(area);
     if (root.classList.contains("justify")) await justifyText(area);
 
@@ -917,12 +923,20 @@
   function watchImages(pages) {
     for (const page of pages) {
       for (const img of page.querySelectorAll("img")) {
+        // Cut without its size: again as soon as the size is in — which
+        // can be well before the whole file is, or already.
+        if (img.hasAttribute("data-unsized")) {
+          const poll = () => {
+            if (!img.isConnected) return;
+            if (img.naturalWidth) scheduleRender();
+            else if (!img.complete) setTimeout(poll, 200);
+          };
+          poll();
+        }
         if (img.complete) continue;
-        const sized = img.naturalWidth > 0 || (img.getAttribute("width") && img.getAttribute("height"));
         img.classList.add("is-loading");
         img.addEventListener("load", () => {
           img.classList.remove("is-loading");
-          if (!sized) scheduleRender();
         }, { once: true });
         img.addEventListener("error", () => {
           failedImages.add(img.getAttribute("src"));
