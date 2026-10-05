@@ -115,6 +115,11 @@
       color: #fff;
     }
 
+    /* The browser version (see useBrowserMode): no notes folder, no
+       home page address. */
+    .browser-mode .meta > span:first-child,
+    .browser-mode .field:has(#f-site-homePath) { display: none; }
+
     .meta {
       color: var(--muted);
       font-size: 13px;
@@ -634,6 +639,41 @@
       }
     };
 
+    // Opened by the browser version (web/app.js), which reads a folder on
+    // this computer and puts nothing online: no "publishing", no folder
+    // name, none of the server's own options.
+    const BROWSER_TEXT = {
+      en: {
+        navPublish: "Notes",
+        openSite: "Back to reading →",
+        site: "Home page",
+        publishing: "Notes",
+        publishWhich: "Which notes are shown",
+        publishField: "Only notes that have this frontmatter field:",
+        idField: "Fixed address field",
+        idFieldHint: "A note with this frontmatter field keeps the same address in this browser when you rename or move it.",
+        collectionsHint: "A collection is a group of notes read as one book."
+      },
+      zh: {
+        navPublish: "笔记",
+        openSite: "返回阅读 →",
+        site: "首页",
+        publishing: "笔记",
+        publishWhich: "显示哪些笔记",
+        publishField: "只显示带有这个 frontmatter 字段的笔记：",
+        idField: "固定地址字段",
+        idFieldHint: "带有这个 frontmatter 字段的笔记，改名或移动后，在这个浏览器里的地址不变。",
+        collectionsHint: "合集是一组笔记，当作一本书来读。",
+        tipPrivate: "正文里这个文字的二级标题，连同它之后的内容都不会显示。"
+      }
+    };
+
+    function useBrowserMode() {
+      Object.assign(TEXT.en, BROWSER_TEXT.en);
+      Object.assign(TEXT.zh, BROWSER_TEXT.zh);
+      document.documentElement.classList.add("browser-mode");
+    }
+
     let lang = "en";
     try { lang = localStorage.getItem("md2book-settings-lang") || (navigator.language.startsWith("zh") ? "zh" : "en"); } catch { /* storage unavailable */ }
     const t = key => TEXT[lang][key] ?? TEXT.en[key] ?? key;
@@ -1088,6 +1128,7 @@
       if (!(res.headers.get("content-type") || "").includes("json")) throw Object.assign(new Error(), { needsServer: true });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || res.status);
+      if (data.mode === "browser") useBrowserMode();
       defaults = data.defaults;
       // A copy: edits must never change `defaults` (saving compares the two).
       settings = merge(structuredClone(defaults), data.saved);

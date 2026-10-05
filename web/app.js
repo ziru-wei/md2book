@@ -32,25 +32,31 @@ const LANG_KEY = "md2book-settings-lang";
 const TEXT = {
   en: {
     lede: "Read a folder of Markdown notes as a book. <em>An Obsidian vault works as-is.</em>",
-    pick: "Open a folder…",
-    reopen: name => `Open ${name} again`,
+    pick: "Choose a note repo…",
+    reopen: () => "Open the last note repo",
     private: "Your notes stay on this computer: the browser reads them, nothing is uploaded.",
-    browserNote: "In this browser the folder is read once, as it is now. Chrome and Edge also remember the folder and follow your edits.",
+    browserNote: "In this browser the note repo is read once, as it is now. Chrome and Edge also remember it and follow your edits.",
     share: 'To share your notes online, deploy <a href="https://github.com/ziru-wei/md2book">md2book</a> itself.',
-    settings: "settings",
-    otherFolder: "Open another folder",
+    noteRepo: "Note repo",
+    settings: "Settings",
+    otherFolder: "Open another note repo",
+    empty: "No notes to show in this note repo.",
+    emptyRequire: field => `Only notes with <code>${field}: …</code> in their frontmatter are shown.`,
     savedWhere: "this browser (per folder)",
     couldNotRead: "Could not read"
   },
   zh: {
     lede: "把一个 Markdown 笔记文件夹读成一本书。<em>Obsidian 仓库直接就能用。</em>",
-    pick: "打开文件夹…",
-    reopen: name => `重新打开 ${name}`,
+    pick: "选择笔记仓库…",
+    reopen: () => "打开上次的笔记仓库",
     private: "笔记始终留在你的电脑上：由浏览器读取，不会上传到任何地方。",
-    browserNote: "这个浏览器只会读取选择那一刻的文件夹内容。Chrome 和 Edge 还能记住文件夹，并在笔记改动后自动刷新。",
+    browserNote: "这个浏览器只会读取选择那一刻的笔记仓库内容。Chrome 和 Edge 还能记住它，并在笔记改动后自动刷新。",
     share: '想把笔记分享到网上，请部署 <a href="https://github.com/ziru-wei/md2book">md2book</a> 本身。',
+    noteRepo: "笔记仓库",
     settings: "设置",
-    otherFolder: "打开其他文件夹",
+    otherFolder: "打开其他笔记仓库",
+    empty: "这个笔记仓库里没有可以显示的笔记。",
+    emptyRequire: field => `只显示 frontmatter 里写了 <code>${field}: …</code> 的笔记。`,
     savedWhere: "这个浏览器（按文件夹分别保存）",
     couldNotRead: "无法读取"
   }
@@ -249,33 +255,59 @@ const BRIDGE = `<script>
   };
   if (app.onHome) {
     document.addEventListener("DOMContentLoaded", function () {
-      var header = document.querySelector(".index-header");
-      if (!header) return;
-      var links = document.createElement("div");
-      links.className = "web-folder-links";
-      [["/open", app.folderName], ["/settings", app.text("settings")]].forEach(function (item) {
+      var home = document.querySelector(".home");
+      if (!home) return;
+      var nav = document.createElement("nav");
+      nav.className = "web-nav";
+      nav.setAttribute("aria-label", "md2book");
+      [["/open", app.text("noteRepo"), app.text("otherFolder")], ["/settings", app.text("settings"), ""]].forEach(function (item, i) {
+        if (i) nav.appendChild(Object.assign(document.createElement("span"), { className: "sep" }));
         var link = document.createElement("a");
         link.href = item[0];
         link.textContent = item[1];
-        if (item[0] === "/open") link.title = app.text("otherFolder");
-        links.appendChild(link);
+        if (item[2]) link.title = item[2];
+        nav.appendChild(link);
       });
-      header.appendChild(links);
+      home.prepend(nav);
     });
   }
 })();
 </script>
 <style>
-  .web-folder-links { display: flex; justify-content: center; gap: 1.2em; margin-top: 0.6em; font-size: 0.8rem; letter-spacing: 0.02em; }
-  .web-folder-links a { color: inherit; opacity: 0.55; text-decoration: none; }
-  .web-folder-links a:hover { opacity: 1; }
+  /* Top right of the home page, set like the library's name. */
+  .home { position: relative; }
+  .web-nav {
+    position: absolute;
+    top: -3px;
+    right: 0;
+    display: flex;
+    align-items: baseline;
+    font-family: var(--serif);
+    font-size: 11px;
+    line-height: 1;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+  }
+  .web-nav a {
+    color: var(--muted);
+    text-decoration: none;
+    padding: 4px 0;
+    transition: color .15s ease;
+  }
+  .web-nav .sep {
+    width: 1px;
+    height: 9px;
+    margin: 0 12px;
+    background: var(--rule);
+    align-self: center;
+  }
+  .web-nav a:hover, .web-nav a:focus-visible { color: var(--ink); }
+  .web-nav a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  @media (max-width: 760px) {
+    .web-nav { position: static; justify-content: flex-end; margin-bottom: 18px; }
+  }
 </style>`;
 
-// On the settings page: the parts that are about running the server
-// (its command line, the home page address) don't apply here.
-const SETTINGS_EXTRA = `<style>
-  [data-t="notesHint"], .field:has(#f-site-homePath) { display: none !important; }
-</style>`;
 
 let showing = 0;
 
@@ -287,11 +319,15 @@ async function show() {
   try {
     html = await withAttachments(await pageHtml(path));
   } catch (error) {
-    html = `<pre style="white-space: pre-wrap; padding: 2rem">${escapeText(t("couldNotRead"))} ${escapeText(source.label)}\n\n${escapeText(error.stack || error)}</pre>`;
+    html = `<pre style="white-space: pre-wrap; padding: 2rem">${escapeText(t("couldNotRead"))} ${escapeText(t("noteRepo"))}\n\n${escapeText(error.stack || error)}</pre>`;
   }
   if (n !== showing) return;
+  // The server's empty-list line speaks of publishing and names its
+  // source; here it's about the note repo.
+  html = html.replace(/<p class="index-empty">[\s\S]*?<\/p>/, () => `<p class="index-empty">${
+    config.publish.require ? t("emptyRequire")(escapeText(config.publish.require)) : escapeText(t("empty"))}</p>`);
   window.md2book.onHome = path === "/";
-  frame.srcdoc = html.replace(/<head>/i, m => m + BRIDGE + (path === "/settings" ? SETTINGS_EXTRA : ""));
+  frame.srcdoc = html.replace(/<head>/i, m => m + BRIDGE);
 }
 
 function escapeText(value) {
@@ -329,7 +365,7 @@ async function answer(url, { method = "GET", body }) {
       }
       return {
         status: 200,
-        body: { file: where, saved: await loadSaved(), defaults: DEFAULTS, homePath: "/", notesDir: source.name, vault: await render.scanVault() }
+        body: { mode: "browser", file: where, saved: await loadSaved(), defaults: DEFAULTS, homePath: "/", notesDir: "", vault: await render.scanVault() }
       };
     } catch (error) {
       return { status: method === "PUT" ? 400 : 500, body: { error: String(error.message || error) } };

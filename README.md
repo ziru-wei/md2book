@@ -38,14 +38,14 @@ No apps, plugins or exports needed.
 ## Read in your browser
 
 1. Open **<https://ziru-wei.github.io/md2book/>** in Chrome or Edge, and choose English or 中文 (switch later at the top right, or in settings: the two follow each other).
-2. Click **Open a folder…** and choose your notes folder. An Obsidian vault works as it is.
+2. Click **Choose a note repo…** and choose your notes folder. An Obsidian vault works as it is.
 3. When the browser asks whether the site may view your files, allow it.
 
 That's it. Your notes appear as a book, and the pages update as you edit. Next time, the site opens the same folder again (the browser may ask once more; choose **Allow on every visit** so it won't).
 
 - **Your notes stay on your computer.** The browser reads them; nothing is uploaded.
-- **Settings**: on the home page, click **settings** under the search box. They're saved in this browser, for each folder. If your folder has an `md2book.settings.json` at its top level, it's used until you change something.
-- **Another folder**: on the home page, click the folder's name under the search box.
+- **Settings**: on the home page, click **Settings** at the top right. They're saved in this browser, for each folder. If your folder has an `md2book.settings.json` at its top level, it's used until you change something.
+- **Another note repo**: on the home page, click **Note repo** at the top right.
 - **Firefox and Safari** read the folder once, as it is when you pick it; open it again to see changes. Phones aren't supported.
 
 ## Host your own copy of the website

@@ -22,7 +22,7 @@ export function createDirectorySource(dirHandle) {
   }
 
   return {
-    label: `folder:${dirHandle.name}`,
+    label: "note repo",
     name: dirHandle.name,
 
     async listAll() {
@@ -79,7 +79,7 @@ export function createFileListSource(fileList) {
   }
 
   return {
-    label: `folder:${name}`,
+    label: "note repo",
     name,
 
     async listAll() {
