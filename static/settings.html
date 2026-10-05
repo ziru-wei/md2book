@@ -1002,7 +1002,9 @@
 
     document.querySelectorAll("nav button").forEach(button => button.addEventListener("click", () => {
       pane = button.dataset.pane;
-      history.replaceState(null, "", "#" + pane);
+      // Remembered in the address, where there is one: the browser
+      // version shows this page in a srcdoc frame, which has none.
+      try { history.replaceState(null, "", "#" + pane); } catch { /* no address to keep it in */ }
       showPane();
       window.scrollTo(0, 0);
     }));
