@@ -45,6 +45,14 @@ node bin/md2book.js path/to/your/notes
 
 Your browser opens `http://localhost:3000`, and the page reloads when your notes change. Press `Ctrl+C` to stop.
 
+## Read in your browser (no install)
+
+Open <https://ziru-wei.github.io/md2book/> in Chrome or Edge, click **Open a folder…** and pick your notes folder. The pages are the same as above, and they follow your edits; the browser remembers the folder for next time. Your notes stay on your computer: the browser reads them, nothing is uploaded. Other browsers read the folder once, as it is when you pick it.
+
+Settings are on the home page (under the search box), saved in the browser for each folder. A folder with no saved settings starts from its own `md2book.settings.json` at the top, if it has one.
+
+To build it yourself: `npm run build:web` writes the site to `dist/`.
+
 ## Settings
 
 ```bash
@@ -225,7 +233,7 @@ Mark lines under an image with `//` to add a caption, make it a teaser (header i
 
 ## How it works
 
-`server.js` turns each note into HTML; in the browser, `static/reader.js` cuts the content into pages. Each page's body is a two-column box exactly as tall as the space left on that page, and whatever the browser can't fit, overflowing into a third column, becomes the start of the next page. Column and page breaks are left entirely to the browser's own layout engine instead of a separate simulation. Pages are laid out at a fixed size, then scaled as a whole to fit the screen. P.S. WebKit and Paged.js have bugs with nested multi-column layout, so in keeping with this project's purpose, sharing, and so readers can browse on any platform, I dropped Paged.js and reinvented a few wheels.
+`lib/render.js` turns each note into HTML (on the server, or in your browser for the browser version); in the browser, `static/reader.js` cuts the content into pages. Each page's body is a two-column box exactly as tall as the space left on that page, and whatever the browser can't fit, overflowing into a third column, becomes the start of the next page. Column and page breaks are left entirely to the browser's own layout engine instead of a separate simulation. Pages are laid out at a fixed size, then scaled as a whole to fit the screen. P.S. WebKit and Paged.js have bugs with nested multi-column layout, so in keeping with this project's purpose, sharing, and so readers can browse on any platform, I dropped Paged.js and reinvented a few wheels.
 
 ## Acknowledgements
 

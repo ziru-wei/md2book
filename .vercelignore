@@ -4,3 +4,4 @@ node_modules/
 img.png
 .env
 .claude/
+dist/

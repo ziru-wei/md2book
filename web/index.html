@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>md2book</title>
+  <meta name="description" content="Read a folder of Markdown notes (an Obsidian vault works as-is) as a book, right in your browser." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Libertinus+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --paper: #f1f3f4;
+      --ink: #232527;
+      --muted: #72777b;
+      --rule: #aeb5ba;
+      --serif: "Libertinus Serif", Georgia, "Times New Roman", serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body { background: var(--paper); color: var(--ink); font-family: var(--serif); }
+    #page { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: var(--paper); }
+    [hidden] { display: none !important; }
+
+    #landing {
+      min-height: 100%;
+      display: grid;
+      place-items: center;
+      padding: 48px 16px;
+    }
+    .sheet { width: min(100%, 30rem); }
+    h1 {
+      margin: 0 0 0.2em;
+      font-weight: 400;
+      font-size: 2.6rem;
+      letter-spacing: 0.01em;
+    }
+    .lede { margin: 0 0 1.8em; font-size: 1.15rem; line-height: 1.45; }
+    .lede em { font-style: italic; }
+    .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+    button {
+      font: inherit;
+      font-size: 1.05rem;
+      padding: 0.55em 1.2em;
+      border-radius: 2px;
+      cursor: pointer;
+      border: 1px solid var(--ink);
+      background: var(--ink);
+      color: var(--paper);
+    }
+    button.secondary { background: transparent; color: var(--ink); }
+    button:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
+    .notes {
+      margin: 2.2em 0 0;
+      padding: 1.1em 0 0;
+      border-top: 1px solid var(--rule);
+      color: var(--muted);
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+    .notes p { margin: 0 0 0.7em; }
+    .notes a { color: inherit; }
+    #error { color: #a33; margin-top: 1em; }
+  </style>
+</head>
+<body>
+  <main id="landing" hidden>
+    <div class="sheet">
+      <h1>md2book</h1>
+      <p class="lede">Read a folder of Markdown notes as a book. <em>An Obsidian vault works as-is.</em></p>
+      <div class="actions">
+        <button id="reopen" type="button" hidden>Open <span id="reopen-name"></span> again</button>
+        <button id="pick" type="button" class="secondary">Open a folder…</button>
+      </div>
+      <input id="folder-input" type="file" webkitdirectory multiple hidden />
+      <p id="error" hidden></p>
+      <div class="notes">
+        <p>Your notes stay on this computer: the browser reads them, nothing is uploaded.</p>
+        <p id="browser-note" hidden>In this browser the folder is read once, as it is now. Chrome and Edge also remember the folder and follow your edits.</p>
+        <p>To share your notes online, deploy <a href="https://github.com/ziru-wei/md2book">md2book</a> itself.</p>
+      </div>
+    </div>
+  </main>
+  <iframe id="page" title="md2book" hidden></iframe>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

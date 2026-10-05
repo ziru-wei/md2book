@@ -6,3 +6,6 @@ notes/
 # Site settings (edited at /settings when running locally)
 md2book.settings.json
 .claude/
+
+# Browser reader build (scripts/build-web.mjs)
+dist/

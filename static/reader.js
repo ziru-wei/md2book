@@ -1,5 +1,5 @@
 /* =========================================================
-   Reader for /entry and /contents (see pageShell in server.js).
+   Reader for /entry and /contents (see pageShell in lib/render.js).
 
    1. Pagination. The entry flow (server-rendered into
       <template id="book-source">) is cut into fixed-size .page sheets.
@@ -187,11 +187,14 @@
   // set them again. A paragraph it declines keeps the browser's own
   // justification.
   let justifModules = null;
+  // Justif sits next to static/ (/vendor/justif on the server), found
+  // from this script's own address so it loads wherever md2book is served.
+  const JUSTIF_BASE = new URL("../vendor/justif/", document.currentScript ? document.currentScript.src : location.href);
 
   async function justifyText(area) {
     let justify, hyphenateEnUS;
     try {
-      justifModules ||= Promise.all([import("/vendor/justif/index.js"), import("/vendor/justif/hyphenate/en-us.js")]);
+      justifModules ||= Promise.all([import(new URL("index.js", JUSTIF_BASE).href), import(new URL("hyphenate/en-us.js", JUSTIF_BASE).href)]);
       [{ justify }, { hyphenateEnUS }] = await justifModules;
     } catch {
       justifModules = null;
