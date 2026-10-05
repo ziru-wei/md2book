@@ -524,6 +524,8 @@
         colColumns: "Columns",
         colDates: "Dates",
         colPrivate: "Private heading",
+        colShowThrough: "Show-through",
+        colLetterpress: "Letterpress",
         rowCollection: "All",
         colApplyToAll: "Apply to all",
         conflict: (a, b, notes) => `"${a}" and "${b}" both apply to all their notes, but share ${notes}. Untick one; nothing is saved until then.`,
@@ -548,7 +550,7 @@
         adobeKitHint: "Optional, e.g. for a Chinese serif. Adobe only serves it on the domains added to that project.",
 
         paper: "Paper",
-        paperHint: "How the pages being read feel in print. Each effect can be turned on alone; the slider sets how strong it is.",
+        paperHint: "How strong the two paper effects are, wherever the table above turns them on.",
         showThrough: "Show-through",
         showThroughHint: "The page on the back of each page shows through, faintly and mirrored, as in a printed book.",
         letterpress: "Letterpress",
@@ -639,6 +641,8 @@
         colColumns: "栏数",
         colDates: "日期",
         colPrivate: "私密标题",
+        colShowThrough: "力透纸背",
+        colLetterpress: "印刷压痕",
         rowCollection: "所有",
         colApplyToAll: "应用到全部单篇",
         conflict: (a, b, notes) => `「${a}」和「${b}」都设为应用到全部单篇，但它们有共同的笔记：${notes}。取消其中一个；在此之前不会保存。`,
@@ -663,7 +667,7 @@
         adobeKitHint: "可选，比如用于中文衬线字体。Adobe 只在该项目里登记过的域名上提供字体。",
 
         paper: "纸张",
-        paperHint: "阅读页面的纸感与印刷感。每个效果可以单独开关，滑块调节强弱。",
+        paperHint: "两种纸张效果的强弱。在上面的排版表里按合集开启。",
         showThrough: "力透纸背",
         showThroughHint: "每一页隐约透出背面那一页的内容（左右反向），像实体书的纸。",
         letterpress: "印刷压痕",
@@ -859,15 +863,14 @@
       return `<div class="field"><label class="check"><input type="checkbox" data-bool="${path}" ${get(path) ? "checked" : ""} /> ${esc(t(labelKey))}</label></div>`;
     }
 
-    // A paper effect: its switch, what it does, and (while on) a
-    // strength slider from 0 to 100.
-    function effectField(path, strengthPath, labelKey, hintKey) {
-      const on = !!get(path);
+    // A paper effect's strength, from 0 to 100 (its switch is a column
+    // of the layout table).
+    function effectField(strengthPath, labelKey, hintKey) {
       const id = "f-" + strengthPath.replace(/\./g, "-");
       return `<div class="field effect">
-        <label class="check"><input type="checkbox" data-bool="${path}" data-rerender="1" ${on ? "checked" : ""} /> <b>${esc(t(labelKey))}</b></label>
+        <label class="title" for="${id}">${esc(t(labelKey))}</label>
         <div class="hint">${esc(t(hintKey))}</div>
-        <div class="strength" ${on ? "" : "hidden"}>
+        <div class="strength">
           <span>${esc(t("light"))}</span>
           <input type="range" id="${id}" min="0" max="100" step="1" data-range="${strengthPath}" value="${esc(get(strengthPath) ?? 50)}" aria-label="${esc(t(labelKey) + " · " + t("strength"))}" />
           <span>${esc(t("strong"))}</span>
@@ -982,8 +985,8 @@
         <section data-pane="layout">
           <h2>${esc(t("paper"))}</h2>
           <div class="hint" style="margin-top:-8px;margin-bottom:14px">${esc(t("paperHint"))}</div>
-          ${effectField("paper.showThrough", "paper.showThroughStrength", "showThrough", "showThroughHint")}
-          ${effectField("paper.letterpress", "paper.letterpressStrength", "letterpress", "letterpressHint")}
+          ${effectField("paper.showThroughStrength", "showThrough", "showThroughHint")}
+          ${effectField("paper.letterpressStrength", "letterpress", "letterpressHint")}
         </section>
       `;
       renderRules();
@@ -1018,6 +1021,7 @@
       ["pageNumbers", "colPageNumbers", "tipPageNumbers"], ["numberFigures", "colFigures", "tipFigures"],
       ["numberTables", "colTables", "tipTables"], ["numberHeadings", "colHeadings", "tipHeadings"],
       ["columns", "colColumns", "tipColumns"], ["dates", "colDates", "tipDates"], ["privateHeading", "colPrivate", "tipPrivate"],
+      ["showThrough", "colShowThrough", "showThroughHint"], ["letterpress", "colLetterpress", "letterpressHint"],
       ["applyToAll", "colApplyToAll", "tipApplyToAll"]
     ];
     const tip = key => `class="tip" title="${esc(t(key))}"`;
@@ -1129,7 +1133,6 @@
         if (el.dataset.text === "site.title") $("#f-site-browserTitle").placeholder = value;
       } else if (el.dataset.bool) {
         set(el.dataset.bool, el.checked);
-        rerender = !!el.dataset.rerender;
       } else if (el.dataset.range) {
         set(el.dataset.range, Number(el.value));
       } else if (el.name === "publish" || el.id === "publish-field") {

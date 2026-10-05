@@ -32,7 +32,7 @@ No apps, plugins or exports needed.
 - Citations: links become numbered references.
 - Figures, tables and headings are numbered automatically; figures and tables can span both columns.
 - Justified text, per collection: each paragraph broken as a whole, with even spacing and English hyphenation (set by [Justif](https://github.com/lyallcooper/justif)).
-- Paper you can feel, each effect on its own switch with a strength slider (settings → Layout → Paper): **show-through**, the page on the back faintly visible, mirrored, as in a printed book; and **letterpress**, letters with slightly uneven edges and a faint impression, as if pressed into the paper.
+- Paper you can feel, switched on per collection in the layout table, with a strength slider each (settings → Layout → Paper): **show-through**, the page on the back faintly visible, mirrored, as in a printed book; and **letterpress**, letters with slightly uneven edges and a faint impression, as if pressed into the paper.
 - Desktop, phone and tablet layouts; pinch to zoom.
 - Print from the browser to a clean PDF.
 
