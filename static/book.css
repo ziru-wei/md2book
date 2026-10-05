@@ -48,8 +48,8 @@
      Adobe Fonts kit, if set) covers the Chinese glyphs neither has, so
      the browser falls through to it per character in mixed 中文/English
      text. Georgia etc. stay as the pre-webfont-load fallback. */
-  --serif: "Libertinus Serif", "source-han-serif-sc", Georgia, "Times New Roman", Times, serif;
-  --title-serif: "Source Serif 4", "source-han-serif-sc", Georgia, "Times New Roman", Times, serif;
+  --serif: "Libertinus Serif", "source-han-serif-sc", "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, "Times New Roman", Times, serif;
+  --title-serif: "Source Serif 4", "source-han-serif-sc", "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, "Times New Roman", Times, serif;
   --body-size: 10.5px;
   --body-leading: 1.2;
 
