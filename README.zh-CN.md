@@ -55,17 +55,16 @@ Markdown 成为了和 agent 交流的好媒介。我制作这个工具的初衷�
 
 ### 用 GitHub Pages
 
-1. [Fork 这个仓库](https://github.com/ziru-wei/md2book/fork)。**取消勾选「Copy the `main` branch only」**：网页在 `web-reader` 分支上。
+1. [Fork 这个仓库](https://github.com/ziru-wei/md2book/fork)。
 2. 在你 fork 的仓库里，进入 **Settings → Pages**，在 **Build and deployment → Source** 选择 **GitHub Actions**。
-3. 进入 **Settings → Environments → github-pages**，在 **Deployment branches and tags** 下为 `web-reader` 添加一条规则。
-4. 打开 **Actions** 标签页并启用 workflows。选择 **Browser reader on GitHub Pages**，点 **Run workflow**，分支选 `web-reader`，运行。
+3. 打开 **Actions** 标签页并启用 workflows。选择 **Browser reader on GitHub Pages**，点 **Run workflow** 运行。
 
-大约一分钟后，网页就在 `https://<你的用户名>.github.io/md2book/`。之后每次 push 到 `web-reader` 都会自动更新。
+大约一分钟后，网页就在 `https://<你的用户名>.github.io/md2book/`。之后每次 push 到 `main` 都会自动更新；想获取 md2book 之后的更新，在你 fork 的仓库页面点 **Sync fork**。
 
 ### 用 Vercel
 
 ```bash
-git clone -b web-reader https://github.com/ziru-wei/md2book.git md2book-web
+git clone https://github.com/ziru-wei/md2book.git md2book-web
 cd md2book-web
 npm install
 npm run build:web
@@ -78,7 +77,7 @@ npx vercel deploy dist --prod
 
 ### 其他平台
 
-任何静态托管都可以（Netlify、Cloudflare Pages……）：分支选 `web-reader`，构建命令 `npm run build:web`，输出目录 `dist`。
+任何静态托管都可以（Netlify、Cloudflare Pages……）：构建命令 `npm run build:web`，输出目录 `dist`。
 
 ## 在电脑上运行
 

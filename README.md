@@ -54,17 +54,16 @@ Your own address, and a copy whose look you can change (`static/book.css`). It w
 
 ### On GitHub Pages
 
-1. [Fork this repository](https://github.com/ziru-wei/md2book/fork). **Untick "Copy the `main` branch only"**: the website is on the `web-reader` branch.
+1. [Fork this repository](https://github.com/ziru-wei/md2book/fork).
 2. In your fork, go to **Settings → Pages**, and under **Build and deployment → Source** choose **GitHub Actions**.
-3. Go to **Settings → Environments → github-pages**. Under **Deployment branches and tags**, add a rule for `web-reader`.
-4. Go to the **Actions** tab and enable workflows. Pick **Browser reader on GitHub Pages**, click **Run workflow**, choose the `web-reader` branch and run it.
+3. Go to the **Actions** tab and enable workflows. Pick **Browser reader on GitHub Pages**, click **Run workflow** and run it.
 
-A minute later your site is at `https://<your-username>.github.io/md2book/`. Every push to `web-reader` updates it.
+A minute later your site is at `https://<your-username>.github.io/md2book/`. Every push to `main` updates it; to get later md2book updates, click **Sync fork** on your fork's page.
 
 ### On Vercel
 
 ```bash
-git clone -b web-reader https://github.com/ziru-wei/md2book.git md2book-web
+git clone https://github.com/ziru-wei/md2book.git md2book-web
 cd md2book-web
 npm install
 npm run build:web
@@ -77,7 +76,7 @@ Deploy the `dist` folder, not the whole repository: the repository's own `vercel
 
 ### Anywhere else
 
-Any static host works (Netlify, Cloudflare Pages…): branch `web-reader`, build command `npm run build:web`, output directory `dist`.
+Any static host works (Netlify, Cloudflare Pages…): build command `npm run build:web`, output directory `dist`.
 
 ## Run it on your computer
 

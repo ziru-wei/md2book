@@ -3,7 +3,7 @@ name: Browser reader on GitHub Pages
 
 on:
   push:
-    branches: [web-reader, main]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
