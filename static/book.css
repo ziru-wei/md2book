@@ -152,34 +152,40 @@ html:has(body.page-contents) {
 
 /* Paper (settings → Paper), on the pages being read.
    Show-through ("力透纸背"): the page on the back of this one, mirrored,
-   faint and a little soft, under the ink of this page (reader.js puts
-   the copy in, as .page-back; --show-through is its strength, 0–1). */
+   faint, under the ink of this page (reader.js puts
+   the copy in, as .page-back; --show-through is its strength, 0–1).
+   It lies over the page rather than under: justified text's area has a
+   paper of its own (html.justify .page-area below) that would hide it,
+   and multiplied, the faint copy only darkens, as ink from behind does. */
 html.show-through .page-back {
   position: absolute;
   inset: 0;
+  z-index: 1;
   transform: scaleX(-1);
   opacity: calc(.01 + .07 * var(--show-through, .5));
-  filter: blur(.6px);
   mix-blend-mode: multiply;
   pointer-events: none;
   user-select: none;
 }
 
+/* Only the ink comes through: not the copy's paper (justified text's
+   area has one) or its clipping, which would show as a box. */
+html.show-through .page-back .page-area {
+  background: none;
+  clip-path: none;
+}
+
 /* Letterpress: each letter as if pressed into the paper — a light rim
-   along its lower edge and a hint of shadow along its upper one — with
-   edges made a touch uneven by reader.js's #md2book-press filter
+   along its lower edge and a hint of shadow along its upper one
    (--letterpress is the strength, 0–1). Only on the pages on screen,
    never while they're being measured or printed, and not on the copy
-   that shows through. */
+   that shows through. (No SVG filter on the text: Chrome, drawing on
+   the GPU, dropped whole blocks of a page filtered so.) */
 html.letterpress #book .page > :is(.page-area, .page-foot, .page-number, .page-comments) {
   text-shadow:
     0 calc(.8px * var(--letterpress)) 0 rgba(255, 255, 255, calc(1.4 * var(--letterpress))),
-    0 calc(-.4px * var(--letterpress)) 0 rgba(0, 0, 0, calc(.2 * var(--letterpress)));
-}
-
-html.letterpress #book .page > .page-area :is(.title, .body, .byline-footer, .references:not(.body .references)),
-html.letterpress #book .page > :is(.page-foot, .page-number, .page-comments) {
-  filter: url(#md2book-press);
+    0 calc(-.4px * var(--letterpress)) 0 rgba(0, 0, 0, calc(.2 * var(--letterpress))),
+    0 0 calc(.5px * var(--letterpress)) rgba(0, 0, 0, calc(.25 * var(--letterpress)));
 }
 
 /* Justified text (see reader.js) hangs punctuation at line ends, and
@@ -2061,4 +2067,22 @@ html[data-layout="phone"] .byline-footer--running {
 html[data-layout="phone"] .page .page-number,
 html[data-layout="tablet"] .page .page-number {
   bottom: 14px;
+}
+
+/* Show-through: the copy on a page's back keeps the margins of the page
+   it was cut as, not those of the page it lies in (see .page-back). */
+html[data-layout="tablet"] .page-back[data-side="left"] :is(.page-area, .page-foot) {
+  left: var(--pad-left);
+}
+
+html[data-layout="tablet"] .page-back[data-side="right"] :is(.page-area, .page-foot) {
+  left: var(--pad-right);
+}
+
+html[data-layout="phone"] .page-back[data-notes] :is(.page-area, .page-foot) {
+  left: var(--pad-left);
+}
+
+html[data-layout="phone"] .page-back:not([data-notes]) :is(.page-area, .page-foot) {
+  left: calc((var(--paper-width) - var(--area-width)) / 2);
 }

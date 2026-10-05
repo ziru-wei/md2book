@@ -245,6 +245,13 @@ const BRIDGE = `<script>
   }
   document.addEventListener("click", follow, true);
   document.addEventListener("auxclick", follow, true);
+  // Ctrl/Cmd+P prints this page, every sheet of it: left to the browser,
+  // it prints the window around the frame — one screenful.
+  document.addEventListener("keydown", function (e) {
+    if (!app.isPrintKey(e)) return;
+    e.preventDefault();
+    app.printFrame();
+  }, true);
   var serverFetch = window.fetch;
   window.fetch = function (input, init) {
     var url = typeof input === "string" ? input : input.url;
@@ -305,6 +312,15 @@ const BRIDGE = `<script>
   .web-nav a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
   @media (max-width: 760px) {
     .web-nav { position: static; justify-content: flex-end; margin-bottom: 18px; }
+  }
+  /* Printed as part of the window around it (see "beforeprint" below):
+     each page fills exactly one sheet, whatever print.css would do. */
+  @media print {
+    html.print-sheets.reader .page {
+      zoom: var(--sheet-zoom) !important;
+      margin: 0 0 var(--sheet-gap) !important;
+      border-top: 0 !important;
+    }
   }
 </style>`;
 
@@ -384,8 +400,73 @@ window.md2book = {
     else if (currentPath() === path) show();
     else location.hash = path;
   },
+  isPrintKey,
+  printFrame,
   answer
 };
+
+// Ctrl/Cmd+P (by key code too, whatever the keyboard layout types).
+function isPrintKey(e) {
+  return (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === "p" || e.key === "P" || e.code === "KeyP");
+}
+
+// Pressed here, outside the frame (it has focus once a page loads, but
+// a click on the window can take it away): print the page in the frame,
+// not this window around it, which would print one screenful of it.
+document.addEventListener("keydown", e => {
+  if (!isPrintKey(e) || frame.hidden || !frame.contentWindow) return;
+  e.preventDefault();
+  printFrame();
+});
+
+let printingFrame = false;
+
+function printFrame() {
+  printingFrame = true;
+  try {
+    frame.contentWindow.print();
+  } finally {
+    printingFrame = false;
+  }
+}
+
+// Printed from the browser's menu instead, it's this window that
+// prints: the frame is made as tall as every page in it (index.html),
+// and each page exactly one Letter sheet tall (816x1056 at 96dpi, the
+// sheet having no margins), so the pages run on across the sheets one
+// to each. A page that isn't a book's (the home page's list) prints as
+// tall as it is, cut where the sheets fall.
+window.addEventListener("beforeprint", () => {
+  const doc = !printingFrame && !frame.hidden && frame.contentDocument;
+  if (!doc || !doc.body) return;
+  const root = doc.documentElement;
+  const printBook = root.classList.contains("has-print-book") && doc.querySelector(".print-book");
+  const pages = printBook
+    ? printBook.querySelectorAll(":scope > .page")
+    : doc.querySelectorAll("#book .page:not(.page-blank)");
+  if (!pages.length) {
+    frame.style.setProperty("--print-height", root.scrollHeight + "px");
+    return;
+  }
+  // The pages' size as cut (the print book's is set on it; it's hidden).
+  const width = printBook ? parseFloat(printBook.style.getPropertyValue("--paper-width")) : pages[0].offsetWidth;
+  const height = printBook ? parseFloat(printBook.style.getPropertyValue("--page-height")) : pages[0].offsetHeight;
+  const zoom = Math.min(816 / width, 1056 / height);
+  root.classList.add("print-sheets");
+  root.style.setProperty("--sheet-zoom", zoom);
+  // What's left of the sheet below a page, before zoom.
+  root.style.setProperty("--sheet-gap", 1056 / zoom - height + "px");
+  frame.style.setProperty("--print-height", pages.length * 1056 + "px");
+});
+
+window.addEventListener("afterprint", () => {
+  frame.style.removeProperty("--print-height");
+  const root = frame.contentDocument && frame.contentDocument.documentElement;
+  if (!root) return;
+  root.classList.remove("print-sheets");
+  root.style.removeProperty("--sheet-zoom");
+  root.style.removeProperty("--sheet-gap");
+});
 
 // --- Following edits ----------------------------------------------------
 //

@@ -21,6 +21,14 @@
     body { background: var(--paper); color: var(--ink); font-family: var(--serif); }
     #page { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: var(--paper); }
     [hidden] { display: none !important; }
+    /* Printed from the browser's menu (Ctrl/Cmd+P prints the frame
+       itself, see web/app.js): the frame, made as tall as all its pages,
+       runs on across the sheets. */
+    @media print {
+      @page { size: letter; margin: 0; }
+      html, body { height: auto; background: #fff; }
+      #page { position: static; height: var(--print-height, 100%); background: #fff; }
+    }
 
     .screen {
       min-height: 100%;

@@ -143,6 +143,17 @@ html.has-print-book .print-book {
   display: none !important;
 }
 
+/* Paper effects (book.css) are for the screen: the page prints plain
+   white, without the copy showing through from its back or the
+   letterpress impression. */
+.page-back {
+  display: none !important;
+}
+
+html.letterpress #book .page > :is(.page-area, .page-foot, .page-number, .page-comments) {
+  text-shadow: none !important;
+}
+
 /* The spread seam shadow only makes sense with two pages side by side;
    each prints on its own sheet. */
 .page::after {

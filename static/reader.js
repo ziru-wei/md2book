@@ -1085,6 +1085,10 @@
       copy.className = "page-back";
       copy.setAttribute("aria-hidden", "true");
       copy.inert = true;
+      // Laid out as its own page was: which hand it is, and whether it
+      // has side notes, set its margins (book.css).
+      copy.dataset.side = page.classList.contains("page--right") ? "right" : "left";
+      if (page.classList.contains("page--notes")) copy.dataset.notes = "";
       for (const child of page.children) copy.appendChild(child.cloneNode(true));
       // A jump to a heading or note must find the real one.
       for (const el of copy.querySelectorAll("[id]")) el.removeAttribute("id");
@@ -1095,25 +1099,6 @@
       if (back) page.prepend(back);
     });
   }
-
-  // Letterpress: letters as if printed into the paper. Their edges are
-  // pushed about by a soft noise and the result smoothed a hair (an SVG
-  // filter, up to about a pixel at full strength); the faint impression around them is book.css's.
-  function addPressFilter() {
-    if (document.getElementById("md2book-press")) return;
-    const strength = parseFloat(getComputedStyle(root).getPropertyValue("--letterpress")) || 0;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("aria-hidden", "true");
-    svg.style.cssText = "position: absolute; width: 0; height: 0; overflow: hidden";
-    svg.innerHTML = `<filter id="md2book-press" x="-1%" y="-1%" width="102%" height="102%" color-interpolation-filters="sRGB">
-      <feTurbulence type="fractalNoise" baseFrequency="0.55" numOctaves="2" seed="3" result="grain" />
-      <feDisplacementMap in="SourceGraphic" in2="grain" scale="${(0.2 + 0.8 * strength).toFixed(2)}" xChannelSelector="R" yChannelSelector="G" result="pressed" />
-      <feGaussianBlur in="pressed" stdDeviation="${(0.08 + 0.12 * strength).toFixed(2)}" />
-    </filter>`;
-    document.body.appendChild(svg);
-  }
-
-  if (root.classList.contains("letterpress")) addPressFilter();
 
   // What a set of pages shows: each page's text, and where its margin
   // notes sit.
