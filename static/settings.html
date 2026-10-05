@@ -193,6 +193,21 @@
       border-color: var(--ink);
     }
 
+    .effect .strength {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      max-width: 420px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .effect .strength input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent);
+    }
+
     .choices {
       display: flex;
       flex-wrap: wrap;
@@ -530,7 +545,17 @@
         subtitleSeparators: "Title / subtitle separators",
         subtitleSeparatorsHint: "A title splits into title and subtitle at the first of these characters. Leave empty to never split.",
         adobeKit: "Adobe Fonts project ID",
-        adobeKitHint: "Optional, e.g. for a Chinese serif. Adobe only serves it on the domains added to that project."
+        adobeKitHint: "Optional, e.g. for a Chinese serif. Adobe only serves it on the domains added to that project.",
+
+        paper: "Paper",
+        paperHint: "How the pages being read feel in print. Each effect can be turned on alone; the slider sets how strong it is.",
+        showThrough: "Show-through",
+        showThroughHint: "The page on the back of each page shows through, faintly and mirrored, as in a printed book.",
+        letterpress: "Letterpress",
+        letterpressHint: "Letters look printed into the paper: edges a touch uneven, a faint impression around them.",
+        light: "Light",
+        strong: "Strong",
+        strength: "Strength"
       },
       zh: {
         heading: "设置",
@@ -635,7 +660,17 @@
         subtitleSeparators: "主副标题分隔符",
         subtitleSeparatorsHint: "标题在第一个出现的这些字符处分成主标题和副标题。留空则不拆分。",
         adobeKit: "Adobe Fonts 项目 ID",
-        adobeKitHint: "可选，比如用于中文衬线字体。Adobe 只在该项目里登记过的域名上提供字体。"
+        adobeKitHint: "可选，比如用于中文衬线字体。Adobe 只在该项目里登记过的域名上提供字体。",
+
+        paper: "纸张",
+        paperHint: "阅读页面的纸感与印刷感。每个效果可以单独开关，滑块调节强弱。",
+        showThrough: "力透纸背",
+        showThroughHint: "每一页隐约透出背面那一页的内容（左右反向），像实体书的纸。",
+        letterpress: "印刷压痕",
+        letterpressHint: "文字像压印在纸上：边缘有极轻微的不平整，周围有一点下凹的压痕。",
+        light: "轻",
+        strong: "重",
+        strength: "强度"
       }
     };
 
@@ -824,6 +859,22 @@
       return `<div class="field"><label class="check"><input type="checkbox" data-bool="${path}" ${get(path) ? "checked" : ""} /> ${esc(t(labelKey))}</label></div>`;
     }
 
+    // A paper effect: its switch, what it does, and (while on) a
+    // strength slider from 0 to 100.
+    function effectField(path, strengthPath, labelKey, hintKey) {
+      const on = !!get(path);
+      const id = "f-" + strengthPath.replace(/\./g, "-");
+      return `<div class="field effect">
+        <label class="check"><input type="checkbox" data-bool="${path}" data-rerender="1" ${on ? "checked" : ""} /> <b>${esc(t(labelKey))}</b></label>
+        <div class="hint">${esc(t(hintKey))}</div>
+        <div class="strength" ${on ? "" : "hidden"}>
+          <span>${esc(t("light"))}</span>
+          <input type="range" id="${id}" min="0" max="100" step="1" data-range="${strengthPath}" value="${esc(get(strengthPath) ?? 50)}" aria-label="${esc(t(labelKey) + " · " + t("strength"))}" />
+          <span>${esc(t("strong"))}</span>
+        </div>
+      </div>`;
+    }
+
     function radios(name, options, current) {
       return `<div class="choices">${options.map(([value, labelKey]) =>
         `<label><input type="radio" name="${name}" value="${esc(value)}" ${String(current) === String(value) ? "checked" : ""} /> ${esc(t(labelKey))}</label>`
@@ -926,6 +977,13 @@
           ${checkField("typography.bookTitleMarks", "bookTitles")}
           ${textField("typography.subtitleSeparators", "subtitleSeparators", "subtitleSeparatorsHint")}
           ${textField("fonts.adobeKit", "adobeKit", "adobeKitHint")}
+        </section>
+
+        <section data-pane="layout">
+          <h2>${esc(t("paper"))}</h2>
+          <div class="hint" style="margin-top:-8px;margin-bottom:14px">${esc(t("paperHint"))}</div>
+          ${effectField("paper.showThrough", "paper.showThroughStrength", "showThrough", "showThroughHint")}
+          ${effectField("paper.letterpress", "paper.letterpressStrength", "letterpress", "letterpressHint")}
         </section>
       `;
       renderRules();
@@ -1069,6 +1127,9 @@
         if (el.dataset.text === "site.title") $("#f-site-browserTitle").placeholder = value;
       } else if (el.dataset.bool) {
         set(el.dataset.bool, el.checked);
+        rerender = !!el.dataset.rerender;
+      } else if (el.dataset.range) {
+        set(el.dataset.range, Number(el.value));
       } else if (el.name === "publish" || el.id === "publish-field") {
         const byField = $('input[name="publish"][value="field"]').checked;
         s.publish.require = byField ? ($("#publish-field").value.trim() || null) : null;

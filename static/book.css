@@ -150,6 +150,38 @@ html:has(body.page-contents) {
   overflow: hidden;
 }
 
+/* Paper (settings → Paper), on the pages being read.
+   Show-through ("力透纸背"): the page on the back of this one, mirrored,
+   faint and a little soft, under the ink of this page (reader.js puts
+   the copy in, as .page-back; --show-through is its strength, 0–1). */
+html.show-through .page-back {
+  position: absolute;
+  inset: 0;
+  transform: scaleX(-1);
+  opacity: calc(.01 + .07 * var(--show-through, .5));
+  filter: blur(.6px);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Letterpress: each letter as if pressed into the paper — a light rim
+   along its lower edge and a hint of shadow along its upper one — with
+   edges made a touch uneven by reader.js's #md2book-press filter
+   (--letterpress is the strength, 0–1). Only on the pages on screen,
+   never while they're being measured or printed, and not on the copy
+   that shows through. */
+html.letterpress #book .page > :is(.page-area, .page-foot, .page-number, .page-comments) {
+  text-shadow:
+    0 calc(.8px * var(--letterpress)) 0 rgba(255, 255, 255, calc(1.4 * var(--letterpress))),
+    0 calc(-.4px * var(--letterpress)) 0 rgba(0, 0, 0, calc(.2 * var(--letterpress)));
+}
+
+html.letterpress #book .page > .page-area :is(.title, .body, .byline-footer, .references:not(.body .references)),
+html.letterpress #book .page > :is(.page-foot, .page-number, .page-comments) {
+  filter: url(#md2book-press);
+}
+
 /* Justified text (see reader.js) hangs punctuation at line ends, and
    nudges some letters, a little way into the margin: clip only past
    that. */
