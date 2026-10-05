@@ -37,7 +37,7 @@ No apps, plugins or exports needed.
 
 ## Read in your browser
 
-1. Open **<https://ziru-wei.github.io/md2book/>** in Chrome or Edge.
+1. Open **<https://ziru-wei.github.io/md2book/>** in Chrome or Edge, and choose English or 中文 (switch later at the top right, or in settings: the two follow each other).
 2. Click **Open a folder…** and choose your notes folder. An Obsidian vault works as it is.
 3. When the browser asks whether the site may view your files, allow it.
 

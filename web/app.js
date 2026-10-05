@@ -21,6 +21,80 @@ const $ = selector => document.querySelector(selector);
 const frame = $("#page");
 const landing = $("#landing");
 
+// --- Language -------------------------------------------------------------
+//
+// Chosen on the first visit, before anything else, and kept under the
+// same key the settings page (static/settings.html) uses for its own
+// EN / 中文 switch, so changing it in either place changes both.
+
+const LANG_KEY = "md2book-settings-lang";
+
+const TEXT = {
+  en: {
+    lede: "Read a folder of Markdown notes as a book. <em>An Obsidian vault works as-is.</em>",
+    pick: "Open a folder…",
+    reopen: name => `Open ${name} again`,
+    private: "Your notes stay on this computer: the browser reads them, nothing is uploaded.",
+    browserNote: "In this browser the folder is read once, as it is now. Chrome and Edge also remember the folder and follow your edits.",
+    share: 'To share your notes online, deploy <a href="https://github.com/ziru-wei/md2book">md2book</a> itself.',
+    settings: "settings",
+    otherFolder: "Open another folder",
+    savedWhere: "this browser (per folder)",
+    couldNotRead: "Could not read"
+  },
+  zh: {
+    lede: "把一个 Markdown 笔记文件夹读成一本书。<em>Obsidian 仓库直接就能用。</em>",
+    pick: "打开文件夹…",
+    reopen: name => `重新打开 ${name}`,
+    private: "笔记始终留在你的电脑上：由浏览器读取，不会上传到任何地方。",
+    browserNote: "这个浏览器只会读取选择那一刻的文件夹内容。Chrome 和 Edge 还能记住文件夹，并在笔记改动后自动刷新。",
+    share: '想把笔记分享到网上，请部署 <a href="https://github.com/ziru-wei/md2book">md2book</a> 本身。',
+    settings: "设置",
+    otherFolder: "打开其他文件夹",
+    savedWhere: "这个浏览器（按文件夹分别保存）",
+    couldNotRead: "无法读取"
+  }
+};
+
+function savedLang() {
+  try {
+    const lang = localStorage.getItem(LANG_KEY);
+    return TEXT[lang] ? lang : null;
+  } catch {
+    return null;
+  }
+}
+
+const lang = () => savedLang() || "en";
+const t = key => TEXT[lang()][key];
+
+function setLang(next) {
+  try { localStorage.setItem(LANG_KEY, next); } catch { /* storage unavailable */ }
+  translate();
+}
+
+function translate() {
+  document.documentElement.lang = lang() === "zh" ? "zh-CN" : "en";
+  document.querySelectorAll("[data-t]").forEach(el => { el.innerHTML = t(el.dataset.t); });
+  document.querySelectorAll("[data-lang]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.lang === lang())));
+  const reopen = $("#reopen");
+  if (reopen.dataset.name) reopen.textContent = t("reopen")(reopen.dataset.name);
+}
+
+document.querySelectorAll("[data-lang]").forEach(button => button.addEventListener("click", () => setLang(button.dataset.lang)));
+
+// The first visit: a language before anything else.
+function chooseLanguage() {
+  return new Promise(resolve => {
+    $("#language").hidden = false;
+    document.querySelectorAll("[data-choose-lang]").forEach(button => button.addEventListener("click", () => {
+      setLang(button.dataset.chooseLang);
+      $("#language").hidden = true;
+      resolve();
+    }, { once: true }));
+  });
+}
+
 let source = null;
 let config = null;
 
@@ -179,11 +253,11 @@ const BRIDGE = `<script>
       if (!header) return;
       var links = document.createElement("div");
       links.className = "web-folder-links";
-      [["/open", app.folderName], ["/settings", "settings"]].forEach(function (item) {
+      [["/open", app.folderName], ["/settings", app.text("settings")]].forEach(function (item) {
         var link = document.createElement("a");
         link.href = item[0];
         link.textContent = item[1];
-        if (item[0] === "/open") link.title = "Open another folder";
+        if (item[0] === "/open") link.title = app.text("otherFolder");
         links.appendChild(link);
       });
       header.appendChild(links);
@@ -197,6 +271,12 @@ const BRIDGE = `<script>
   .web-folder-links a:hover { opacity: 1; }
 </style>`;
 
+// On the settings page: the parts that are about running the server
+// (its command line, the home page address) don't apply here.
+const SETTINGS_EXTRA = `<style>
+  [data-t="notesHint"], .field:has(#f-site-homePath) { display: none !important; }
+</style>`;
+
 let showing = 0;
 
 async function show() {
@@ -207,11 +287,11 @@ async function show() {
   try {
     html = await withAttachments(await pageHtml(path));
   } catch (error) {
-    html = `<pre style="white-space: pre-wrap; padding: 2rem">Could not read ${escapeText(source.label)}\n\n${escapeText(error.stack || error)}</pre>`;
+    html = `<pre style="white-space: pre-wrap; padding: 2rem">${escapeText(t("couldNotRead"))} ${escapeText(source.label)}\n\n${escapeText(error.stack || error)}</pre>`;
   }
   if (n !== showing) return;
   window.md2book.onHome = path === "/";
-  frame.srcdoc = html.replace(/<head>/i, m => m + BRIDGE);
+  frame.srcdoc = html.replace(/<head>/i, m => m + BRIDGE + (path === "/settings" ? SETTINGS_EXTRA : ""));
 }
 
 function escapeText(value) {
@@ -237,7 +317,7 @@ async function answer(url, { method = "GET", body }) {
     return { status: 200, body: hits.map(e => e.slug) };
   }
   if (pathname === "/api/settings") {
-    const where = "this browser (per folder)";
+    const where = t("savedWhere");
     try {
       if (method === "PUT") {
         const saved = JSON.parse(body);
@@ -262,6 +342,7 @@ window.md2book = {
   onHome: false,
   get folderName() { return source ? source.name : ""; },
   addressOf: path => `${APP_BASE}#${path}`,
+  text: key => t(key),
   go(path) {
     if (path === "/open") showLanding();
     else if (currentPath() === path) show();
@@ -342,13 +423,15 @@ async function showLanding({ reopen = false } = {}) {
   frame.srcdoc = "";
   landing.hidden = false;
   document.title = "md2book";
+  translate();
   $("#browser-note").hidden = canPick;
 
   const handle = canPick && await savedFolder();
   $("#reopen").hidden = !handle;
   $("#pick").classList.toggle("secondary", !!handle);
   if (!handle) return;
-  $("#reopen-name").textContent = handle.name;
+  $("#reopen").dataset.name = handle.name;
+  $("#reopen").textContent = t("reopen")(handle.name);
   // Allowed already (this visit, or on every visit).
   if (reopen && await handle.queryPermission({ mode: "read" }) === "granted") {
     await openHandle(handle).catch(showError);
@@ -359,4 +442,5 @@ async function showLanding({ reopen = false } = {}) {
   };
 }
 
+if (!savedLang()) await chooseLanguage();
 showLanding({ reopen: true });

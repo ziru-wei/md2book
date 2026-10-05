@@ -38,7 +38,7 @@ Markdown 成为了和 agent 交流的好媒介。我制作这个工具的初衷�
 
 ## 在浏览器里直接读
 
-1. 用 Chrome 或 Edge 打开 **<https://ziru-wei.github.io/md2book/>**。
+1. 用 Chrome 或 Edge 打开 **<https://ziru-wei.github.io/md2book/>**，选择 English 或中文（之后可以在右上角或设置页切换，两处会同步）。
 2. 点 **Open a folder…**，选择你的笔记文件夹。Obsidian 仓库直接就能用。
 3. 浏览器询问是否允许网站查看文件时，选择允许。
 
