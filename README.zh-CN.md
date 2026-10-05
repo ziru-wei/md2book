@@ -8,9 +8,19 @@
 
 Markdown 成为了和 agent 交流的好媒介。我制作这个工具的初衷是为了把 Markdown 同样以一种好的方式分享给你的人类朋友：当你认真地呈现你的分享，就会被认真地倾听，并得到也许对你来说很重要的反馈，开启一些启迪心灵的交流。
 
-可以用于本地文件夹或者 Github 仓库：本地版需要在发生改动后更新部署，远端仓库版会自动拉取，和仓库同步；
 如果你想在轻量的学术写作中摆脱 Overleaf，也许你也应该尝试一下，这个项目是纯 CSS 渲染，所以可以摆脱漫长的编译。
 不需要任何软件、插件或者导出。
+
+## 选择适合你的用法
+
+| 你想… | 怎么做 | 需要 |
+|---|---|---|
+| 把自己的笔记读成书 | [打开网页](#在浏览器里直接读) | Chrome 或 Edge |
+| 拥有一份自己的网页 | [自己托管这个网页](#自己托管一份网页) | GitHub 或 Vercel 账号 |
+| 一边写一边预览 | [在电脑上运行](#在电脑上运行) | Node.js 20.12 或更高版本 |
+| 把笔记分享给朋友在线阅读 | [发布你的笔记](#把笔记发布上线) | Node.js 和 Vercel 账号 |
+
+> 网页读取的是「打开它的那个人」电脑上的笔记。想让朋友读到*你的*笔记，请用最后一种：发布上线。
 
 ## 功能
 
@@ -26,7 +36,51 @@ Markdown 成为了和 agent 交流的好媒介。我制作这个工具的初衷�
 - 支持桌面、手机、平板三种版式；支持双指缩放；
 - 支持浏览器内打印为干净的 pdf。
 
-## 在本地运行
+## 在浏览器里直接读
+
+1. 用 Chrome 或 Edge 打开 **<https://ziru-wei.github.io/md2book/>**。
+2. 点 **Open a folder…**，选择你的笔记文件夹。Obsidian 仓库直接就能用。
+3. 浏览器询问是否允许网站查看文件时，选择允许。
+
+这样就好了。笔记会以书的样子呈现，改动笔记后页面自动更新。下次打开时，网页会直接打开同一个文件夹（浏览器可能会再问一次，选 **每次访问时都允许** 就不会再问了）。
+
+- **笔记始终留在你的电脑上。** 由浏览器读取，不会上传到任何地方。
+- **设置**：在首页搜索框下方点 **settings**。设置按文件夹分别保存在这个浏览器里。如果文件夹顶层有 `md2book.settings.json`，在你改动之前会先用它。
+- **换一个文件夹**：在首页搜索框下方点文件夹名。
+- **Firefox 和 Safari** 只会读取选择那一刻的文件夹内容，想看到改动需要重新打开。暂不支持手机。
+
+## 自己托管一份网页
+
+拥有自己的网址，也可以改样式（`static/book.css`）。用法和上面一样：每位读者打开的都是自己电脑上的文件夹。
+
+### 用 GitHub Pages
+
+1. [Fork 这个仓库](https://github.com/ziru-wei/md2book/fork)。**取消勾选「Copy the `main` branch only」**：网页在 `web-reader` 分支上。
+2. 在你 fork 的仓库里，进入 **Settings → Pages**，在 **Build and deployment → Source** 选择 **GitHub Actions**。
+3. 进入 **Settings → Environments → github-pages**，在 **Deployment branches and tags** 下为 `web-reader` 添加一条规则。
+4. 打开 **Actions** 标签页并启用 workflows。选择 **Browser reader on GitHub Pages**，点 **Run workflow**，分支选 `web-reader`，运行。
+
+大约一分钟后，网页就在 `https://<你的用户名>.github.io/md2book/`。之后每次 push 到 `web-reader` 都会自动更新。
+
+### 用 Vercel
+
+```bash
+git clone -b web-reader https://github.com/ziru-wei/md2book.git md2book-web
+cd md2book-web
+npm install
+npm run build:web
+npx vercel deploy dist --prod
+```
+
+第一次部署时 Vercel 会问几个问题，一路回车即可。最后输出的网址就是你的网页。以后更新，再运行最后两条命令。
+
+请部署 `dist` 文件夹，而不是整个仓库：仓库自带的 `vercel.json` 配置的是下面「发布笔记」用的服务器版本。
+
+### 其他平台
+
+任何静态托管都可以（Netlify、Cloudflare Pages……）：分支选 `web-reader`，构建命令 `npm run build:web`，输出目录 `dist`。
+
+## 在电脑上运行
 
 需要 Node.js 20.12 或更高版本。第一次：
 
@@ -46,15 +100,7 @@ node bin/md2book.js 你的笔记文件夹路径
 
 浏览器会自动打开 `http://localhost:3000`，笔记改动后页面自动刷新。按 `Ctrl+C` 停止。
 
-## 在浏览器里直接读（无需安装）
-
-用 Chrome 或 Edge 打开 <https://ziru-wei.github.io/md2book/>，点 **Open a folder…**，选择你的笔记文件夹即可。页面和上面完全一样，改动笔记会自动刷新，浏览器也会记住这个文件夹，下次打开直接进入。笔记始终留在你的电脑上：由浏览器读取，不会上传到任何地方。其他浏览器只会读取选择那一刻的文件夹内容。
-
-设置入口在首页搜索框下方，按文件夹分别保存在浏览器里。某个文件夹还没有保存过设置时，会先读取它顶层的 `md2book.settings.json`（如果有的话）。
-
-自己构建：`npm run build:web`，网站生成在 `dist/`。
-
-## 设置
+### 设置
 
 ```bash
 cd md2book
@@ -65,10 +111,9 @@ node bin/md2book.js settings 你的笔记文件夹路径
 
 排版按合集设置：「所有」一行对所有合集生效，也可以给某个合集单独加一行。单独打开一篇笔记时，它跟随所属合集的排版；如果它同时属于几个排版不同的合集，就用「所有」那一行，除非其中一个合集勾选了「应用到全部单篇」。
 
+## 把笔记发布上线
 
-## 以 Vercel 为例部署上线
-
-用 Vercel 部署。第一次先安装并登录：
+把笔记本身放到网上，任何拿到链接的人都能读。这里用 Vercel；第一次先安装并登录：
 
 ```bash
 npm install -g vercel

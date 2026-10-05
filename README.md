@@ -8,7 +8,17 @@
 
 Markdown has become a good medium for talking with agents. I made this tool to share Markdown just as well with your human friends: when you present what you share with care, it is listened to with care, and you may get feedback that matters to you and start conversations that open minds.
 
-It works with a local folder or a GitHub repository. The local version needs a redeploy after your notes change; the repository version pulls automatically and stays in sync with the repo.
+## Which way is for you
+
+| You want to… | Do this | You need |
+|---|---|---|
+| Read your own notes as a book | [Open the website](#read-in-your-browser) | Chrome or Edge |
+| Have your own copy of that website | [Host the website yourself](#host-your-own-copy-of-the-website) | A GitHub or Vercel account |
+| Preview your notes while you write | [Run it on your computer](#run-it-on-your-computer) | Node.js 20.12 or later |
+| Share your notes with friends online | [Publish your notes](#publish-your-notes-online) | Node.js and a Vercel account |
+
+> The website reads notes from the computer of whoever opens it. To let friends read *your* notes, publish them (the last row).
+
 No apps, plugins or exports needed.
 
 ## Features
@@ -25,7 +35,51 @@ No apps, plugins or exports needed.
 - Desktop, phone and tablet layouts; pinch to zoom.
 - Print from the browser to a clean PDF.
 
-## Run it locally
+## Read in your browser
+
+1. Open **<https://ziru-wei.github.io/md2book/>** in Chrome or Edge.
+2. Click **Open a folder…** and choose your notes folder. An Obsidian vault works as it is.
+3. When the browser asks whether the site may view your files, allow it.
+
+That's it. Your notes appear as a book, and the pages update as you edit. Next time, the site opens the same folder again (the browser may ask once more; choose **Allow on every visit** so it won't).
+
+- **Your notes stay on your computer.** The browser reads them; nothing is uploaded.
+- **Settings**: on the home page, click **settings** under the search box. They're saved in this browser, for each folder. If your folder has an `md2book.settings.json` at its top level, it's used until you change something.
+- **Another folder**: on the home page, click the folder's name under the search box.
+- **Firefox and Safari** read the folder once, as it is when you pick it; open it again to see changes. Phones aren't supported.
+
+## Host your own copy of the website
+
+Your own address, and a copy whose look you can change (`static/book.css`). It works just like the one above: each reader opens a folder on their own computer.
+
+### On GitHub Pages
+
+1. [Fork this repository](https://github.com/ziru-wei/md2book/fork). **Untick "Copy the `main` branch only"**: the website is on the `web-reader` branch.
+2. In your fork, go to **Settings → Pages**, and under **Build and deployment → Source** choose **GitHub Actions**.
+3. Go to **Settings → Environments → github-pages**. Under **Deployment branches and tags**, add a rule for `web-reader`.
+4. Go to the **Actions** tab and enable workflows. Pick **Browser reader on GitHub Pages**, click **Run workflow**, choose the `web-reader` branch and run it.
+
+A minute later your site is at `https://<your-username>.github.io/md2book/`. Every push to `web-reader` updates it.
+
+### On Vercel
+
+```bash
+git clone -b web-reader https://github.com/ziru-wei/md2book.git md2book-web
+cd md2book-web
+npm install
+npm run build:web
+npx vercel deploy dist --prod
+```
+
+Vercel asks a few questions the first time; press Enter for each. The URL it prints at the end is your site. To update it later, run the last two commands again.
+
+Deploy the `dist` folder, not the whole repository: the repository's own `vercel.json` sets up the note-publishing server described below.
+
+### Anywhere else
+
+Any static host works (Netlify, Cloudflare Pages…): branch `web-reader`, build command `npm run build:web`, output directory `dist`.
+
+## Run it on your computer
 
 Requires Node.js 20.12 or later. The first time:
 
@@ -45,15 +99,7 @@ node bin/md2book.js path/to/your/notes
 
 Your browser opens `http://localhost:3000`, and the page reloads when your notes change. Press `Ctrl+C` to stop.
 
-## Read in your browser (no install)
-
-Open <https://ziru-wei.github.io/md2book/> in Chrome or Edge, click **Open a folder…** and pick your notes folder. The pages are the same as above, and they follow your edits; the browser remembers the folder for next time. Your notes stay on your computer: the browser reads them, nothing is uploaded. Other browsers read the folder once, as it is when you pick it.
-
-Settings are on the home page (under the search box), saved in the browser for each folder. A folder with no saved settings starts from its own `md2book.settings.json` at the top, if it has one.
-
-To build it yourself: `npm run build:web` writes the site to `dist/`.
-
-## Settings
+### Settings
 
 ```bash
 cd md2book
@@ -64,10 +110,9 @@ The settings page opens in your browser. Changes are saved right away to `md2boo
 
 Layout is set per collection: the "All" row applies to every collection, and you can add a row for any one collection. A note opened on its own follows its collection's layout; if it's in several collections laid out differently, it uses the "All" row, unless one of them has "Apply to all" ticked.
 
+## Publish your notes online
 
-## Deploy online (using Vercel as an example)
-
-Deploy with Vercel. The first time, install it and log in:
+This puts your notes themselves on the web, for anyone with the link. It uses Vercel; the first time, install it and log in:
 
 ```bash
 npm install -g vercel

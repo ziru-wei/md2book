@@ -10,7 +10,17 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const out = path.join(root, "dist");
 const temml = JSON.parse(fs.readFileSync(path.join(root, "node_modules/temml/package.json"), "utf8"));
 
+// A fresh dist/ each time — except dist/.vercel, which links it to a
+// Vercel project (`vercel deploy dist`; see the README).
+const vercelLink = path.join(out, ".vercel");
+const keep = fs.existsSync(vercelLink) && fs.mkdtempSync(path.join(root, ".vercel-link-"));
+if (keep) fs.renameSync(vercelLink, path.join(keep, ".vercel"));
 fs.rmSync(out, { recursive: true, force: true });
+fs.mkdirSync(out);
+if (keep) {
+  fs.renameSync(path.join(keep, ".vercel"), vercelLink);
+  fs.rmSync(keep, { recursive: true });
+}
 
 await esbuild.build({
   absWorkingDir: root,
