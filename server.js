@@ -27,20 +27,73 @@ const LOCAL_ENTRIES_DIR = path.resolve(
 const entrySource = createEntrySource(LOCAL_ENTRIES_DIR);
 
 // The site's own settings (name, which notes publish, collections,
-// layouts...) — see lib/config.js.
-// Local notes keep their settings in their own folder; a deployment
-// reading GitHub uses the file next to the app.
+// layouts...) — see lib/config.js: md2book.settings.json in the md2book
+// folder, deployed with it — or, for notes in a GitHub repository, the
+// repo's own copy (below).
 
 // Watching notes and reloading pages is for running md2book on your own
 // computer; a deployed site (Vercel) serves a fixed copy.
 const LIVE = entrySource.liveReload && !process.env.VERCEL;
 const config = loadConfig();
 
+// Notes from a GitHub repository keep their settings there too (see
+// createGitHubSource): md2book.settings.json at the repo's top, when it
+// has one, rather than the file deployed with the app. Every listing of
+// the notes says which version of it there is, so a change saved there
+// (from /settings on any instance of the site, or pushed) applies on
+// the next page served.
+const REPO_SETTINGS = typeof entrySource.writeSettings === "function";
+const deployedSettings = readSettings();
+let repoSettingsVersion;
+// What the site runs on: the deployed file's settings, or the repo's.
+let savedSettings = deployedSettings.saved;
+
+// Swaps in settings `saved` (everything reads `config`) and re-renders
+// notes. The home page stays where it was served from.
+function applySettings(saved, file) {
+  const next = resolveConfig(saved);
+  next.site.homePath = config.site.homePath;
+  for (const key of Object.keys(config)) delete config[key];
+  Object.assign(config, next, { file });
+  savedSettings = saved;
+  clearCache();
+}
+
+async function followRepoSettings(version) {
+  if (version === repoSettingsVersion) return;
+  const saved = version ? await entrySource.readSettings(version) : deployedSettings.saved;
+  applySettings(saved, version ? entrySource.settingsLabel : deployedSettings.exists ? deployedSettings.file : null);
+  repoSettingsVersion = version;
+}
+
+if (REPO_SETTINGS) {
+  const listAll = entrySource.listAll.bind(entrySource);
+  entrySource.listAll = async () => {
+    const listing = await listAll();
+    await followRepoSettings(listing.settings);
+    return listing;
+  };
+}
+
 // Optional PAT for a private image-hosting repo (may be a different
 // GitHub account/repo entirely from GITHUB_TOKEN's content repo — see
 // /img/:id below). Unset means unauthenticated fetches, which only
 // works for images that are actually public.
 const IMAGE_GITHUB_TOKEN = process.env.IMAGE_GITHUB_TOKEN || "";
+
+// The settings page edits the site's settings, in one of two ways:
+// - "local": notes in a folder on this computer — /settings, opened from
+//   this computer only, saves md2book.settings.json in the md2book
+//   folder.
+// - "repo": notes in a GitHub repository (a deployed site) — the page
+//   lives under the home page's own address (<home path>/settings),
+//   which only the site's owner knows, and saves md2book.settings.json
+//   to the repo. Only with a home path set: on a site whose home page is
+//   the plain "/", anyone could find it.
+// Otherwise there is no settings page.
+const SETTINGS_MODE = LIVE ? "local" : REPO_SETTINGS && config.site.homePath !== "/" ? "repo" : null;
+const SETTINGS_BASE = SETTINGS_MODE === "repo" ? config.site.homePath.replace(/\/$/, "") : "";
+const SETTINGS_PATH = SETTINGS_MODE && SETTINGS_BASE + "/settings";
 
 // Notes become pages in lib/render.js (HOME_PATH and SEARCH_PATH come
 // from it, set from config.site.homePath).
@@ -49,6 +102,8 @@ setup({
   source: entrySource,
   hash: text => crypto.createHash("sha256").update(text).digest("hex"),
   live: LIVE,
+  // Linked from the home page.
+  settingsPath: SETTINGS_PATH,
   imageToken: IMAGE_GITHUB_TOKEN,
   temmlVersion: createRequire(import.meta.url)("temml/package.json").version
 });
@@ -223,12 +278,7 @@ if (LIVE) {
 
 // --- Settings page ------------------------------------------------------
 //
-// /settings edits md2book.settings.json (see lib/config.js). Only when
-// the notes are a local folder, and only from this computer: a public
-// deployment never offers it.
-function settingsAvailable() {
-  return LIVE;
-}
+// (Where it is and what it saves to: see SETTINGS_MODE above.)
 
 function fromThisComputer(req) {
   const address = req.socket.remoteAddress || "";
@@ -236,17 +286,24 @@ function fromThisComputer(req) {
 }
 
 function settingsGuard(req, res, next) {
-  if (settingsAvailable() && fromThisComputer(req)) return next();
+  if (SETTINGS_MODE === "repo" || (SETTINGS_MODE === "local" && fromThisComputer(req))) return next();
   res.status(404).type("text").send("Not found");
 }
 
-app.get("/settings", settingsGuard, (_req, res) => {
+app.get(SETTINGS_BASE + "/settings", settingsGuard, (_req, res) => {
   res.set("Cache-Control", "no-store");
   res.sendFile(path.join(__dirname, "static", "settings.html"));
 });
 
-app.get("/api/settings", settingsGuard, async (_req, res) => {
+app.get(SETTINGS_BASE + "/api/settings", settingsGuard, async (_req, res) => {
   try {
+    res.set("Cache-Control", "no-store");
+    if (SETTINGS_MODE === "repo") {
+      // Lists the notes, which brings in the repo's settings first.
+      const vault = await scanVault();
+      res.json({ mode: "repo", file: entrySource.settingsLabel, saved: savedSettings, defaults: DEFAULTS, homePath: HOME_PATH, notesDir: entrySource.label, vault });
+      return;
+    }
     const { file, saved } = readSettings();
     res.json({ file, saved, defaults: DEFAULTS, homePath: HOME_PATH, notesDir: LOCAL_ENTRIES_DIR, vault: await scanVault() });
   } catch (error) {
@@ -254,17 +311,21 @@ app.get("/api/settings", settingsGuard, async (_req, res) => {
   }
 });
 
-app.put("/api/settings", settingsGuard, express.json({ limit: "200kb" }), async (req, res) => {
+app.put(SETTINGS_BASE + "/api/settings", settingsGuard, express.json({ limit: "200kb" }), async (req, res) => {
   try {
     const saved = req.body;
     if (!saved || typeof saved !== "object" || Array.isArray(saved)) throw new Error("Settings must be an object");
-    const next = resolveConfig(saved);
-    const { file } = readSettings();
-    writeSettings(file, saved);
-    // Everything reads `config`: swap its contents, re-render notes.
-    for (const key of Object.keys(config)) delete config[key];
-    Object.assign(config, next, { file });
-    clearCache();
+    resolveConfig(saved);
+    let file;
+    if (SETTINGS_MODE === "repo") {
+      // Each save is a commit: none when nothing changed.
+      if (JSON.stringify(saved) !== JSON.stringify(savedSettings)) repoSettingsVersion = await entrySource.writeSettings(saved);
+      file = entrySource.settingsLabel;
+    } else {
+      file = readSettings().file;
+      writeSettings(file, saved);
+    }
+    applySettings(saved, file);
     notifyReload();
     res.json({ file, vault: await scanVault() });
   } catch (error) {
@@ -280,7 +341,7 @@ export function start({ port = PORT, open = process.env.NO_OPEN !== "1", openPat
     const url = `http://localhost:${port}${HOME_PATH}`;
     console.log(`md2book: ${url}`);
     console.log(`Notes:   ${entrySource.label}`);
-    console.log(`Settings: ${settingsAvailable() ? `http://localhost:${port}/settings` : "(md2book.settings.json)"}`);
+    console.log(`Settings: ${SETTINGS_MODE ? `http://localhost:${port}${SETTINGS_PATH}` : "(md2book.settings.json)"}`);
     if (HOME_PATH !== "/") console.log(`(home path set — plain "/" won't list the notes)`);
 
     if (open) {

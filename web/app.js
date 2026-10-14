@@ -265,7 +265,7 @@ const BRIDGE = `<script>
       var home = document.querySelector(".home");
       if (!home) return;
       var nav = document.createElement("nav");
-      nav.className = "web-nav";
+      nav.className = "site-nav";
       nav.setAttribute("aria-label", "md2book");
       [["/open", app.text("noteRepo"), app.text("otherFolder")], ["/settings", app.text("settings"), ""]].forEach(function (item, i) {
         if (i) nav.appendChild(Object.assign(document.createElement("span"), { className: "sep" }));
@@ -281,38 +281,7 @@ const BRIDGE = `<script>
 })();
 </script>
 <style>
-  /* Top right of the home page, set like the library's name. */
-  .home { position: relative; }
-  .web-nav {
-    position: absolute;
-    top: -3px;
-    right: 0;
-    display: flex;
-    align-items: baseline;
-    font-family: var(--serif);
-    font-size: 11px;
-    line-height: 1;
-    letter-spacing: .07em;
-    text-transform: uppercase;
-  }
-  .web-nav a {
-    color: var(--muted);
-    text-decoration: none;
-    padding: 4px 0;
-    transition: color .15s ease;
-  }
-  .web-nav .sep {
-    width: 1px;
-    height: 9px;
-    margin: 0 12px;
-    background: var(--rule);
-    align-self: center;
-  }
-  .web-nav a:hover, .web-nav a:focus-visible { color: var(--ink); }
-  .web-nav a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
-  @media (max-width: 760px) {
-    .web-nav { position: static; justify-content: flex-end; margin-bottom: 18px; }
-  }
+  /* (The links at the top of the home page: .site-nav in book.css.) */
   /* Printed as part of the window around it (see "beforeprint" below):
      each page fills exactly one sheet, whatever print.css would do. */
   @media print {

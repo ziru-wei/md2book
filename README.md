@@ -163,7 +163,7 @@ vercel deploy --prod
 
 **First deployment**
 
-1. Create a read-only token: open <https://github.com/settings/personal-access-tokens/new>, pick your notes repository under Repository access, set Contents to Read-only under Permissions, generate it and copy it.
+1. Create a token: open <https://github.com/settings/personal-access-tokens/new>, pick your notes repository under Repository access, set Contents to Read-only under Permissions (Read and write, to change settings on the site itself — see below), generate it and copy it.
 2. In a terminal (each command asks you to paste its value):
 
 ```bash
@@ -183,7 +183,9 @@ Push your notes to GitHub as usual. The site reads the latest content; no redepl
 
 **Changing settings**
 
-Run it on the copy of your notes repository on your computer:
+On the site itself, if you've given the site a home path (`vercel env add HOME_PATH production`, e.g. `/a1b2c3`, then `vercel deploy --prod`): open the home page and click **Settings** at the top right. The settings page lives at `<home path>/settings`, as hard to guess as the home page; on a site whose home page is the plain `/` there is none. It has every layout option; which notes are published is up to each note (`publish: false`). Each change is saved as a commit to `md2book.settings.json` at the top of your notes repository (so the token needs Contents: Read and write) and applies on the next page you open, with no redeploy. That file, once there, takes the place of the one deployed with md2book; the browser reader uses it too.
+
+Or, on your computer, run it on the copy of your notes repository:
 
 ```bash
 cd md2book

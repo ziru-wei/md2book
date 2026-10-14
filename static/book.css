@@ -1459,8 +1459,46 @@ math {
 /* Home page: no sidebar, just the logo/author header above a full-width
    waterfall. The logo is the entry point into the contents view. */
 .home {
+  position: relative;
   max-width: 1080px;
   margin: 0 auto;
+}
+
+/* Links at the top right of the home page (Settings; the browser
+   reader adds its note repo), set like the library's name. */
+.site-nav {
+  position: absolute;
+  top: -3px;
+  right: 0;
+  display: flex;
+  align-items: baseline;
+  font-family: var(--serif);
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.site-nav a {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 4px 0;
+  transition: color .15s ease;
+}
+
+.site-nav .sep {
+  width: 1px;
+  height: 9px;
+  margin: 0 12px;
+  background: var(--rule);
+  align-self: center;
+}
+
+.site-nav a:hover, .site-nav a:focus-visible { color: var(--ink); }
+.site-nav a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+
+@media (max-width: 760px) {
+  .site-nav { position: static; justify-content: flex-end; margin-bottom: 18px; }
 }
 
 .index-header-home {

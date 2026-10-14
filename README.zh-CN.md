@@ -164,7 +164,7 @@ vercel deploy --prod
 
 **第一次部署**
 
-1. 创建一个只读 token：打开 <https://github.com/settings/personal-access-tokens/new>，Repository access 选你的笔记仓库，Permissions 里把 Contents 设为 Read-only，生成后复制。
+1. 创建一个 token：打开 <https://github.com/settings/personal-access-tokens/new>，Repository access 选你的笔记仓库，Permissions 里把 Contents 设为 Read-only（想在网站上直接改设置的话设为 Read and write，见下文），生成后复制。
 2. 在终端里（每条命令会提示你粘贴对应的值）：
 
 ```bash
@@ -184,7 +184,9 @@ vercel deploy --prod
 
 **修改设置**
 
-在你电脑上的笔记仓库副本上运行：
+在网站上直接改，前提是给站点设了首页路径（`vercel env add HOME_PATH production`，比如 `/a1b2c3`，再 `vercel deploy --prod`）：打开首页，点右上角的 **Settings**。设置页在 `<首页路径>/settings`，和首页一样难以猜到；首页就是 `/` 的站点没有设置页。排版选项一应俱全；哪些笔记发布由每篇笔记自己决定（`publish: false`）。每次修改都会作为一次 commit 存进笔记仓库顶层的 `md2book.settings.json`（所以 token 需要 Contents: Read and write），打开下一个页面就生效，不用重新部署。这个文件一旦存在，就会取代随 md2book 部署的那份；浏览器版也会读取它。
+
+也可以在你电脑上的笔记仓库副本上运行：
 
 ```bash
 cd md2book

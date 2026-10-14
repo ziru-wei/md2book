@@ -94,13 +94,16 @@
     return placeholder;
   }
 
-  // Pagination needs every image's height. Managed PNGs carry their
-  // real width/height from the server (see addManagedImageSizes); for
-  // the rest, wait until the browser has read enough of the file to
-  // know its natural size — not for the whole download.
+  // Pagination needs every image's height: wait until the browser has
+  // read enough of each file to know its natural size — not for the
+  // whole download. Even an image whose width/height the server wrote
+  // into the tag (see addManagedImageSizes): a figure is as wide as its
+  // image (`width: auto` in book.css), and until the browser knows that
+  // size the image's box is empty, however the tag is sized — a slow
+  // image (one served through /img/ by a deployed site) would then
+  // grow after the page is cut and push its text off the page.
   async function waitForImageSizes(container, timeout = 8000) {
-    const pending = Array.from(container.querySelectorAll("img"))
-      .filter(img => !(img.getAttribute("width") && img.getAttribute("height")));
+    const pending = Array.from(container.querySelectorAll("img"));
     const deadline = performance.now() + timeout;
     while (pending.some(img => !img.naturalWidth && !img.complete) && performance.now() < deadline) {
       await sleep(50);
@@ -187,19 +190,29 @@
   // set them again. A paragraph it declines keeps the browser's own
   // justification.
   let justifModules = null;
+  let justifLoaded = null;
   // Justif sits next to static/ (/vendor/justif on the server), found
   // from this script's own address so it loads wherever md2book is served.
   const JUSTIF_BASE = new URL("../vendor/justif/", document.currentScript ? document.currentScript.src : location.href);
 
+  // Asked for as the reader starts (see Start), not when the first cut
+  // gets to it: by then the page's images are downloading, and a module
+  // asked for after them can wait until they're all in.
+  function loadJustif() {
+    justifModules ||= Promise.all([import(new URL("index.js", JUSTIF_BASE).href), import(new URL("hyphenate/en-us.js", JUSTIF_BASE).href)])
+      .then(modules => { justifLoaded = modules; }, () => { justifModules = null; });
+    return justifModules;
+  }
+
   async function justifyText(area) {
-    let justify, hyphenateEnUS;
-    try {
-      justifModules ||= Promise.all([import(new URL("index.js", JUSTIF_BASE).href), import(new URL("hyphenate/en-us.js", JUSTIF_BASE).href)]);
-      [{ justify }, { hyphenateEnUS }] = await justifModules;
-    } catch {
-      justifModules = null;
+    // Still not in after a few seconds: these pages keep the browser's
+    // own justification, and are cut again once it arrives.
+    await Promise.race([loadJustif(), sleep(4000)]);
+    if (!justifLoaded) {
+      loadJustif().then(() => { if (justifLoaded) scheduleRender(); });
       return;
     }
+    const [{ justify }, { hyphenateEnUS }] = justifLoaded;
     const controller = justify(area.querySelectorAll(".body p, .body li:not(.references li)"), {
       hyphenate: hyphenateEnUS,
       observeResize: false,
@@ -240,7 +253,7 @@
     // An image whose size still isn't known is laid out without it; its
     // pages are cut again once it's known (see watchImages).
     for (const img of area.querySelectorAll("img")) {
-      if (!img.naturalWidth && !(img.getAttribute("width") && img.getAttribute("height"))) img.dataset.unsized = "";
+      if (!img.naturalWidth) img.dataset.unsized = "";
     }
 
     fitDisplayMath(area);
@@ -1100,12 +1113,12 @@
     });
   }
 
-  // What a set of pages shows: each page's text, and where its margin
-  // notes sit.
+  // What a set of pages shows: each page as laid out — its text, how
+  // justified lines are spaced (set for the fonts at the time: once a
+  // late font lands, the old spacing no longer fits the lines), and
+  // where its margin notes sit. Not whether an image is still loading.
   function layoutSignature(list) {
-    return list.map(page =>
-      page.textContent + Array.from(page.querySelectorAll(".page-comments > *"), n => n.style.top).join()
-    ).join("\u0000");
+    return list.map(page => page.innerHTML.replace(/ ?\bis-loading\b/g, "")).join("\u0000");
   }
 
   let renderRun = 0;
@@ -1997,9 +2010,11 @@
   // =========================================================
 
   applyLayout();
-  render().then(() => {
-    // A face that finishes loading after the first cut (e.g. more of
-    // the Chinese font) reflows text — cut the pages again.
-    document.fonts.addEventListener("loadingdone", scheduleRender);
-  });
+  if (root.classList.contains("justify")) loadJustif();
+  // A face that finishes loading once the cut has begun (e.g. more of
+  // the Chinese font, which Adobe can take many seconds over) reflows
+  // text — cut the pages again. From the start: one landing during the
+  // first cut makes that cut stale (the newer one replaces it).
+  document.fonts.addEventListener("loadingdone", scheduleRender);
+  render();
 })();

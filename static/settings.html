@@ -120,6 +120,11 @@
     .browser-mode .meta > span:first-child,
     .browser-mode .field:has(#f-site-homePath) { display: none; }
 
+    /* A deployed site (see useRepoMode): its home page address is where
+       this page is, and no folder to switch to. */
+    .repo-mode .meta [data-t="notesHint"],
+    .repo-mode .field:has(#f-site-homePath) { display: none; }
+
     .meta {
       color: var(--muted);
       font-size: 13px;
@@ -713,6 +718,38 @@
       document.documentElement.classList.add("browser-mode");
     }
 
+    // Opened on a deployed site whose notes are in a GitHub repository
+    // (see SETTINGS_MODE in server.js): saved as a commit to the repo's
+    // md2book.settings.json, and which notes are published is the
+    // notes' own business (publish: false), shown but not set here.
+    const REPO_TEXT = {
+      en: {
+        notesIn: "Notes from",
+        savedTo: "Saved to",
+        openSite: "Back to the site →",
+        publishRuleHint: "Set in each note's frontmatter."
+      },
+      zh: {
+        notesIn: "笔记来自",
+        savedTo: "保存到",
+        openSite: "返回网站 →",
+        publishRuleHint: "在每篇笔记的 frontmatter 里设置。"
+      }
+    };
+
+    let repoMode = false;
+
+    function useRepoMode() {
+      Object.assign(TEXT.en, REPO_TEXT.en);
+      Object.assign(TEXT.zh, REPO_TEXT.zh);
+      document.documentElement.classList.add("repo-mode");
+      repoMode = true;
+    }
+
+    // Next to this page: /api/settings, or <home path>/api/settings on a
+    // deployed site. (The browser version answers /api/settings itself.)
+    const API = /\/settings\/?$/.test(location.pathname) ? location.pathname.replace(/\/settings\/?$/, "/api/settings") : "/api/settings";
+
     let lang = "en";
     try { lang = localStorage.getItem("md2book-settings-lang") || (navigator.language.startsWith("zh") ? "zh" : "en"); } catch { /* storage unavailable */ }
     const t = key => TEXT[lang][key] ?? TEXT.en[key] ?? key;
@@ -808,12 +845,14 @@
         return;
       }
       setStatus("saving");
-      saveTimer = setTimeout(save, immediate ? 0 : 450);
+      // Each save on a deployed site is a commit: a run of changes makes
+      // one.
+      saveTimer = setTimeout(save, repoMode ? (immediate ? 800 : 1500) : immediate ? 0 : 450);
     }
 
     async function save() {
       try {
-        const res = await fetch("/api/settings", {
+        const res = await fetch(API, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(diff(settings, defaults) || {})
@@ -933,7 +972,11 @@
 
         <section data-pane="publish">
           <h2>${esc(t("publishing"))}</h2>
-          <div class="field">
+          ${repoMode ? `<div class="field">
+            <span class="title">${esc(t("publishWhich"))}</span>
+            <div>${s.publish.require ? `${esc(t("publishField"))} <code>${esc(s.publish.require)}</code>` : esc(t("publishAll"))}</div>
+            <div class="hint">${esc(t("publishRuleHint"))}</div>
+          </div>` : `<div class="field">
             <span class="title">${esc(t("publishWhich"))}</span>
             <div class="choices" style="flex-direction:column;gap:6px">
               <label><input type="radio" name="publish" value="all" ${s.publish.require ? "" : "checked"} /> ${esc(t("publishAll"))}</label>
@@ -941,7 +984,7 @@
                 <input type="text" id="publish-field" style="width:160px" value="${esc(s.publish.require || "publishID")}" /></label>
             </div>
           </div>
-          ${textField("publish.idField", "idField", "idFieldHint")}
+          ${textField("publish.idField", "idField", "idFieldHint")}`}
         </section>
 
         <section data-pane="publish">
@@ -1189,12 +1232,13 @@
       window.scrollTo(0, y);
     }));
 
-    fetch("/api/settings").then(async res => {
+    fetch(API).then(async res => {
       // Anything but JSON: an older md2book, or the file opened on its own.
       if (!(res.headers.get("content-type") || "").includes("json")) throw Object.assign(new Error(), { needsServer: true });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || res.status);
       if (data.mode === "browser") useBrowserMode();
+      if (data.mode === "repo") useRepoMode();
       defaults = data.defaults;
       // A copy: edits must never change `defaults` (saving compares the two).
       settings = merge(structuredClone(defaults), data.saved);
