@@ -989,8 +989,9 @@ figure.md-figure.span-placed > figcaption {
 }
 
 /* An image inside running text (not a figure of its own) still fits
-   the column. */
-.body p img {
+   the column — a tight list item's text has no <p>. */
+.body p img,
+.body li > img {
   max-width: 100%;
   max-height: 320px;
   height: auto;
