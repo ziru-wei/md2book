@@ -320,6 +320,8 @@ app.put(SETTINGS_BASE + "/api/settings", settingsGuard, express.json({ limit: "2
     resolveConfig(saved);
     let file;
     if (SETTINGS_MODE === "repo") {
+      // What the repo holds now (this instance may not have looked yet).
+      await entrySource.listAll();
       // Each save is a commit: none when nothing changed.
       if (JSON.stringify(saved) !== JSON.stringify(savedSettings)) repoSettingsVersion = await entrySource.writeSettings(saved);
       file = entrySource.settingsLabel;
