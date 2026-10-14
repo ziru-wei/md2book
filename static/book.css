@@ -2062,6 +2062,16 @@ html[data-layout="tablet"]:not(.is-touch) .teaser-figure:not(.has-width) img {
   margin-inline: auto;
 }
 
+/* Titles in proportion to the larger type here would be too big
+   (about 33px, a zine's 25px): smaller. */
+html[data-layout="tablet"]:not(.is-touch) .title {
+  font-size: calc(var(--body-size) * 18 / 11);
+}
+
+html[data-layout="tablet"]:not(.is-touch) .page-zine .title {
+  font-size: calc(var(--body-size) * 14 / 11);
+}
+
 html[data-layout="phone"] .body,
 html[data-layout="tablet"] .body {
   column-count: auto;
