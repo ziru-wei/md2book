@@ -9,3 +9,4 @@ md2book.settings.json
 
 # Browser reader build (scripts/build-web.mjs)
 dist/
+.env*

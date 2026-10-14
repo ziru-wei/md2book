@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { exec } from "node:child_process";
 import { Readable } from "node:stream";
 import { createEntrySource } from "./lib/source.js";
-import { loadConfig, readSettings, resolveConfig, writeSettings, DEFAULTS } from "./lib/config.js";
+import { loadConfig, layerSettings, readSettings, resolveConfig, writeSettings, DEFAULTS } from "./lib/config.js";
 import {
   setup, clearCache, forgetNote, HOME_PATH, SEARCH_PATH, imageProxyMap, assetIds, resolveVaultLinks, listEntries,
   renderHomePage, renderContentsPage, renderEntryPage, renderUnavailablePage, searchTextOf, scanVault
@@ -38,7 +38,9 @@ const config = loadConfig();
 
 // Notes from a GitHub repository keep their settings there too (see
 // createGitHubSource): md2book.settings.json at the repo's top, when it
-// has one, rather than the file deployed with the app. Every listing of
+// has one, laid over the file deployed with the app — what the repo's
+// file leaves out (say, a font kit set only in the deployed file) still
+// applies. Saving from /settings writes the two as one to the repo. Every listing of
 // the notes says which version of it there is, so a change saved there
 // (from /settings on any instance of the site, or pushed) applies on
 // the next page served.
@@ -61,7 +63,7 @@ function applySettings(saved, file) {
 
 async function followRepoSettings(version) {
   if (version === repoSettingsVersion) return;
-  const saved = version ? await entrySource.readSettings(version) : deployedSettings.saved;
+  const saved = version ? layerSettings(deployedSettings.saved, await entrySource.readSettings(version)) : deployedSettings.saved;
   applySettings(saved, version ? entrySource.settingsLabel : deployedSettings.exists ? deployedSettings.file : null);
   repoSettingsVersion = version;
 }
