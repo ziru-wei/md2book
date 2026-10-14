@@ -1689,6 +1689,7 @@
     const t = turn;
     turn = null;
     if (t.anim) cancelAnimationFrame(t.anim);
+    if (t.follow) cancelAnimationFrame(t.follow);
     for (const i of [t.from, t.to]) spreads[i].firstElementChild.append(...spreadPages[i]);
     spreads[t.from].firstElementChild.style.display = "";
     t.stage.remove();
@@ -1706,9 +1707,12 @@
     const t = turn;
     if (!t) return;
     if (t.anim) cancelAnimationFrame(t.anim);
+    if (t.follow) cancelAnimationFrame(t.follow);
+    t.follow = null;
+    t.target = null;
     const start = t.progress;
     const bias = t.yBias;
-    const duration = Math.max(90, 300 * Math.abs(target - start)) / speed;
+    const duration = Math.max(120, 420 * Math.abs(target - start)) / speed;
     const t0 = performance.now();
     const step = now => {
       if (turn !== t) return;
@@ -1751,6 +1755,26 @@
     return pages * pageWidth * viewScale;
   }
 
+  // A trackpad's wheel events come unevenly — several in one frame, then
+  // none — so the page isn't drawn at each one: it eases toward where
+  // they've taken it (`target`), once a frame.
+  function followTarget() {
+    const t = turn;
+    if (!t || t.target === null || t.target === undefined) return;
+    const step = () => {
+      if (turn !== t || t.target === null) return;
+      const gap = t.target - t.progress;
+      if (Math.abs(gap) < 0.002) {
+        drawTurn(t.target);
+        t.follow = null;
+        return;
+      }
+      drawTurn(t.progress + gap * 0.35);
+      t.follow = requestAnimationFrame(step);
+    };
+    if (!t.follow) t.follow = requestAnimationFrame(step);
+  }
+
   // Follows a drag of `delta` screen px (positive: toward the next
   // page). `clientY` (touch): where the finger is, which the corner
   // follows. Returns false when there's no page that way.
@@ -1764,6 +1788,18 @@
       if (!beginTurn(Math.sign(delta), clientY === null ? null : pageY())) return false;
     }
     const distance = turnDistance(source);
+    if (source === "wheel") {
+      const from = turn.target ?? turn.progress;
+      const next = from + (delta * turn.dir) / distance;
+      if (next < 0) {
+        const rest = next * distance * turn.dir;
+        cancelTurn();
+        return rest === 0 ? true : dragTurn(rest, source, clientY);
+      }
+      turn.target = Math.min(1, next);
+      followTarget();
+      return true;
+    }
     const next = turn.progress + (delta * turn.dir) / distance;
     if (next < 0) {
       // Dragged back past where it started: turn the other way instead.
@@ -1786,7 +1822,8 @@
   function releaseTurn(velocity = 0) {
     if (!turn) return;
     const along = velocity * turn.dir;
-    settleTurn(turn.progress > 0.25 || along > 0.35 ? 1 : 0, Math.max(1, Math.abs(velocity)));
+    const reached = turn.target ?? turn.progress;
+    settleTurn(reached > 0.25 || along > 0.35 ? 1 : 0, Math.max(1, Math.abs(velocity)));
   }
 
   if (tocDialog) {
@@ -1953,54 +1990,89 @@
     // once it completes, the rest of that gesture is ignored. Left alone
     // while pinch-zoomed in, so the swipe can pan instead.
     // Once a swipe has carried the page a third of the way (momentum
-    // included) the turn finishes on its own, quickly — it doesn't wait
-    // for the trackpad's momentum events to die out. The rest of that
-    // swipe is ignored, but a new swipe (a clear direction change, or a
-    // fresh burst after the momentum has decayed) is taken at once.
+    // included) the turn finishes on its own — it doesn't wait for the
+    // trackpad's momentum events to die out.
+    //
+    // The rest of that swipe is ignored: the momentum macOS keeps
+    // sending after the fingers lift can last a second or more, and its
+    // deltas wobble as they fade, so a single bigger one must not count
+    // as a new swipe (it turned page after page). A new swipe is one
+    // that comes after the events stop (GESTURE_IDLE_GAP), one the other
+    // way, or — fingers back on the trackpad while momentum still runs —
+    // deltas growing steadily, event after event, well above where the
+    // momentum had died down to.
+    // Gaps are timed by the events' own timestamps, not a timer: a timer
+    // runs late while the page is busy (drawing a turn, re-cutting) and
+    // would end a swipe in the middle of its momentum.
     let wheelIdle = null;
     let wheelDone = false;
-    let lastAbs = 0;
+    let lastWheelAt = -Infinity;
+    let doneAt = 0;
+    let lowest = Infinity;
+    let recent = [];
     let lastDir = 0;
-    const GESTURE_IDLE_GAP = 120;
+    const GESTURE_IDLE_GAP = 140;
     const COMMIT_AT = 0.33;
+
+    function freshSwipe(abs, now) {
+      if (now - doneAt < 250 || recent.length < 4) return false;
+      const [a, b, c, d] = recent.slice(-4);
+      return a < b && b < c && c < d && abs > Math.max(14, lowest * 4);
+    }
 
     window.addEventListener("wheel", e => {
       if (e.ctrlKey) return;
-      if (!turn && Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      if (!turn && !wheelDone && Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
       if (tocDialog && tocDialog.open) return;
 
       if (isZoomed()) return;
 
       e.preventDefault();
 
+      // Safari has given event times since 1970 rather than since the
+      // page opened: on one clock with performance.now() either way.
+      const at = e.timeStamp > 1e12 ? e.timeStamp - performance.timeOrigin : e.timeStamp;
+      if (at - lastWheelAt > GESTURE_IDLE_GAP) {
+        wheelDone = false;
+        recent = [];
+      }
+      lastWheelAt = at;
+      // The fingers stopped with the page part-way: it settles. Whatever
+      // the same swipe sends after that is part of it.
       clearTimeout(wheelIdle);
       wheelIdle = setTimeout(() => {
-        wheelDone = false;
-        lastAbs = 0;
-        if (turn && !turn.anim) releaseTurn();
+        if (!turn || turn.anim) return;
+        releaseTurn();
+        wheelDone = true;
+        doneAt = performance.now();
+        lowest = Infinity;
       }, GESTURE_IDLE_GAP);
 
       const delta = e.deltaMode === 1 ? e.deltaX * 16 : e.deltaX;
       const abs = Math.abs(delta);
       const dir = Math.sign(delta);
+      recent.push(abs);
+      if (recent.length > 6) recent.shift();
       if (wheelDone) {
-        const reversed = dir && dir !== lastDir && abs > 4;
-        const fresh = abs > Math.max(10, lastAbs * 2.5);
-        lastAbs = abs;
-        if (!reversed && !fresh) return;
+        lowest = Math.min(lowest, abs);
+        const reversed = dir && dir !== lastDir && abs > 6;
+        if (!reversed && !freshSwipe(abs, at)) return;
         wheelDone = false;
       }
-      lastAbs = abs;
       // A swipe's first touch can report a tiny sign-flipped delta.
       if (!turn && abs < 2) return;
       if (dir) lastDir = dir;
       if (!dragTurn(delta, "wheel")) {
         wheelDone = true;
+        doneAt = at;
+        lowest = Infinity;
         return;
       }
-      if (turn && turn.progress >= COMMIT_AT) {
-        settleTurn(1, 1.6);
+      if (turn && (turn.target ?? turn.progress) >= COMMIT_AT) {
+        settleTurn(1);
         wheelDone = true;
+        doneAt = at;
+        lowest = Infinity;
       }
     }, { passive: false });
   }

@@ -155,17 +155,22 @@ html:has(body.page-contents) {
    faint, under the ink of this page (reader.js puts
    the copy in, as .page-back; --show-through is its strength, 0–1).
    It lies over the page rather than under: justified text's area has a
-   paper of its own (html.justify .page-area below) that would hide it,
-   and multiplied, the faint copy only darkens, as ink from behind does. */
+   paper of its own (html.justify .page-area below) that would hide it.
+   Not blended (multiply): that took Safari up to a second to draw
+   whenever a page turned, and at this faintness dark ink over the pale
+   paper looks the same either way. Nothing in the copy blends either. */
 html.show-through .page-back {
   position: absolute;
   inset: 0;
   z-index: 1;
   transform: scaleX(-1);
   opacity: calc(.01 + .07 * var(--show-through, .5));
-  mix-blend-mode: multiply;
   pointer-events: none;
   user-select: none;
+}
+
+html.show-through .page-back * {
+  mix-blend-mode: normal !important;
 }
 
 /* Only the ink comes through: not the copy's paper (justified text's
@@ -180,12 +185,15 @@ html.show-through .page-back .page-area {
    (--letterpress is the strength, 0–1). Only on the pages on screen,
    never while they're being measured or printed, and not on the copy
    that shows through. (No SVG filter on the text: Chrome, drawing on
-   the GPU, dropped whole blocks of a page filtered so.) */
+   the GPU, dropped whole blocks of a page filtered so. No blurred
+   shadow either: Safari took up to a second to draw a page whose every
+   letter had one, at each page turn — the faint spread of ink around
+   the letters is a hairline outline instead.) */
 html.letterpress #book .page > :is(.page-area, .page-foot, .page-number, .page-comments) {
   text-shadow:
     0 calc(.8px * var(--letterpress)) 0 rgba(255, 255, 255, calc(1.4 * var(--letterpress))),
-    0 calc(-.4px * var(--letterpress)) 0 rgba(0, 0, 0, calc(.2 * var(--letterpress))),
-    0 0 calc(.5px * var(--letterpress)) rgba(0, 0, 0, calc(.25 * var(--letterpress)));
+    0 calc(-.4px * var(--letterpress)) 0 rgba(0, 0, 0, calc(.2 * var(--letterpress)));
+  -webkit-text-stroke: calc(.25px * var(--letterpress)) rgba(0, 0, 0, calc(.12 * var(--letterpress)));
 }
 
 /* Justified text (see reader.js) hangs punctuation at line ends, and
@@ -440,6 +448,14 @@ html.reader.is-zoomed body {
   transform-origin: 0 0;
 }
 
+/* Each frame of a turn changes only how the page is clipped and
+   placed: on a layer of its own, it's drawn once (text, letterpress
+   shading and all) rather than again every frame — Chrome stuttered. */
+.turn-front > .page,
+.turn-back > .page {
+  will-change: transform;
+}
+
 /* The back of a lone page. */
 .turn-paper {
   width: 100%;
@@ -475,25 +491,10 @@ html.reader.is-zoomed body {
   width: 52px;
 
   pointer-events: none;
-  mix-blend-mode: multiply;
 
-  /* Almost no vertical fade.
-     Only slight softening at the extreme top/bottom edge. */
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    rgba(0, 0, 0, 0.97) 0%,
-    black 0.35%,
-    black 99.65%,
-    rgba(0, 0, 0, 0.97) 100%
-  );
-
-  mask-image: linear-gradient(
-    to bottom,
-    rgba(0, 0, 0, 0.97) 0%,
-    black 0.35%,
-    black 99.65%,
-    rgba(0, 0, 0, 0.97) 100%
-  );
+  /* A plain shade, not blended (multiply) or masked: Safari drew a
+     blended one a frame behind as pages moved in and out of a turn,
+     and over the pale paper the two look the same. */
 }
 
 
