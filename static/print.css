@@ -59,6 +59,7 @@ html.reader body {
   overflow: visible !important;
   transform: none !important;
   visibility: visible !important;
+  position: static !important;
 }
 
 .page {

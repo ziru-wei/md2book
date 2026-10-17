@@ -113,6 +113,8 @@ setup({
 // This is a low-traffic personal tool where content and styles change
 // often; always serve fresh bytes rather than risk a stale cached CSS/JS
 // file silently mismatching newly-changed markup.
+// Fonts (static/fonts) are the exception: large, and they don't change.
+app.use("/static/fonts", express.static(path.join(__dirname, "static", "fonts"), { maxAge: "30d" }));
 app.use("/static", express.static(path.join(__dirname, "static"), {
   etag: false,
   lastModified: false,

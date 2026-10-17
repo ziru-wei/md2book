@@ -47,9 +47,12 @@
      Fonts, variable weight/optical-size). Source Han Serif SC (the
      Adobe Fonts kit, if set) covers the Chinese glyphs neither has, so
      the browser falls through to it per character in mixed 中文/English
-     text. Georgia etc. stay as the pre-webfont-load fallback. */
+     text. Titles set their Chinese in Huiwen Fangsong (汇文仿宋, sliced
+     into static/fonts by scripts/slice-font.py, so a page loads only the
+     slices its titles use). Georgia etc. stay as the pre-webfont-load
+     fallback. */
   --serif: "Libertinus Serif", "source-han-serif-sc", "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, "Times New Roman", Times, serif;
-  --title-serif: "Source Serif 4", "source-han-serif-sc", "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, "Times New Roman", Times, serif;
+  --title-serif: "Source Serif 4", "Huiwen Fangsong", "source-han-serif-sc", "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, "Times New Roman", Times, serif;
   --body-size: 10.5px;
   --body-leading: 1.2;
 
@@ -165,6 +168,13 @@ html.show-through .page-back {
   z-index: 1;
   transform: scaleX(-1);
   opacity: calc(.01 + .07 * var(--show-through, .5));
+  /* Ink seen through paper is soft, and comes through unevenly (the
+     mask, one per sheet, from reader.js). */
+  filter: blur(0.4px);
+  -webkit-mask-image: var(--paper-mask);
+  mask-image: var(--paper-mask);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
   pointer-events: none;
   user-select: none;
 }
@@ -335,20 +345,47 @@ html.reader-loading #reader-loader {
   pointer-events: none;
 }
 
+/* Every spread stays laid out, stacked in the same place: only the
+   current one shows, with its neighbours painted underneath (covered),
+   ready to be uncovered by a turn — so a turn starts and ends without
+   laying out or drawing a page afresh. The rest are hidden. */
+.book {
+  position: relative;
+  width: 100vw;
+  height: 100svh;
+}
+
 .spread {
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 100vw;
   height: 100svh;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  visibility: hidden;
 }
 
-.spread:not(.is-current) {
-  display: none;
+.spread.is-near {
+  visibility: visible;
+  z-index: 1;
+}
+
+.spread.is-current {
+  visibility: visible;
+  z-index: 2;
+}
+
+/* The pages on screen or next to it, each drawn once on a layer of its
+   own: a turn only clips and moves them. */
+.spread:is(.is-current, .is-near) .page {
+  will-change: transform;
 }
 
 .spread-inner {
+  position: relative;
   display: flex;
   flex: none;
   transform-origin: center center;
@@ -395,71 +432,42 @@ html.reader.is-zoomed body {
 }
 
 /* =========================================================
-   Page turn (see "Page turning" in reader.js): while a page turns,
-   a .turn-stage stands in for the spread — the pages underneath in
-   .turn-slots, and the turning page (.turn-sheet) folding over them.
+   Page turn (see "Page turning" in reader.js): the pages turn where
+   they lie, clipped and placed by reader.js, with these overlays over
+   them: .turn-front-shade (the bend into the fold), .turn-cast (the
+   flap's shadow on the uncovered page) and .turn-back-shade (the light
+   on the flap) — and on a lone page, .turn-paper, its plain back.
    ========================================================= */
 
-.turn-stage {
-  position: relative;
-  display: flex;
-  flex: none;
-  transform-origin: center center;
-}
-
-.turn-stage.is-double {
-  width: calc(2 * var(--paper-width));
-}
-
-.turn-slot {
-  position: relative;
-  flex: none;
-  width: var(--paper-width);
-  height: var(--page-height);
-}
-
-/* The turning page: .turn-front (the part still lying flat),
-   .turn-cast (its shadow on the uncovered page) and .turn-back (the
-   folded-over flap), each clipped and placed by reader.js. */
-.turn-sheet {
+.turn-box {
   position: absolute;
   top: 0;
   width: var(--paper-width);
   height: var(--page-height);
-}
-
-.turn-front,
-.turn-cast,
-.turn-back {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
-}
-
-.turn-cast,
-.turn-back {
-  overflow: visible;
   pointer-events: none;
-}
-
-.turn-back {
   transform-origin: 0 0;
 }
 
-/* Each frame of a turn changes only how the page is clipped and
-   placed: on a layer of its own, it's drawn once (text, letterpress
-   shading and all) rather than again every frame — Chrome stuttered. */
-.turn-front > .page,
-.turn-back > .page {
-  will-change: transform;
+.turn-front-shade {
+  z-index: 5;
+}
+
+.turn-cast {
+  z-index: 6;
+}
+
+.spread .page.is-turn-back {
+  z-index: 7;
+  transform-origin: 0 0;
+}
+
+.turn-paper,
+.turn-back-shade {
+  z-index: 8;
 }
 
 /* The back of a lone page. */
 .turn-paper {
-  width: 100%;
-  height: 100%;
   background: var(--paper);
 }
 

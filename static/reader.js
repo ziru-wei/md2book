@@ -1056,6 +1056,13 @@
   // Images still downloading get a flat loading background (their box
   // is already the right size). One that fails, or that had no known
   // size when the pages were cut, re-cuts the pages once it settles.
+  // A large photo (an image host's full-size original, say) takes a
+  // while to decode, and would be decoded only when its page first
+  // shows — mid-turn. Each one is decoded as soon as it's in instead.
+  function predecode(img) {
+    if (img.naturalWidth && img.decode) img.decode().catch(() => {});
+  }
+
   function watchImages(pages) {
     for (const page of pages) {
       for (const img of page.querySelectorAll("img")) {
@@ -1069,10 +1076,14 @@
           };
           poll();
         }
-        if (img.complete) continue;
+        if (img.complete) {
+          predecode(img);
+          continue;
+        }
         img.classList.add("is-loading");
         img.addEventListener("load", () => {
           img.classList.remove("is-loading");
+          predecode(img);
         }, { once: true });
         img.addEventListener("error", () => {
           failedImages.add(img.getAttribute("src"));
@@ -1092,6 +1103,49 @@
   // (2nd, 4th …) has the next page on its back, a left-hand one the page
   // before. The first page and an unpaired last one have blank backs.
   // Only on the pages read on screen, never the printed ones.
+  // How much ink one sheet lets through, place to place: paper is never
+  // even. Low, smooth variation (value noise on a coarse grid, blended
+  // bilinearly) with alpha between 0.8 and 1, seeded by the sheet so both
+  // its faces share it and it holds still from one render to the next.
+  const paperMasks = new Map();
+
+  function createPaperMask(sheetIndex) {
+    if (paperMasks.has(sheetIndex)) return paperMasks.get(sheetIndex);
+    let seed = (sheetIndex * 2654435761 + 1013904223) >>> 0;
+    const random = () => {
+      seed = (seed + 0x6d2b79f5) >>> 0;
+      let t = Math.imul(seed ^ (seed >>> 15), seed | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const gridW = 5, gridH = 7, width = 64, height = 88;
+    const grid = Array.from({ length: (gridW + 1) * (gridH + 1) }, random);
+    const at = (x, y) => grid[y * (gridW + 1) + x];
+    const smooth = t => t * t * (3 - 2 * t);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    const image = ctx.createImageData(width, height);
+    for (let y = 0; y < height; y++) {
+      const gy = (y / (height - 1)) * gridH;
+      const y0 = Math.min(Math.floor(gy), gridH - 1), ty = smooth(gy - y0);
+      for (let x = 0; x < width; x++) {
+        const gx = (x / (width - 1)) * gridW;
+        const x0 = Math.min(Math.floor(gx), gridW - 1), tx = smooth(gx - x0);
+        const top = at(x0, y0) + (at(x0 + 1, y0) - at(x0, y0)) * tx;
+        const bottom = at(x0, y0 + 1) + (at(x0 + 1, y0 + 1) - at(x0, y0 + 1)) * tx;
+        const value = top + (bottom - top) * ty;
+        image.data[(y * width + x) * 4 + 3] = Math.round(255 * (0.8 + 0.2 * value));
+      }
+    }
+    ctx.putImageData(image, 0, 0);
+    const url = canvas.toDataURL();
+    paperMasks.set(sheetIndex, url);
+    return url;
+  }
+
   function addShowThrough(list) {
     const copies = list.map(page => {
       const copy = document.createElement("div");
@@ -1109,7 +1163,9 @@
     });
     list.forEach((page, i) => {
       const back = copies[i % 2 ? i + 1 : i - 1];
-      if (back) page.prepend(back);
+      if (!back) return;
+      back.style.setProperty("--paper-mask", `url(${createPaperMask(Math.ceil(i / 2))})`);
+      page.prepend(back);
     });
   }
 
@@ -1356,7 +1412,6 @@
       viewportHeight() / pageHeight
     );
     for (const spread of spreads) spread.firstElementChild.style.transform = `scale(${viewScale})`;
-    if (turn) turn.stage.style.transform = `scale(${viewScale})`;
   }
 
   // The pages shown side by side in each spread. An odd last page in a
@@ -1396,7 +1451,16 @@
     if (!spreads.length) return;
     cancelTurn();
     current = Math.min(Math.max(index, 0), spreads.length - 1);
-    spreads.forEach((spread, i) => spread.classList.toggle("is-current", i === current));
+    markSpreads();
+  }
+
+  // The current spread on top, its neighbours under it (see .is-near in
+  // book.css).
+  function markSpreads() {
+    spreads.forEach((spread, i) => {
+      spread.classList.toggle("is-current", i === current);
+      spread.classList.toggle("is-near", Math.abs(i - current) === 1);
+    });
   }
 
   // Shows the spread where element `id` starts: a note in a collection
@@ -1549,66 +1613,80 @@
     const double = perSpread === 2;
     const A = spreadPages[from];
     const B = spreadPages[to];
-    const fromInner = spreads[from].firstElementChild;
     const W = pageWidth;
     const H = pageHeight;
 
-    const stage = div("turn-stage" + (double ? " is-double" : ""));
-    stage.style.transform = `scale(${viewScale})`;
-    const slot = page => {
-      const el = div("turn-slot");
-      el.appendChild(page);
-      stage.appendChild(el);
-    };
-
-    let sheetX;      // where the turning page sits in the stage
+    // The pages turn where they lie, in their spreads (all laid out,
+    // stacked in one place). Two pages a spread: the next spread goes on
+    // top — its page under the turning one shows where the flap has
+    // lifted off, and its facing page is the flap, folded over. One page:
+    // the spread with the turning page goes on top, cut back to the
+    // fold, over the other.
+    let sheetX;      // where the turning page sits in its spread
     let hingeX;      // its bound edge, in its own coordinates
     let frontPage;
-    let backPage;
+    let backPage = null;
+    let underPage = null;
+    let top;
     if (double) {
+      top = to;
       if (dir > 0) {
-        slot(A[0]);
-        slot(B[1]);
         sheetX = W;
         hingeX = 0;
         frontPage = A[1];
         backPage = B[0];
+        underPage = B[1];
       } else {
-        slot(B[0]);
-        slot(A[1]);
         sheetX = 0;
         hingeX = W;
         frontPage = A[0];
         backPage = B[1];
+        underPage = B[0];
       }
     } else {
-      slot(dir > 0 ? B[0] : A[0]);
+      top = dir > 0 ? from : to;
       sheetX = 0;
       hingeX = 0;
       frontPage = dir > 0 ? A[0] : B[0];
-      backPage = div("turn-paper");
     }
 
-    const sheet = div("turn-sheet");
-    sheet.style.left = sheetX + "px";
-    const front = div("turn-front");
+    const box = (className, inner) => {
+      const el = div("turn-box " + className);
+      el.style.left = sheetX + "px";
+      inner.appendChild(el);
+      return el;
+    };
+    const topInner = spreads[top].firstElementChild;
+    const frontShade = box("turn-front-shade", frontPage.parentElement);
     const frontBand = div("turn-band");
-    front.append(frontPage, frontBand);
-    const cast = div("turn-cast");
+    frontShade.appendChild(frontBand);
+    const cast = box("turn-cast", topInner);
     const castBand = div("turn-band");
-    cast.append(castBand);
-    const back = div("turn-back");
+    cast.appendChild(castBand);
+    // The flap: the next spread's page itself, or a lone page's plain
+    // back; the light on it is a box placed and cut the same way.
+    let back;
+    if (backPage) {
+      back = backPage;
+      back.classList.add("is-turn-back");
+    } else {
+      back = box("turn-paper", topInner);
+    }
+    const backShade = box("turn-back-shade", topInner);
     const backBand = div("turn-band");
-    back.append(backPage, backBand);
-    sheet.append(front, cast, back);
-    stage.appendChild(sheet);
+    backShade.appendChild(backBand);
+    // A page's back is placed from the sheet's corner, wherever it lies.
+    const backX = backPage ? sheetX - backPage.offsetLeft : 0;
 
-    fromInner.style.display = "none";
-    spreads[from].appendChild(stage);
+    spreads[from].classList.add("is-near");
+    spreads[to].classList.add("is-near");
+    spreads[top].style.zIndex = 4;
+    spreads[top === from ? to : from].style.zIndex = 3;
 
     turn = {
-      dir, from, to, stage, double, hingeX,
-      front, back, cast, frontBand, backBand, castBand,
+      dir, from, to, top, double, hingeX, backX,
+      frontPage, underPage, back, backShade, cast, frontShade, frontBand, backBand, castBand,
+      clipped: double ? underPage : frontPage,
       corner: grabY !== null && grabY < H / 2 ? 0 : H,
       // Backward with one page per screen: the previous page comes back
       // over the current one — a forward turn of it, run in reverse.
@@ -1644,12 +1722,14 @@
     const dx = P[0] - C[0];
     const dy = P[1] - C[1];
     const len = Math.hypot(dx, dy);
+    const flapParts = [t.back, t.backShade, t.cast];
     if (len < 0.5) {
-      t.front.style.clipPath = "";
-      t.back.style.visibility = t.cast.style.visibility = "hidden";
+      t.clipped.style.clipPath = t.double ? polygon([]) : "";
+      t.frontShade.style.clipPath = polygon([]);
+      for (const el of flapParts) el.style.visibility = "hidden";
       return;
     }
-    t.back.style.visibility = t.cast.style.visibility = "";
+    for (const el of flapParts) el.style.visibility = "";
 
     // Fold line: through M, normal n (pointing away from the corner).
     const n = [dx / len, dy / len];
@@ -1657,7 +1737,10 @@
     const page = [[0, 0], [W, 0], [W, H], [0, H]];
     const kept = clipHalfPlane(page, M, n);
     const flap = clipHalfPlane(page, M, [-n[0], -n[1]]);
-    t.front.style.clipPath = polygon(kept);
+    // Two pages: the page underneath shows where the flap lifted off.
+    // One: the turning page is cut back to the fold.
+    t.clipped.style.clipPath = polygon(t.double ? flap : kept);
+    t.frontShade.style.clipPath = polygon(kept);
     t.cast.style.clipPath = polygon(flap);
 
     // The flap is the back of the sheet: mirrored left-right (it's the
@@ -1666,11 +1749,14 @@
     const r12 = -2 * n[0] * n[1];
     const r22 = 1 - 2 * n[1] * n[1];
     const md = 2 * (M[0] * n[0] + M[1] * n[1]);
-    t.back.style.transform =
-      `matrix(${-r11}, ${-r12}, ${r12}, ${r22}, ${r11 * W + md * n[0]}, ${r12 * W + md * n[1]})`;
-    t.back.style.clipPath = polygon(flap.map(([x, y]) => [W - x, y]));
+    const flip = `matrix(${-r11}, ${-r12}, ${r12}, ${r22}, ${r11 * W + md * n[0]}, ${r12 * W + md * n[1]})`;
+    const backClip = polygon(flap.map(([x, y]) => [W - x, y]));
+    t.back.style.transform = (t.backX ? `translate(${t.backX}px, 0) ` : "") + flip;
+    t.back.style.clipPath = backClip;
+    t.backShade.style.transform = flip;
+    t.backShade.style.clipPath = backClip;
     // A lone page's plain back fades out as it lands off the page.
-    t.back.style.opacity = t.double ? "" : Math.min(1, (1 - p) * 4);
+    if (!t.double) t.back.style.opacity = t.backShade.style.opacity = Math.min(1, (1 - p) * 4);
 
     // Light: the page bends into the fold, the flap catches light where
     // it curls over, and it shades the page it uncovers.
@@ -1684,17 +1770,21 @@
       `linear-gradient(to bottom, rgba(255, 255, 255, ${(0.5 * curl).toFixed(3)}), ${dark(0.1 * curl)} 22%, ${dark(0)} 70%)`);
   }
 
-  // Puts every page back in its spread and shows `index`.
+  // Lays every page flat again and shows `index`.
   function endTurn(index) {
     const t = turn;
     turn = null;
     if (t.anim) cancelAnimationFrame(t.anim);
     if (t.follow) cancelAnimationFrame(t.follow);
-    for (const i of [t.from, t.to]) spreads[i].firstElementChild.append(...spreadPages[i]);
-    spreads[t.from].firstElementChild.style.display = "";
-    t.stage.remove();
     current = index;
-    spreads.forEach((spread, i) => spread.classList.toggle("is-current", i === current));
+    markSpreads();
+    for (const i of [t.from, t.to]) spreads[i].style.zIndex = "";
+    t.clipped.style.clipPath = "";
+    if (t.back.classList.contains("is-turn-back")) {
+      t.back.classList.remove("is-turn-back");
+      t.back.style.transform = t.back.style.clipPath = t.back.style.visibility = "";
+    } else t.back.remove();
+    for (const el of [t.frontShade, t.cast, t.backShade]) el.remove();
   }
 
   function cancelTurn() {
