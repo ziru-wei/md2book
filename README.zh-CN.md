@@ -116,7 +116,7 @@ node bin/md2book.js settings 你的笔记文件夹路径
 点击书中缝（或按空格键）可打开进度条、原书目录和书签。每次翻页后立即按 EPUB CFI 保存本地阅读位置，重新打开或刷新会恢复。进度索引在首屏显示后生成，缓存到 IndexedDB；缓存相邻的已渲染书页，连续翻页排队处理。脚注／尾注链接（包括跨章节注释）显示为与 Markdown 一致的边注；无法解析的注释保留原链接。
 
 
-在 EPUB 中选中文字可以**高亮**或添加**评论**；点击高亮可编辑或删除评论。高亮按引文文字定位，更换页面排版后依然有效，菜单的“Notes”里会列出它们。Vercel／GitHub 数据源版本会把书签、高亮和评论保存到仓库，每本书一个以书名命名、便于阅读的 JSON 文件，位于 `Book/EPUB Notes/`（可用 `EPUB_NOTES_DIR` 修改；旧的 `.md2book/epub/<book-id>.json` 仍可读取）。GitHub Pages／纯浏览器版和 localhost 保存在当前浏览器中，清除网站数据会丢失，可用菜单里的 Export / Import 保存和恢复 JSON 备份。
+在 EPUB 中选中文字可以**高亮**或添加**评论**；点击高亮可编辑或删除评论。高亮按引文文字定位，更换页面排版后依然有效，菜单的“Notes”里会列出它们。Vercel／GitHub 数据源版本会把书签、高亮和评论保存到仓库，每本书一个以书名命名、便于阅读的 JSON 文件，位于 `Book/EPUB Notes/`（可用 `EPUB_NOTES_DIR` 修改；旧的 `.md2book/epub/<book-id>.json` 仍可读取）。GitHub Pages／纯浏览器版和 localhost 保存在当前浏览器的 IndexedDB 中（并请求持久存储；旧的 localStorage 数据会自动迁移），清除网站数据仍会丢失，可用菜单里的 Export / Import 保存和恢复 JSON 备份。
 
 本地数据可跨普通刷新保留，但清除站点数据或退出隐私浏览可能删除它。通过兼容模式选择文件夹后，刷新需重新选择仓库，已保存的位置和书签仍可恢复。Obsidian 内置浏览器若阻止文件系统选择器，可使用「选择文件夹（兼容模式）」；若它也不支持目录选择，在项目目录运行 `npm start -- "/仓库的绝对路径" --no-open`，再在 Web Viewer 中打开 `http://localhost:3000`。GitHub Pages 网页不会因为在 Obsidian 中打开就自动获得仓库访问权限。
 

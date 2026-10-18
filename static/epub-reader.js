@@ -18,6 +18,46 @@
     catch { return fallback; }
   };
   const saved = readLocal(stateKey, null);
+  // Without a cloud library, bookmarks and highlights live in IndexedDB, which
+  // browsers clear less readily than localStorage (the old home of both, still
+  // read once and moved over). localStorage remains the fallback.
+  function notesStore(mode, run) {
+    return new Promise(resolve => {
+      if (!window.indexedDB) return resolve(null);
+      const opening = indexedDB.open("md2book-epub-notes", 1);
+      opening.onupgradeneeded = () => opening.result.createObjectStore("notes");
+      opening.onerror = opening.onblocked = () => resolve(null);
+      opening.onsuccess = () => {
+        const db = opening.result;
+        let tx;
+        try { tx = db.transaction("notes", mode); } catch { db.close(); return resolve(null); }
+        const request = run(tx.objectStore("notes"));
+        tx.oncomplete = () => { db.close(); resolve(mode === "readwrite" ? true : (request.result ?? null)); };
+        tx.onerror = tx.onabort = () => { db.close(); resolve(null); };
+      };
+    });
+  }
+  let localSaving = Promise.resolve();
+  function saveLocal(data) {
+    localSaving = localSaving.then(async () => {
+      if (await notesStore("readwrite", store => store.put(data, stateKey))) {
+        navigator.storage?.persist?.().catch(() => {});
+        return;
+      }
+      try {
+        localStorage.setItem(bookmarkKey, JSON.stringify(data.bookmarks));
+        localStorage.setItem(highlightKey, JSON.stringify(data.highlights));
+      } catch { /* No storage available: nothing can be kept. */ }
+    });
+    return localSaving;
+  }
+  async function loadLocal() {
+    const stored = await notesStore("readonly", store => store.get(stateKey));
+    if (stored) return { bookmarks: stored.bookmarks, highlights: stored.highlights };
+    const legacy = { bookmarks: readLocal(bookmarkKey, []), highlights: readLocal(highlightKey, []) };
+    if (legacy.bookmarks.length || legacy.highlights.length) await saveLocal(legacy);
+    return legacy;
+  }
   const fail = error => {
     status.hidden = false;
     document.documentElement.classList.remove("reader-loading");
@@ -235,7 +275,7 @@
     bookmarkBusy = true;
     try {
       if (cloud) { const data = await cloudRequest(); bookmarks = arrayOf(data.bookmarks); highlights = arrayOf(data.highlights); }
-      else { bookmarks = arrayOf(readLocal(bookmarkKey, [])); highlights = arrayOf(readLocal(highlightKey, [])); }
+      else { const data = await loadLocal(); bookmarks = arrayOf(data.bookmarks); highlights = arrayOf(data.highlights); }
       bookmarksReady = true;
       lastSync = Date.now();
     } catch { /* Retried the next time the menu opens. */
@@ -248,10 +288,10 @@
     try {
       if (cloud) bookmarks = (await cloudRequest(operation)).bookmarks;
       else {
-        const result = readLocal(bookmarkKey, []).filter(b => b.cfi !== operation.cfi);
+        const result = bookmarks.filter(b => b.cfi !== operation.cfi);
         if (operation.type === "add") result.push({ cfi: operation.cfi, label: operation.label, created: new Date().toISOString() });
-        localStorage.setItem(bookmarkKey, JSON.stringify(result));
         bookmarks = result;
+        await saveLocal({ bookmarks, highlights });
       }
       lastSync = Date.now();
     } catch { /* Not saved; the list still shows what is stored. */
@@ -277,10 +317,7 @@
     saving = saving.then(async () => {
       try {
         if (cloud) await cloudRequest(operation);
-        else {
-          localStorage.setItem(highlightKey, JSON.stringify(highlights));
-          navigator.storage?.persist?.().catch(() => {});
-        }
+        else await saveLocal({ bookmarks, highlights });
       } catch { bookmarkBusy = false; await loadBookmarks(); }
     });
   }
@@ -397,7 +434,7 @@
         for (const b of arrayOf(data.bookmarks)) if (typeof b?.cfi === "string" && !mergedBookmarks.some(x => x.cfi === b.cfi)) mergedBookmarks.push({ cfi: b.cfi, label: String(b.label || "").slice(0, 300), created: b.created });
         for (const h of arrayOf(data.highlights)) if (typeof h?.id === "string" && typeof h.quote === "string" && Number.isInteger(h.section) && !mergedHighlights.some(x => x.id === h.id)) mergedHighlights.push(h);
         bookmarks = mergedBookmarks; highlights = mergedHighlights;
-        localStorage.setItem(bookmarkKey, JSON.stringify(bookmarks)); localStorage.setItem(highlightKey, JSON.stringify(highlights));
+        await saveLocal({ bookmarks, highlights });
         renderBookmarks(); renderHighlights(); rendition?.refreshHighlights();
       } catch { /* Not a notes file. */ }
     });
