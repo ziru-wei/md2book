@@ -76,10 +76,12 @@ window.createEpubView = function createEpubView(book, mount, row) {
     clearTimeout(indexTimer); indexEpoch++; indexing = false; paginationError = false;
     geometry.applyLayout(wantsTablet);
     perSpread = geometry.pagesPerSpread(wantsDouble);
+    // One sheet on a tablet: larger type (see epub-reader.css).
+    root.classList.toggle("epub-single-page", perSpread === 1 && root.dataset.layout === "tablet");
     columns = !fixedLayout && root.dataset.layout === "book" ? 2 : 1;
     const probe = element("page"); mount.append(probe);
     width = probe.offsetWidth; height = probe.offsetHeight; probe.remove();
-    const nextKey = JSON.stringify([root.dataset.layout, width, height, columns]);
+    const nextKey = JSON.stringify([root.dataset.layout, width, height, columns, perSpread]);
     if (nextKey !== layoutKey) {
       layoutKey = nextKey;
       if (!pageIndexes.has(layoutKey)) pageIndexes.set(layoutKey, new Map());
