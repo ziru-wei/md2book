@@ -50,8 +50,12 @@
     return out;
   }
 
-  const STYLE = "::selection{background:rgba(110,110,110,.38);color:inherit}.epub-hl{background:rgba(255,196,0,.55);mix-blend-mode:multiply;color:inherit;cursor:pointer;border-radius:1px;-webkit-box-decoration-break:clone;box-decoration-break:clone}" +
-    ".epub-hl[data-note]{box-shadow:0 1px 0 rgba(160,110,0,.7)}";
+  // The soft green marker stroke used for highlights in PaperToaster.
+  const G = "178 214 121";
+  const STYLE = "::selection{background:rgba(110,110,110,.38);color:inherit}" +
+    `.epub-hl{display:inline;color:inherit;cursor:pointer;border-radius:.18em;background:linear-gradient(103deg,transparent 1%,rgb(${G} / 84%) 3%,rgb(${G} / 58%) 7%,rgb(${G} / 32%) 91%,rgb(${G} / 62%) 96%,transparent 99%),linear-gradient(181deg,transparent 0%,rgb(${G} / 30%) 8%,transparent 16%);text-shadow:-.35em .3em .45em rgb(${G} / 18%);-webkit-box-decoration-break:clone;box-decoration-break:clone}` +
+    `.epub-hl:hover{background:linear-gradient(103deg,transparent 1%,rgb(${G} / 92%) 3%,rgb(${G} / 70%) 7%,rgb(${G} / 44%) 91%,rgb(${G} / 74%) 96%,transparent 99%),linear-gradient(181deg,transparent 0%,rgb(${G} / 38%) 8%,transparent 16%)}` +
+    ".epub-hl[data-note]{box-shadow:0 1px 0 rgba(110,150,60,.75)}\n";
 
   function unpaint(shadow) {
     for (const mark of [...shadow.querySelectorAll("span.epub-hl")]) {

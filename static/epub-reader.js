@@ -52,6 +52,11 @@
     if (event.target === menu && (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom)) menu.close();
   });
   function keydown(event) {
+    // Space also closes the menu it opened (unless the cursor is in a text field).
+    if (event.key === " " && menu.open && !event.altKey && !event.ctrlKey && !event.metaKey &&
+        !(/TEXTAREA/.test(event.target?.tagName) || (event.target?.tagName === "INPUT" && event.target.type !== "range"))) {
+      event.preventDefault(); menu.close(); return;
+    }
     if (event.altKey || event.ctrlKey || event.metaKey ||
         /INPUT|TEXTAREA|SELECT|BUTTON/.test(event.target?.tagName) || event.target?.isContentEditable) return;
     if (event.key === " ") { event.preventDefault(); toggleMenu(); return; }
