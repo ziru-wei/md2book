@@ -1026,45 +1026,28 @@ html:not(.no-drop-cap) .body p.drop-cap::first-letter {
 }
 
 /* =========================================================
-   Quotes
-   ========================================================= */
-
-.body blockquote {
-  break-inside: avoid-column;
-
-  /* CUSTOMIZABLE STYLE: blockquote */
-  margin: .85em 0;
-  padding-left: .9em;
-  border-left: 2px solid var(--rule);
-  color: #50555a;
-
-  /* CUSTOMIZABLE STYLE: smaller than surrounding body text — line-height
-     left to inherit .body's normal value so quoted lines don't look
-     inconsistently spaced next to regular paragraphs */
-  font-size: calc(var(--body-size) * 9.6 / 11);
-}
-
-/* =========================================================
-   Obsidian callouts ("> [!note] Title", see postProcessMarkdown)
+   Quotes and Obsidian callouts ("> [!note] Title", see
+   postProcessMarkdown)
    Set in from both sides in a smaller size, Chinese in Huiwen
-   Fangsong (仿宋, the way a Chinese book sets an editor's note), the
-   title run in at the start: 【标题】 or a bold "Title." No box, no
-   colour — every kind looks the same. Runs on over columns and pages
+   Fangsong (仿宋, the way a Chinese book sets an editor's note); a
+   callout's title run in at the start: 【标题】 or a bold "Title." No
+   box, no rule, no colour — every kind of callout looks the same. A
+   quote in a quote is set in further. Runs on over columns and pages
    like any text.
    ========================================================= */
 
-.body .callout {
-  /* CUSTOMIZABLE STYLE: callout */
+.body :is(.callout, blockquote) {
+  /* CUSTOMIZABLE STYLE: callout and quote */
   margin: .85em 1.6em;
   font-family: "Libertinus Serif", "Huiwen Fangsong", var(--serif);
   font-size: calc(var(--body-size) * 10 / 11);
 }
 
-.body .callout p {
+.body :is(.callout, blockquote) p {
   margin-bottom: .6em;
 }
 
-.body .callout > :last-child {
+.body :is(.callout, blockquote) > :last-child {
   margin-bottom: 0;
 }
 
@@ -1080,24 +1063,10 @@ html:not(.no-drop-cap) .body p.drop-cap::first-letter {
 }
 
 /* =========================================================
-   Embedded notes (![[Note]], see embedHtml in render.js): a passage
-   quoted from another note — set in from both sides in smaller type,
-   the source under it, right-aligned. Runs on over columns and pages.
+   Embedded notes (![[Note]], see embedHtml in render.js): set as part
+   of the text, like any of it; only the source after it, right-aligned,
+   tells where it's from.
    ========================================================= */
-
-.body .embed {
-  /* CUSTOMIZABLE STYLE: embedded note */
-  margin: .85em 1.6em;
-  font-size: calc(var(--body-size) * 10 / 11);
-}
-
-.body .embed p {
-  margin-bottom: .6em;
-}
-
-.body .embed > :last-child {
-  margin-bottom: 0;
-}
 
 .body .embed .embed-cjk {
   font-family: "source-han-serif-sc", "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", serif;
@@ -1703,6 +1672,11 @@ figure.md-table figcaption {
 .wikilink {
   color: inherit;
   text-decoration: none;
+}
+
+/* Its Chinese in Huiwen Fangsong, as in quotes and callouts. */
+.wikilink .cjk {
+  font-family: "Huiwen Fangsong", var(--serif);
 }
 
 .link-mark {

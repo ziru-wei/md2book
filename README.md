@@ -239,13 +239,13 @@ Each collection lives at `/contents/<collection name>`.
 - Regular Markdown.
 - `[text](https://…)` shows as "text [1]", with the source listed in references at the end; the same link repeated shares one number.
 - `{==REF==}{>>https://…<<}` renders the source as a bare citation mark `[1]`; several in a row, like `({==REF==}{>>…<<}, {==REF==}{>>…<<})`, merge into `[1, 2]`.
-- `[[another note]]`, `[[another note|display text]]` and `[text](another-note.md)` all link to other notes. A link reads the way a book cites a title: the note's title, in bold 「corner brackets」 when it's Chinese and in italics otherwise (or your display text), with a small circled L after it marking it as a link; when that note is in the same collection, the page it starts on follows, as in *Kyoto Gardens*Ⓛ (p. 12). A link to a note that is unpublished or doesn't exist prints as plain text. Hovering a link sets it white on black.
-- `![[another note]]` (or `![[another note#A heading]]`) on a line of its own embeds that note (or section): its first few paragraphs, set in from both sides in smaller type like a quoted passage, with the source right-aligned under it — "—*Kyoto Gardens*Ⓛ (p. 12)".
+- `[[another note]]`, `[[another note|display text]]` and `[text](another-note.md)` all link to other notes. A link reads the way a book cites a title: the note's title, in bold 「corner brackets」 and Fangsong when it's Chinese and in italics otherwise (or your display text), with a small circled L after it marking it as a link; when that note is in the same collection, the page it starts on follows, as in *Kyoto Gardens*Ⓛ (p. 12). A link to a note that is unpublished or doesn't exist prints as plain text. Hovering a link sets it white on black.
+- `![[another note]]` (or `![[another note#A heading]]`) on a line of its own embeds that note (or section) whole, set as part of the text, with only its source right-aligned after it — "—*Kyoto Gardens*Ⓛ (p. 12)".
 - `[[#A heading of this note]]` links to that section, followed by its number (§2.1), or its page when headings aren't numbered.
 - Math: `$…$` inline, `$$…$$` for a display block.
 - Footnotes, `text[^1]` with `[^1]: the note`, and inline ones, `^[the note]`, are set in the margin like CriticMarkup comments and numbered with them.
 - Task lists, `- [ ] to do` / `- [x] done`: a printed box, ticked in pencil when done.
-- Obsidian callouts, `> [!note] Title`: set in from both sides in smaller type (Chinese in Fangsong), the title run in at the start; foldable callouts are always open.
+- Quotes, `> quoted`, and Obsidian callouts, `> [!note] Title`, are set in from both sides in smaller type (Chinese in Fangsong); a callout's title is run in at the start, and foldable callouts are always open.
 - Definition lists (`Term`, then `: its definition` on the next line) are set in two columns.
 - Inline `#tags` print without the "#", in grey small capitals; `%%comments%%` and block ids (`^abc123`) don't print.
 - CriticMarkup renders only the final result: `{--deleted--}` is hidden, `{++added++}` is kept, `{~~old~>new~~}` shows only "new", and `{==text==}` shows as "text". A comment right after a substitution or highlight, like `{==text==}{>>comment<<}`, becomes a numbered margin note lined up with the line it marks; headings can carry comments too.
