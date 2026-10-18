@@ -62,7 +62,18 @@ html.reader body {
   position: static !important;
 }
 
+/* Each page's leaf (the page turn's clipping, see book.css) is not
+   printed: the page stands on its own. */
+.leaf,
+.leaf-plane {
+  display: contents !important;
+}
+
 .page {
+  position: relative !important;
+  left: auto !important;
+  top: auto !important;
+  transform: none !important;
   margin: 0 !important;
   border: none !important;
   background: #fff !important;
@@ -80,8 +91,8 @@ html.reader body {
   break-inside: avoid;
 }
 
-.spread:last-child .page:last-child,
-.spread:last-child .page:has(+ .page-blank) {
+.spread:last-child .leaf:last-child .page,
+.spread:last-child .leaf:has(+ .leaf .page-blank) .page {
   break-after: auto;
 }
 
@@ -147,12 +158,16 @@ html.has-print-book .print-book {
 /* Paper effects (book.css) are for the screen: the page prints plain
    white, without the copy showing through from its back or the
    letterpress impression. */
-.page-back {
+.page-back,
+.page-bleed {
   display: none !important;
 }
 
 html.letterpress #book .page > :is(.page-area, .page-foot, .page-number, .page-comments) {
   text-shadow: none !important;
+  -webkit-text-stroke: 0 !important;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
 }
 
 /* The spread seam shadow only makes sense with two pages side by side;

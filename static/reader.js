@@ -224,6 +224,76 @@
     for (const [el, copy] of set) el.replaceWith(copy);
   }
 
+  // Drop caps (p.drop-cap::first-letter in book.css; the server marks
+  // an opening paragraph of ordinary text), only where the paragraph
+  // runs to three lines or more — sized and placed from the fonts' own
+  // measurements: two lines deep, the letter's ink
+  // from the top of the first line's capitals (Chinese: its characters)
+  // down to the second line's baseline (Chinese: the foot of its
+  // characters), and flush with the column's left edge — whatever the
+  // font, size or leading, in English or Chinese.
+  const CJK_CHAR = /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/;
+  const measureCanvas = document.createElement("canvas").getContext("2d");
+
+  function fitDropCaps(area) {
+    if (root.classList.contains("no-drop-cap")) return;
+    for (const p of area.querySelectorAll(".body p.drop-cap")) {
+      const letter = [...p.textContent.trimStart()][0];
+      if (!letter) continue;
+      const style = getComputedStyle(p);
+      const size = parseFloat(style.fontSize);
+      const lineHeight = parseFloat(style.lineHeight) || size * 1.2;
+      const cjk = CJK_CHAR.test(letter);
+      // What the letter spans: a capital's height, or a character's.
+      const ref = cjk ? "国" : "H";
+      const font = px => `${style.fontStyle} 400 ${px}px ${style.fontFamily}`;
+      const ink = (text, px) => {
+        measureCanvas.font = font(px);
+        return measureCanvas.measureText(text);
+      };
+      const body = ink(ref, size);
+      const up = body.actualBoundingBoxAscent;
+      const down = cjk ? body.actualBoundingBoxDescent : 0;
+      const unit = ink(ref, 100);
+      const dropSize = (lineHeight + up + down) / ((unit.actualBoundingBoxAscent + (cjk ? unit.actualBoundingBoxDescent : 0)) / 100);
+
+      // Where the paragraph's first baseline is, and where the drop
+      // letter's own baseline sits in its box (line-height = its size).
+      const probe = () => {
+        const el = document.createElement("span");
+        el.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
+        return el;
+      };
+      const firstLine = probe();
+      p.classList.remove("drop-cap");
+      // A paragraph under three lines is too short to hold one.
+      if (p.getBoundingClientRect().height < 2.5 * lineHeight) continue;
+      p.prepend(firstLine);
+      const baseline = firstLine.getBoundingClientRect().bottom - p.getBoundingClientRect().top;
+      firstLine.remove();
+      p.classList.add("drop-cap");
+      const box = document.createElement("div");
+      box.style.cssText = `position:absolute;visibility:hidden;white-space:nowrap;font:${font(dropSize)};line-height:${dropSize}px`;
+      const own = probe();
+      box.append(letter, own);
+      area.appendChild(box);
+      const dropBaseline = own.getBoundingClientRect().bottom - box.getBoundingClientRect().top;
+      box.remove();
+
+      // The letter's ink top, where the first line's starts.
+      const top = (baseline - up) - (dropBaseline - unit.actualBoundingBoxAscent / 100 * dropSize);
+      const drop = ink(letter, dropSize);
+      const gap = 0.45 * size;
+      p.style.setProperty("--drop-size", dropSize + "px");
+      p.style.setProperty("--drop-line", dropSize + "px");
+      p.style.setProperty("--drop-top", top + "px");
+      // The float ends just above the third line, so only two wrap it.
+      p.style.setProperty("--drop-bottom", (2 * lineHeight - 0.5 - top - dropSize) + "px");
+      p.style.setProperty("--drop-left", drop.actualBoundingBoxLeft + "px");
+      p.style.setProperty("--drop-right", (gap - (drop.width - drop.actualBoundingBoxRight)) + "px");
+    }
+  }
+
   // Fills `area` with a fresh copy of the flow and readies it for
   // measuring. Returns the running bylines it set aside (article →
   // byline), which go in their entry's first page foot, not the flow.
@@ -240,6 +310,11 @@
     // Phone and tablet pages keep a margin for side comments only when
     // there are any (see book.css).
     root.classList.toggle("has-notes", !!flow.querySelector(".comment-marker"));
+    // A page reference to a note that isn't in this book (see pageRef in
+    // render.js) has no page to give.
+    for (const ref of flow.querySelectorAll(".xref--page[data-xref^='card-']")) {
+      if (!flow.getElementById(ref.dataset.xref)) ref.remove();
+    }
     area.appendChild(flow);
 
     // Laying the text out makes it request the web font faces it uses;
@@ -258,6 +333,7 @@
 
     fitDisplayMath(area);
     fitTables(area);
+    fitDropCaps(area);
     if (root.classList.contains("justify")) await justifyText(area);
 
     for (const img of area.querySelectorAll("img")) {
@@ -979,6 +1055,20 @@
     });
   }
 
+  // Page references (see pageRef in render.js): the page a note, or a
+  // section of this note, starts on, in place of the "00" the pages were
+  // cut with (a page under 10 leaves its line a hair shorter).
+  function fillPageRefs(pages) {
+    for (const ref of pages.flatMap(page => Array.from(page.querySelectorAll(".page-area .xref--page")))) {
+      const number = ref.querySelector(".xref-page");
+      const note = ref.dataset.xref.startsWith("sec-") && ref.closest("article[id^='card-']");
+      const selector = (note ? `.page-area #${CSS.escape(note.id)} ` : ".page-area ") + `#${CSS.escape(ref.dataset.xref)}`;
+      const target = pages.find(page => page.querySelector(selector));
+      if (!number || !target) continue;
+      number.textContent = String(pages.indexOf(target) + 1);
+    }
+  }
+
   // Margin comments (see .comment-margin-marker in book.css): each
   // note moves out of the text into its page's .page-comments layer, at
   // the height of its anchor, in the margin nearest the anchor's column.
@@ -1103,25 +1193,45 @@
   // (2nd, 4th …) has the next page on its back, a left-hand one the page
   // before. The first page and an unpaired last one have blank backs.
   // Only on the pages read on screen, never the printed ones.
-  // How much ink one sheet lets through, place to place: paper is never
-  // even. Low, smooth variation (value noise on a coarse grid, blended
-  // bilinearly) with alpha between 0.8 and 1, seeded by the sheet so both
-  // its faces share it and it holds still from one render to the next.
-  const paperMasks = new Map();
+  // Paper and ink are never even. A mask of smooth value noise — broad
+  // patches (a coarse grid, blended) with a finer grain over them — as
+  // an image, alpha running from `low` to 1. Seeded, so a sheet keeps
+  // its own from one render to the next (and its two faces share one).
+  const noiseMasks = new Map();
 
-  function createPaperMask(sheetIndex) {
-    if (paperMasks.has(sheetIndex)) return paperMasks.get(sheetIndex);
-    let seed = (sheetIndex * 2654435761 + 1013904223) >>> 0;
-    const random = () => {
+  function seededRandom(seed) {
+    seed = (seed * 2654435761 + 1013904223) >>> 0;
+    return () => {
       seed = (seed + 0x6d2b79f5) >>> 0;
       let t = Math.imul(seed ^ (seed >>> 15), seed | 1);
       t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
-    const gridW = 5, gridH = 7, width = 64, height = 88;
-    const grid = Array.from({ length: (gridW + 1) * (gridH + 1) }, random);
-    const at = (x, y) => grid[y * (gridW + 1) + x];
+  }
+
+  function noiseMask(seed, low, grain) {
+    const key = `${seed}/${low}/${grain}`;
+    if (noiseMasks.has(key)) return noiseMasks.get(key);
+    const random = seededRandom(seed);
+    const width = 96;
+    const height = 128;
     const smooth = t => t * t * (3 - 2 * t);
+    const layer = (gridW, gridH) => {
+      const grid = Array.from({ length: (gridW + 1) * (gridH + 1) }, random);
+      const at = (x, y) => grid[y * (gridW + 1) + x];
+      return (x, y) => {
+        const gx = (x / (width - 1)) * gridW;
+        const gy = (y / (height - 1)) * gridH;
+        const x0 = Math.min(Math.floor(gx), gridW - 1), tx = smooth(gx - x0);
+        const y0 = Math.min(Math.floor(gy), gridH - 1), ty = smooth(gy - y0);
+        const top = at(x0, y0) + (at(x0 + 1, y0) - at(x0, y0)) * tx;
+        const bottom = at(x0, y0 + 1) + (at(x0 + 1, y0 + 1) - at(x0, y0 + 1)) * tx;
+        return top + (bottom - top) * ty;
+      };
+    };
+    const broad = layer(4, 6);
+    const middle = layer(12, 16);
+    const fine = layer(48, 64);
 
     const canvas = document.createElement("canvas");
     canvas.width = width;
@@ -1129,21 +1239,35 @@
     const ctx = canvas.getContext("2d");
     const image = ctx.createImageData(width, height);
     for (let y = 0; y < height; y++) {
-      const gy = (y / (height - 1)) * gridH;
-      const y0 = Math.min(Math.floor(gy), gridH - 1), ty = smooth(gy - y0);
       for (let x = 0; x < width; x++) {
-        const gx = (x / (width - 1)) * gridW;
-        const x0 = Math.min(Math.floor(gx), gridW - 1), tx = smooth(gx - x0);
-        const top = at(x0, y0) + (at(x0 + 1, y0) - at(x0, y0)) * tx;
-        const bottom = at(x0, y0 + 1) + (at(x0 + 1, y0 + 1) - at(x0, y0 + 1)) * tx;
-        const value = top + (bottom - top) * ty;
-        image.data[(y * width + x) * 4 + 3] = Math.round(255 * (0.8 + 0.2 * value));
+        const v = (1 - grain) * (0.6 * broad(x, y) + 0.4 * middle(x, y)) + grain * fine(x, y);
+        image.data[(y * width + x) * 4 + 3] = Math.round(255 * (low + (1 - low) * v));
       }
     }
     ctx.putImageData(image, 0, 0);
-    const url = canvas.toDataURL();
-    paperMasks.set(sheetIndex, url);
+    const url = `url(${canvas.toDataURL()})`;
+    noiseMasks.set(key, url);
     return url;
+  }
+
+  // Letterpress (book.css): each page's ink, a little uneven — more so
+  // the stronger the effect.
+  function addInk(list) {
+    const strength = parseFloat(getComputedStyle(root).getPropertyValue("--letterpress")) || 0.5;
+    list.forEach((page, i) => {
+      page.style.setProperty("--ink-mask", noiseMask(7919 + i, +(1 - 0.6 * strength).toFixed(2), 0.45));
+      // Ink soaking into the paper: a blurred copy of everything printed
+      // on the page — text, side comments, foot, page number — over it.
+      const layers = page.querySelectorAll(":scope > :is(.page-area, .page-foot, .page-number, .page-comments)");
+      if (!layers.length) return;
+      const bleed = document.createElement("div");
+      bleed.className = "page-bleed";
+      bleed.setAttribute("aria-hidden", "true");
+      bleed.inert = true;
+      for (const layer of layers) bleed.appendChild(layer.cloneNode(true));
+      for (const el of bleed.querySelectorAll("[id]")) el.removeAttribute("id");
+      page.appendChild(bleed);
+    });
   }
 
   function addShowThrough(list) {
@@ -1164,7 +1288,14 @@
     list.forEach((page, i) => {
       const back = copies[i % 2 ? i + 1 : i - 1];
       if (!back) return;
-      back.style.setProperty("--paper-mask", `url(${createPaperMask(Math.ceil(i / 2))})`);
+      // Seen through its sheet: unevenly, and never quite lined up with
+      // this side — a sheet's own small shift and tilt.
+      const sheet = Math.ceil(i / 2);
+      const random = seededRandom(104729 + sheet);
+      back.style.setProperty("--paper-mask", noiseMask(sheet, 0.15, 0.3));
+      back.style.setProperty("--back-x", ((random() - 0.5) * 16).toFixed(2) + "px");
+      back.style.setProperty("--back-y", ((random() - 0.5) * 20).toFixed(2) + "px");
+      back.style.setProperty("--back-tilt", ((random() - 0.5) * 1.6).toFixed(3) + "deg");
       page.prepend(back);
     });
   }
@@ -1189,7 +1320,10 @@
     try {
       const next = await cutPages(staging, () => run !== renderRun);
       if (!next) return;
-      if (root.classList.contains("show-through")) addShowThrough(next);
+      // Not on a phone: too small a page to see it, and every page
+      // would carry a second copy of another.
+      if (root.classList.contains("show-through") && root.dataset.layout !== "phone") addShowThrough(next);
+      if (root.classList.contains("letterpress")) addInk(next);
       // A re-cut (late font or image) that lands every line where it
       // already is changes nothing on screen — keep the pages showing.
       if (!force && pages.length && layoutSignature(next) === layoutSignature(pages)) return;
@@ -1222,6 +1356,7 @@
       refs.style.width = refs.getBoundingClientRect().width + "px";
     }
     if (!root.classList.contains("no-page-numbers")) numberPages(next);
+    fillPageRefs(next);
     next.forEach(placeMarginNotes);
     return next;
   }
@@ -1335,6 +1470,14 @@
   // page as the settings lay it out again.
   let wantsTablet = root.classList.contains("desktop-tablet");
 
+  // The tablet-style spread on a computer, in a window too narrow for
+  // two pages side by side: one page, the window's full width. Two
+  // would leave each page's text under ~260px between its margins
+  // (the widest, with side comments: 250px + 120px, see book.css).
+  function tabletSingle() {
+    return !isTouch && root.dataset.layout === "tablet" && viewportWidth() / 2 - 370 < 260;
+  }
+
   function layoutFor() {
     if (!isTouch) return wantsTablet ? "tablet" : "book";
     if (!isTablet) return "phone";
@@ -1356,7 +1499,7 @@
       root.style.removeProperty("--paper-width");
       root.style.removeProperty("--page-height");
     } else {
-      root.style.setProperty("--paper-width", Math.floor(layout === "tablet" ? w / 2 : w) + "px");
+      root.style.setProperty("--paper-width", Math.floor(layout === "tablet" && !tabletSingle() ? w / 2 : w) + "px");
       root.style.setProperty("--page-height", Math.floor(h) + "px");
     }
     return true;
@@ -1397,6 +1540,7 @@
   function pagesPerSpread() {
     if (pages.length <= 1) return 1;
     if (isTouch) return root.dataset.layout === "tablet" ? 2 : 1;
+    if (tabletSingle()) return 1;
     return wantsDouble ? 2 : 1;
   }
 
@@ -1437,13 +1581,15 @@
       spread.className = "spread";
       const inner = document.createElement("div");
       inner.className = "spread-inner" + (perSpread === 2 ? " is-double" : "");
-      inner.append(...group);
+      // Each page on a leaf of its own (see "Page turning" below).
+      inner.append(...group.map(page => leaf("", [page])));
       spread.appendChild(inner);
       frag.appendChild(spread);
       spreads.push(spread);
       spreadPages.push(group);
     }
     book.replaceChildren(frag);
+    book.style.setProperty("--plane", planeSize() + "px");
     fit();
   }
 
@@ -1560,28 +1706,79 @@
     return el;
   }
 
-  // The part of polygon `poly` on the side of the line through `m`
-  // that normal `n` points to.
-  function clipHalfPlane(poly, m, n) {
-    const side = p => (p[0] - m[0]) * n[0] + (p[1] - m[1]) * n[1];
-    const out = [];
-    for (let i = 0; i < poly.length; i++) {
-      const a = poly[i];
-      const b = poly[(i + 1) % poly.length];
-      const sa = side(a);
-      const sb = side(b);
-      if (sa >= 0) out.push(a);
-      if ((sa >= 0) !== (sb >= 0)) {
-        const k = sa / (sa - sb);
-        out.push([a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k]);
-      }
-    }
-    return out;
+  // Each frame of a turn only moves and fades what's already drawn — no
+  // page, shape or shade is drawn again — so the browser can keep up at
+  // full speed. The fold cuts by clipping, not by clip-path (whose shapes
+  // are drawn afresh every frame): each page lies in a .leaf, inside a
+  // large square .leaf-plane that clips what's outside it. Turned so one
+  // edge runs along the fold, a plane shows just one side of it, and the
+  // page inside is turned back so it stays put (or lands where the fold
+  // throws it). The shades are gradients drawn once, faded in and out.
+
+  // 2D affine maps, as CSS matrix(a, b, c, d, e, f): x' = a x + c y + e,
+  // y' = b x + d y + f.
+  const IDENTITY = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+  const translate = (x, y) => ({ a: 1, b: 0, c: 0, d: 1, e: x, f: y });
+  const rotate = angle => {
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    return { a: cos, b: sin, c: -sin, d: cos, e: 0, f: 0 };
+  };
+  const compose = (P, Q) => ({
+    a: P.a * Q.a + P.c * Q.b,
+    b: P.b * Q.a + P.d * Q.b,
+    c: P.a * Q.c + P.c * Q.d,
+    d: P.b * Q.c + P.d * Q.d,
+    e: P.a * Q.e + P.c * Q.f + P.e,
+    f: P.b * Q.e + P.d * Q.f + P.f
+  });
+  const invert = M => {
+    const det = M.a * M.d - M.b * M.c;
+    return {
+      a: M.d / det, b: -M.b / det, c: -M.c / det, d: M.a / det,
+      e: (M.c * M.f - M.d * M.e) / det,
+      f: (M.b * M.e - M.a * M.f) / det
+    };
+  };
+  const css = M => `matrix(${[M.a, M.b, M.c, M.d, M.e, M.f].map(v => +v.toFixed(5)).join(", ")})`;
+
+  // The plane's size: wide enough to hold a page however it's turned.
+  const planeSize = () => 3 * Math.hypot(pageWidth, pageHeight);
+
+  // A leaf: `content` on a plane, `width` x `height` at the leaf's top
+  // left. book.css lays the plane out centred on that corner, the
+  // content in its middle.
+  function leaf(className, content, width = pageWidth, height = pageHeight) {
+    const el = div("leaf" + (className ? " " + className : ""));
+    el.style.width = width + "px";
+    el.style.height = height + "px";
+    const plane = div("leaf-plane");
+    plane.append(...content);
+    el.appendChild(plane);
+    return el;
   }
 
-  const polygon = pts => pts.length > 2
-    ? `polygon(${pts.map(p => `${p[0].toFixed(2)}px ${p[1].toFixed(2)}px`).join(",")})`
-    : "polygon(0 0, 0 0, 0 0)";
+  // Puts `el`'s plane on the side of the fold line (through M) that `s`
+  // points to, and each of `items` ([element, map from its own
+  // coordinates to the sheet's]) where its map takes it. `origin`: where
+  // the leaf's corner is, on the sheet.
+  function cutAlong(el, M, s, items, origin = 0) {
+    const L = planeSize();
+    const half = L / 2;
+    // The plane's own square, [0, L]², onto the sheet: its left edge on
+    // the fold line, the rest on side `s`.
+    const along = [-s[1], s[0]];
+    const H = { a: s[0], b: s[1], c: -s[1], d: s[0], e: M[0] - along[0] * half, f: M[1] - along[1] * half };
+    el.firstChild.style.transform = css(compose(translate(-origin + half, half), H));
+    const back = compose(translate(-half, -half), invert(H));
+    for (const [item, map] of items) item.style.transform = css(compose(back, map));
+  }
+
+  // Lays leaf `el` and what's on it flat again.
+  function uncut(el) {
+    el.firstChild.style.transform = "";
+    for (const item of el.firstChild.children) item.style.transform = "";
+  }
 
   // Paper can't stretch: the corner stays within reach of both ends of
   // the spine.
@@ -1592,14 +1789,19 @@
     return d <= radius ? p : [center[0] + dx * radius / d, center[1] + dy * radius / d];
   }
 
-  // A soft shade band along the fold, fading out in direction `g`.
-  function drawBand(el, at, g, width, background) {
-    const len = 2 * Math.hypot(pageWidth, pageHeight);
-    el.style.width = len + "px";
+  // A soft shade band along the fold, fading out in direction `g`: drawn
+  // once (`background`, at full strength), then only placed and faded.
+  function band(width, background) {
+    const el = div("turn-band");
+    el.style.width = 2 * Math.hypot(pageWidth, pageHeight) + "px";
     el.style.height = width + "px";
     el.style.background = background;
-    el.style.transform =
-      `translate(${at[0]}px, ${at[1]}px) rotate(${Math.atan2(-g[0], g[1])}rad) translate(${-len / 2}px, 0)`;
+    return el;
+  }
+
+  function bandMap(el, at, g) {
+    const len = parseFloat(el.style.width);
+    return compose(compose(translate(at[0], at[1]), rotate(Math.atan2(-g[0], g[1]))), translate(-len / 2, 0));
   }
 
   // `grabY`: page height at which the page was taken (touch) — the
@@ -1650,33 +1852,36 @@
       frontPage = dir > 0 ? A[0] : B[0];
     }
 
-    const box = (className, inner) => {
-      const el = div("turn-box " + className);
+    const leafOf = page => page.parentElement.parentElement;
+    const overlay = (className, content, inner) => {
+      const el = leaf("turn-leaf " + className, content);
       el.style.left = sheetX + "px";
       inner.appendChild(el);
       return el;
     };
+    const dark = a => `rgba(6, 12, 22, ${a})`;
     const topInner = spreads[top].firstElementChild;
-    const frontShade = box("turn-front-shade", frontPage.parentElement);
-    const frontBand = div("turn-band");
-    frontShade.appendChild(frontBand);
-    const cast = box("turn-cast", topInner);
-    const castBand = div("turn-band");
-    cast.appendChild(castBand);
-    // The flap: the next spread's page itself, or a lone page's plain
-    // back; the light on it is a box placed and cut the same way.
-    let back;
-    if (backPage) {
-      back = backPage;
-      back.classList.add("is-turn-back");
-    } else {
-      back = box("turn-paper", topInner);
-    }
-    const backShade = box("turn-back-shade", topInner);
-    const backBand = div("turn-band");
-    backShade.appendChild(backBand);
-    // A page's back is placed from the sheet's corner, wherever it lies.
-    const backX = backPage ? sheetX - backPage.offsetLeft : 0;
+    const frontBand = band(W * 0.16, `linear-gradient(to bottom, ${dark(0.1)}, ${dark(0)})`);
+    const frontShade = overlay("turn-front-shade", [frontBand], leafOf(frontPage).parentElement);
+    const castBand = band(W * 0.3, `linear-gradient(to bottom, ${dark(0.32)}, ${dark(0)})`);
+    const cast = overlay("turn-cast", [castBand], topInner);
+    // The flap's light (and a lone page's plain back): on a sheet the
+    // size of the page, folded over with it.
+    const backBand = band(W * 0.45,
+      `linear-gradient(to bottom, rgba(255, 255, 255, .5), ${dark(0.1)} 22%, ${dark(0)} 70%)`);
+    const backSheet = div("turn-back-sheet" + (backPage ? "" : " turn-paper"));
+    backSheet.style.width = W + "px";
+    backSheet.style.height = H + "px";
+    backSheet.appendChild(backBand);
+    // One page a screen: nothing lies beyond the spine, so the flap is
+    // cut at the page's edge — it slides away round the spine rather
+    // than across the dark desk.
+    const backShade = overlay("turn-back-shade" + (double ? "" : " turn-on-page"), [backSheet], topInner);
+
+    const frontLeaf = leafOf(frontPage);
+    const backLeaf = backPage && leafOf(backPage);
+    const underLeaf = underPage && leafOf(underPage);
+    if (backLeaf) backLeaf.classList.add("is-turn-back");
 
     spreads[from].classList.add("is-near");
     spreads[to].classList.add("is-near");
@@ -1684,9 +1889,11 @@
     spreads[top === from ? to : from].style.zIndex = 3;
 
     turn = {
-      dir, from, to, top, double, hingeX, backX,
-      frontPage, underPage, back, backShade, cast, frontShade, frontBand, backBand, castBand,
-      clipped: double ? underPage : frontPage,
+      dir, from, to, top, double, hingeX,
+      frontLeaf, backLeaf, underLeaf, backPage, underPage, frontPage,
+      frontShade, cast, backShade, backSheet, frontBand, castBand, backBand,
+      // Where the flap's page lies, on the sheet.
+      backOrigin: backLeaf ? backLeaf.offsetLeft - sheetX : 0,
       corner: grabY !== null && grabY < H / 2 ? 0 : H,
       // Backward with one page per screen: the previous page comes back
       // over the current one — a forward turn of it, run in reverse.
@@ -1722,52 +1929,47 @@
     const dx = P[0] - C[0];
     const dy = P[1] - C[1];
     const len = Math.hypot(dx, dy);
-    const flapParts = [t.back, t.backShade, t.cast];
+    const flapParts = [t.backShade, t.cast, t.frontShade, t.backLeaf, t.underLeaf].filter(Boolean);
     if (len < 0.5) {
-      t.clipped.style.clipPath = t.double ? polygon([]) : "";
-      t.frontShade.style.clipPath = polygon([]);
       for (const el of flapParts) el.style.visibility = "hidden";
+      if (!t.double) uncut(t.frontLeaf);
       return;
     }
     for (const el of flapParts) el.style.visibility = "";
 
     // Fold line: through M, normal n (pointing away from the corner).
     const n = [dx / len, dy / len];
+    const m = [-n[0], -n[1]];
     const M = [(C[0] + P[0]) / 2, (C[1] + P[1]) / 2];
-    const page = [[0, 0], [W, 0], [W, H], [0, H]];
-    const kept = clipHalfPlane(page, M, n);
-    const flap = clipHalfPlane(page, M, [-n[0], -n[1]]);
-    // Two pages: the page underneath shows where the flap lifted off.
-    // One: the turning page is cut back to the fold.
-    t.clipped.style.clipPath = polygon(t.double ? flap : kept);
-    t.frontShade.style.clipPath = polygon(kept);
-    t.cast.style.clipPath = polygon(flap);
 
     // The flap is the back of the sheet: mirrored left-right (it's the
-    // other side), then reflected across the fold.
+    // other side), then reflected across the fold — on the kept side.
     const r11 = 1 - 2 * n[0] * n[0];
     const r12 = -2 * n[0] * n[1];
     const r22 = 1 - 2 * n[1] * n[1];
     const md = 2 * (M[0] * n[0] + M[1] * n[1]);
-    const flip = `matrix(${-r11}, ${-r12}, ${r12}, ${r22}, ${r11 * W + md * n[0]}, ${r12 * W + md * n[1]})`;
-    const backClip = polygon(flap.map(([x, y]) => [W - x, y]));
-    t.back.style.transform = (t.backX ? `translate(${t.backX}px, 0) ` : "") + flip;
-    t.back.style.clipPath = backClip;
-    t.backShade.style.transform = flip;
-    t.backShade.style.clipPath = backClip;
-    // A lone page's plain back fades out as it lands off the page.
-    if (!t.double) t.back.style.opacity = t.backShade.style.opacity = Math.min(1, (1 - p) * 4);
+    const flip = { a: -r11, b: -r12, c: r12, d: r22, e: r11 * W + md * n[0], f: r12 * W + md * n[1] };
 
     // Light: the page bends into the fold, the flap catches light where
     // it curls over, and it shades the page it uncovers.
     const curl = Math.sin(Math.PI * Math.min(1, p * 1.4));
-    const dark = a => `rgba(6, 12, 22, ${a.toFixed(3)})`;
-    drawBand(t.frontBand, M, n, W * 0.16,
-      `linear-gradient(to bottom, ${dark(0.1 * curl)}, ${dark(0)})`);
-    drawBand(t.castBand, M, [-n[0], -n[1]], W * 0.3,
-      `linear-gradient(to bottom, ${dark(0.28 * curl + 0.04)}, ${dark(0)})`);
-    drawBand(t.backBand, [W - M[0], M[1]], [n[0], -n[1]], W * 0.45,
-      `linear-gradient(to bottom, rgba(255, 255, 255, ${(0.5 * curl).toFixed(3)}), ${dark(0.1 * curl)} 22%, ${dark(0)} 70%)`);
+    t.frontBand.style.opacity = curl.toFixed(3);
+    t.castBand.style.opacity = ((0.28 * curl + 0.04) / 0.32).toFixed(3);
+    t.backBand.style.opacity = curl.toFixed(3);
+    t.backBand.style.transform = css(bandMap(t.backBand, [W - M[0], M[1]], [n[0], -n[1]]));
+
+    if (t.double) {
+      // The page underneath shows where the flap lifted off; the facing
+      // page of the next spread is the flap.
+      cutAlong(t.underLeaf, M, m, [[t.underPage, IDENTITY]]);
+      cutAlong(t.backLeaf, M, n, [[t.backPage, flip]], t.backOrigin);
+    } else {
+      // The turning page, cut back to the fold.
+      cutAlong(t.frontLeaf, M, n, [[t.frontPage, IDENTITY]]);
+    }
+    cutAlong(t.backShade, M, n, [[t.backSheet, flip]]);
+    cutAlong(t.frontShade, M, n, [[t.frontBand, bandMap(t.frontBand, M, n)]]);
+    cutAlong(t.cast, M, m, [[t.castBand, bandMap(t.castBand, M, m)]]);
   }
 
   // Lays every page flat again and shows `index`.
@@ -1779,11 +1981,12 @@
     current = index;
     markSpreads();
     for (const i of [t.from, t.to]) spreads[i].style.zIndex = "";
-    t.clipped.style.clipPath = "";
-    if (t.back.classList.contains("is-turn-back")) {
-      t.back.classList.remove("is-turn-back");
-      t.back.style.transform = t.back.style.clipPath = t.back.style.visibility = "";
-    } else t.back.remove();
+    for (const el of [t.frontLeaf, t.backLeaf, t.underLeaf]) {
+      if (!el) continue;
+      uncut(el);
+      el.style.visibility = "";
+      el.classList.remove("is-turn-back");
+    }
     for (const el of [t.frontShade, t.cast, t.backShade]) el.remove();
   }
 
@@ -1931,6 +2134,23 @@
       }
     });
   }
+
+  // A link to a section of the same note ([[#Heading]]): to the spread
+  // where that heading is — in a collection, the one in the same note.
+  book.addEventListener("click", e => {
+    const link = e.target.closest("a.wikilink[href^='#sec-']");
+    if (!link) return;
+    e.preventDefault();
+    const note = link.closest("article[id^='card-']");
+    const id = CSS.escape(link.getAttribute("href").slice(1));
+    // (Not a copy in a page's show-through or ink layer.)
+    const heading = Array.from(book.querySelectorAll(note ? `#${CSS.escape(note.id)} #${id}` : `#${id}`))
+      .find(el => el.closest(".page-area") && !el.closest(".page-back, .page-bleed"));
+    const page = heading && heading.closest(".page");
+    if (!page) return;
+    navigated = true;
+    show(Math.floor(pages.indexOf(page) / perSpread));
+  });
 
   // Pinch-zoomed in (the visual viewport scaled up), a finger pans the
   // zoomed page in any direction instead of turning it: .is-zoomed hands

@@ -166,11 +166,14 @@ html.show-through .page-back {
   position: absolute;
   inset: 0;
   z-index: 1;
-  transform: scaleX(-1);
-  opacity: calc(.01 + .07 * var(--show-through, .5));
-  /* Ink seen through paper is soft, and comes through unevenly (the
-     mask, one per sheet, from reader.js). */
-  filter: blur(0.4px);
+  /* Never quite lined up with this side: each sheet's own small shift
+     and tilt (reader.js). */
+  transform: scaleX(-1) translate(var(--back-x, 0), var(--back-y, 0)) rotate(var(--back-tilt, 0deg));
+  /* CUSTOMIZABLE STYLE: how strongly the back shows through */
+  opacity: calc(.02 + .16 * var(--show-through, .5));
+  /* Ink seen through paper is soft, spread by the fibres, and comes
+     through unevenly (the mask, one per sheet, from reader.js). */
+  filter: blur(calc(.3px + .9px * var(--show-through, .5)));
   -webkit-mask-image: var(--paper-mask);
   mask-image: var(--paper-mask);
   -webkit-mask-size: 100% 100%;
@@ -181,6 +184,12 @@ html.show-through .page-back {
 
 html.show-through .page-back * {
   mix-blend-mode: normal !important;
+}
+
+/* A colour picture seen through the paper is mostly its darks, not its
+   colours. */
+html.show-through .page-back img {
+  filter: saturate(.15);
 }
 
 /* Only the ink comes through: not the copy's paper (justified text's
@@ -199,11 +208,78 @@ html.show-through .page-back .page-area {
    shadow either: Safari took up to a second to draw a page whose every
    letter had one, at each page turn — the faint spread of ink around
    the letters is a hairline outline instead.) */
+/* CUSTOMIZABLE STYLE: letterpress — the light rim below each letter
+   and the shadow above it (the impression), ink spread a hair to each
+   side, and the ink's own weight. */
 html.letterpress #book .page > :is(.page-area, .page-foot, .page-number, .page-comments) {
   text-shadow:
-    0 calc(.8px * var(--letterpress)) 0 rgba(255, 255, 255, calc(1.4 * var(--letterpress))),
-    0 calc(-.4px * var(--letterpress)) 0 rgba(0, 0, 0, calc(.2 * var(--letterpress)));
-  -webkit-text-stroke: calc(.25px * var(--letterpress)) rgba(0, 0, 0, calc(.12 * var(--letterpress)));
+    0 calc(1.2px * var(--letterpress)) 0 rgba(255, 255, 255, calc(1.8 * var(--letterpress))),
+    0 calc(-.7px * var(--letterpress)) 0 rgba(0, 0, 0, calc(.34 * var(--letterpress))),
+    calc(.35px * var(--letterpress)) 0 0 rgba(20, 22, 28, calc(.3 * var(--letterpress))),
+    calc(-.35px * var(--letterpress)) 0 0 rgba(20, 22, 28, calc(.3 * var(--letterpress)));
+  -webkit-text-stroke: calc(.45px * var(--letterpress)) rgba(0, 0, 0, calc(.22 * var(--letterpress)));
+}
+
+/* Ink is never laid down evenly: denser here, starved there (the mask,
+   one per page, from reader.js) — and it soaks into the paper around
+   each letter: a blurred copy of the text over it (.page-bleed, from
+   reader.js), one blur for the whole area rather than one per letter,
+   drawn once with the page. */
+html.letterpress #book .page > .page-bleed {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  user-select: none;
+  /* CUSTOMIZABLE STYLE: ink bleed — how far, and how dark */
+  filter: blur(calc(.35px + 1.1px * var(--letterpress)));
+  opacity: calc(.15 + .55 * var(--letterpress));
+}
+
+html.letterpress .page-bleed .page-area {
+  background: none;
+}
+
+html.letterpress .page-bleed :is(.page-area, .page-foot, .page-number, .page-comments) {
+  text-shadow: none;
+  -webkit-text-stroke: 0;
+}
+
+/* Only the type bleeds: pictures and rules stay crisp. */
+html.letterpress .page-bleed :is(img, svg, .image-placeholder, hr, table) {
+  visibility: hidden;
+}
+
+/* The same uneven ink on every layer printed on the page: one mask the
+   size of the page, lined up on each. */
+html.letterpress #book .page > :is(.page-area, .page-foot, .page-comments),
+html.letterpress #book .page > .page-bleed :is(.page-area, .page-foot, .page-comments) {
+  -webkit-mask-image: var(--ink-mask);
+  mask-image: var(--ink-mask);
+  -webkit-mask-size: var(--paper-width) var(--page-height);
+  mask-size: var(--paper-width) var(--page-height);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+html.letterpress #book .page :is(.page-area, .page-foot) {
+  -webkit-mask-position: calc(-1 * var(--pad-left)) calc(-1 * var(--pad-top));
+  mask-position: calc(-1 * var(--pad-left)) calc(-1 * var(--pad-top));
+}
+
+html.letterpress #book .page .page-foot {
+  -webkit-mask-position: calc(-1 * var(--pad-left)) calc(-1 * (var(--pad-top) + var(--area-height)));
+  mask-position: calc(-1 * var(--pad-left)) calc(-1 * (var(--pad-top) + var(--area-height)));
+}
+
+/* Chinese sets a hairline outline of its own (.body .cjk): as heavy as
+   the rest of the ink here. */
+html.letterpress #book .body .cjk {
+  -webkit-text-stroke-width: calc(.12px + .45px * var(--letterpress));
+}
+
+html.letterpress #book .page-bleed .body .cjk {
+  -webkit-text-stroke-width: 0;
 }
 
 /* Justified text (see reader.js) hangs punctuation at line ends, and
@@ -432,20 +508,61 @@ html.reader.is-zoomed body {
 }
 
 /* =========================================================
-   Page turn (see "Page turning" in reader.js): the pages turn where
-   they lie, clipped and placed by reader.js, with these overlays over
-   them: .turn-front-shade (the bend into the fold), .turn-cast (the
-   flap's shadow on the uncovered page) and .turn-back-shade (the light
-   on the flap) — and on a lone page, .turn-paper, its plain back.
+   Page turn (see "Page turning" in reader.js). Each page lies on a
+   .leaf: a large square .leaf-plane, centred on the leaf's corner,
+   clips what's outside it, and the page sits in its middle. Flat, the
+   plane covers the page and clips nothing; mid-turn, reader.js turns
+   the plane so it shows one side of the fold and turns the page back
+   into place — moving drawn layers only, never drawing anew. Overlays
+   (.turn-leaf) are made the same way: .turn-front-shade (the bend into
+   the fold), .turn-cast (the flap's shadow on the uncovered page) and
+   .turn-back-shade (the light on the flap — on a lone page, with its
+   plain back, .turn-paper).
    ========================================================= */
 
-.turn-box {
+.leaf {
+  position: relative;
+  flex: none;
+}
+
+.leaf-plane {
   position: absolute;
-  top: 0;
-  width: var(--paper-width);
-  height: var(--page-height);
+  left: calc(var(--plane) / -2);
+  top: calc(var(--plane) / -2);
+  width: var(--plane);
+  height: var(--plane);
+  overflow: hidden;
   pointer-events: none;
   transform-origin: 0 0;
+}
+
+.leaf-plane > * {
+  position: absolute;
+  left: calc(var(--plane) / 2);
+  top: calc(var(--plane) / 2);
+  transform-origin: 0 0;
+}
+
+.leaf-plane > .page {
+  pointer-events: auto;
+}
+
+.spread:is(.is-current, .is-near) .leaf-plane {
+  will-change: transform;
+}
+
+.turn-leaf {
+  position: absolute;
+  top: 0;
+  pointer-events: none;
+}
+
+/* The shades fall on the page only, not past its edges — nor does a
+   lone page's flap. */
+.turn-front-shade,
+.turn-cast,
+.turn-on-page {
+  overflow: hidden;
 }
 
 .turn-front-shade {
@@ -456,14 +573,16 @@ html.reader.is-zoomed body {
   z-index: 6;
 }
 
-.spread .page.is-turn-back {
+.leaf.is-turn-back {
   z-index: 7;
-  transform-origin: 0 0;
 }
 
-.turn-paper,
 .turn-back-shade {
   z-index: 8;
+}
+
+.turn-back-sheet {
+  overflow: hidden;
 }
 
 /* The back of a lone page. */
@@ -475,10 +594,14 @@ html.reader.is-zoomed body {
    drawn by reader.js (drawTurn). */
 .turn-band {
   position: absolute;
-  left: 0;
-  top: 0;
   transform-origin: 0 0;
   pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.turn-back-sheet > .turn-band {
+  left: 0;
+  top: 0;
 }
 
 /* =========================================================
@@ -787,11 +910,13 @@ html.justify .body li:not(.references li) {
    directly with text (no preceding heading). Server adds .drop-cap class
    only when the first child element is a <p>, not a heading or figure. */
 html:not(.no-drop-cap) .body p.drop-cap::first-letter {
-  font-size: 2.5em;
+  /* Sized and placed from the fonts' measurements by reader.js
+     (fitDropCaps); these are the fallbacks. */
+  font-size: var(--drop-size, 2.5em);
   font-weight: 400;
   float: left;
-  line-height: .78;
-  margin: .04em .16em 0 0;
+  line-height: var(--drop-line, .78);
+  margin: var(--drop-top, .04em) var(--drop-right, .16em) var(--drop-bottom, 0) var(--drop-left, 0);
 }
 
 /* =========================================================
@@ -917,6 +1042,179 @@ html:not(.no-drop-cap) .body p.drop-cap::first-letter {
      left to inherit .body's normal value so quoted lines don't look
      inconsistently spaced next to regular paragraphs */
   font-size: calc(var(--body-size) * 9.6 / 11);
+}
+
+/* =========================================================
+   Obsidian callouts ("> [!note] Title", see postProcessMarkdown)
+   Set in from both sides in a smaller size, Chinese in Huiwen
+   Fangsong (仿宋, the way a Chinese book sets an editor's note), the
+   title run in at the start: 【标题】 or a bold "Title." No box, no
+   colour — every kind looks the same. Runs on over columns and pages
+   like any text.
+   ========================================================= */
+
+.body .callout {
+  /* CUSTOMIZABLE STYLE: callout */
+  margin: .85em 1.6em;
+  font-family: "Libertinus Serif", "Huiwen Fangsong", var(--serif);
+  font-size: calc(var(--body-size) * 10 / 11);
+}
+
+.body .callout p {
+  margin-bottom: .6em;
+}
+
+.body .callout > :last-child {
+  margin-bottom: 0;
+}
+
+.callout-label {
+  font-family: var(--title-serif);
+  font-weight: 650;
+}
+
+/* 【 carries its own space on the left: hung into the margin, so the
+   bracket's ink lines up with the text under it. */
+.callout-label--cjk {
+  margin-left: -.5em;
+}
+
+/* =========================================================
+   Embedded notes (![[Note]], see embedHtml in render.js): a passage
+   quoted from another note — set in from both sides in smaller type,
+   the source under it, right-aligned. Runs on over columns and pages.
+   ========================================================= */
+
+.body .embed {
+  /* CUSTOMIZABLE STYLE: embedded note */
+  margin: .85em 1.6em;
+  font-size: calc(var(--body-size) * 10 / 11);
+}
+
+.body .embed p {
+  margin-bottom: .6em;
+}
+
+.body .embed > :last-child {
+  margin-bottom: 0;
+}
+
+.body .embed .embed-cjk {
+  font-family: "source-han-serif-sc", "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", serif;
+}
+
+.body .embed .embed-source {
+  margin-top: .3em;
+  text-align: right;
+  text-align-last: right;
+}
+
+/* =========================================================
+   Task lists ("- [ ] to do", "- [x] done")
+   A box printed where the bullet would be; a done item is ticked in
+   pencil over it, in one of three hands (.tick-1/2/3, by turn). A
+   continued item (split over a column or page) has no box again.
+   ========================================================= */
+
+.body li.task {
+  position: relative;
+  list-style: none;
+}
+
+.body li.task::before {
+  content: "";
+  position: absolute;
+  /* CUSTOMIZABLE STYLE: printed task box */
+  left: -1.2em;
+  top: .17em;
+  width: .7em;
+  height: .7em;
+  border: .07em solid currentColor;
+}
+
+.body li.task--done::after {
+  content: "";
+  position: absolute;
+  left: -1.4em;
+  top: -.3em;
+  width: 1.35em;
+  height: 1.35em;
+  background: no-repeat center / contain;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  pointer-events: none;
+}
+
+/* CUSTOMIZABLE STYLE: the pencil ticks (stroke colour #4a5266) */
+.body li.tick-1::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M3.5 10.8c1.6 1.3 2.8 2.9 3.9 4.9 2.4-5.6 5.9-9.6 10.6-13.4' fill='none' stroke='%234a5266' stroke-opacity='.88' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+.body li.tick-2::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M4 11.4c1.3 1 2.5 2.4 3.4 4.3 2.7-5.2 6.1-9.1 10.2-12.6' fill='none' stroke='%234a5266' stroke-opacity='.88' stroke-width='1.45' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+.body li.tick-3::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M3.2 9.9c1.1.6 2.6 2.3 4.3 5.5 1.7-4.4 5.1-9.4 9.9-12.9.4-.3.8-.5 1.1-.6' fill='none' stroke='%234a5266' stroke-opacity='.85' stroke-width='1.55' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+.body li.task[data-continued]::before,
+.body li.task[data-continued]::after {
+  content: none;
+}
+
+/* =========================================================
+   Definition lists ("Term" over ": its definition", see
+   postProcessMarkdown): two columns — the terms in italics, set right
+   against their definitions, like a book's glossary. --term-width is
+   the longest term's, at most 38% of the text.
+   ========================================================= */
+
+.body dl.deflist {
+  /* CUSTOMIZABLE STYLE: definition list */
+  margin: .5em 0 .9em;
+}
+
+.body .def {
+  display: flow-root;
+  margin-bottom: .3em;
+}
+
+.body .def dt {
+  float: left;
+  clear: left;
+  width: var(--term-width);
+  text-align: right;
+  font-style: italic;
+}
+
+/* Chinese has no italic: upright, a little heavier instead. */
+.body .def dt .cjk {
+  font-style: normal;
+  font-weight: 600;
+}
+
+.body .def dd {
+  margin: 0 0 0 calc(var(--term-width) + 1em);
+}
+
+.body .def :is(dt, dd) {
+  -webkit-text-stroke: 0.25px currentColor;
+}
+
+.body .def dd + dd {
+  margin-top: .2em;
+}
+
+/* =========================================================
+   Inline #tags: the word, without its "#", in grey small capitals
+   ========================================================= */
+
+.body .tag {
+  /* CUSTOMIZABLE STYLE: inline tag */
+  font-variant: small-caps;
+  letter-spacing: .05em;
+  color: var(--muted);
 }
 
 /* =========================================================
@@ -1399,19 +1697,59 @@ figure.md-table figcaption {
    Links between notes ([[wikilinks]], relative .md links)
    ========================================================= */
 
-/* CUSTOMIZABLE STYLE: link to another note — reads as text, a quiet
-   underline marks it */
+/* CUSTOMIZABLE STYLE: link to another note — set like a title (see
+   noteTitleHtml in render.js), no underline: what marks it as a link
+   is the small circled L after it. */
 .wikilink {
   color: inherit;
-  text-decoration: underline;
-  text-decoration-thickness: .5px;
-  text-underline-offset: .15em;
+  text-decoration: none;
 }
 
-/* A link to a note that isn't published: dotted, leading to the
-   "not available" page. */
-.wikilink--missing {
-  text-decoration-style: dotted;
+.link-mark {
+  display: inline-block;
+  position: relative;
+  /* Raised like a superscript, without opening up the line. */
+  top: -.6em;
+  width: 1.36em;
+  height: 1.36em;
+  margin-left: .1em;
+  border: .08em solid currentColor;
+  border-radius: 50%;
+  font: 600 .52em/1.22em var(--title-serif);
+  font-style: normal;
+  text-align: center;
+  vertical-align: baseline;
+  -webkit-text-stroke: 0;
+}
+
+.link-mark--tight {
+  margin-left: -.75em;
+}
+
+/* On hover, the link — title and mark — inverted: white on black. */
+.wikilink:hover {
+  /* CUSTOMIZABLE STYLE: link hover */
+  color: var(--paper);
+  background: var(--ink);
+  /* A hair of black past the letters (padding would move the line). */
+  box-shadow: 0 0 0 .1em var(--ink);
+  text-shadow: none;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* Cross-references after a link: "(p. 12)", "(§2.1)". */
+.xref {
+  font-variant-numeric: lining-nums;
+  white-space: nowrap;
+}
+
+/* A section link shows its section number; with headings unnumbered,
+   its page instead. Pages unnumbered: no page references. */
+html:not(.no-heading-numbers) .xref--if-unnumbered,
+.no-heading-numbers .xref--section,
+.no-page-numbers .xref--page {
+  display: none;
 }
 
 /* =========================================================
@@ -1962,6 +2300,12 @@ html {
   column-fill: balance;
 }
 
+/* CUSTOMIZABLE STYLE: Chinese in the zine layout on a computer, set
+   more open than English. */
+html:not(.is-touch) .page-zine .body :is(p, li).zh {
+  line-height: calc(var(--body-leading) + .3);
+}
+
 /* A plain full-width list right after the byline (see renderEntryBody
    in server.js), instead of pinned to the page corner. */
 .references--inline {
@@ -2125,6 +2469,37 @@ html[data-layout="phone"] .byline-footer--running {
 html[data-layout="phone"] .page .page-number,
 html[data-layout="tablet"] .page .page-number {
   bottom: 14px;
+}
+
+/* Except on a phone, the page number lines up with the text above it:
+   with its left edge on a left-hand page, its right edge on a
+   right-hand one (the outer edges of a spread). */
+html:not([data-layout="phone"]) .page .page-number {
+  left: var(--pad-left);
+  width: var(--area-width);
+  transform: none;
+  text-align: left;
+}
+
+html:not([data-layout="phone"]) :is(.page--right, .page-back[data-side="right"]) > .page-number,
+html:not([data-layout="phone"]) .page--right > .page-bleed > .page-number {
+  text-align: right;
+  /* The letter-spacing trails the last digit too: not past the text. */
+  transform: translateX(.12em);
+}
+
+html[data-layout="tablet"] :is(.page--right, .page-back[data-side="right"]) > .page-number,
+html[data-layout="tablet"] .page--right > .page-bleed > .page-number {
+  left: var(--pad-right);
+}
+
+/* A copy showing through keeps its own page's side. */
+html:not([data-layout="phone"]) .page-back[data-side="left"] > .page-number {
+  text-align: left;
+}
+
+html[data-layout="tablet"] .page-back[data-side="left"] > .page-number {
+  left: var(--pad-left);
 }
 
 /* Show-through: the copy on a page's back keeps the margins of the page
