@@ -6,12 +6,12 @@
   const viewer = $("epub-viewer"), status = $("epub-status"), toc = $("epub-toc");
   const position = $("epub-position");
   const menu = $("epub-menu"), progress = $("epub-progress"), percent = $("epub-percent");
-  const bookmarkStatus = $("epub-bookmark-status"), addBookmark = $("epub-bookmark-add");
+  const addBookmark = $("epub-bookmark-add");
   const stateKey = `md2book.epub:${library}:${id}`;
   const bookmarkKey = stateKey + ":bookmarks";
   const bookmarkUrl = `/api/epub-bookmarks/${id}`;
   position.hidden = !row.pageNumbers;
-  let book, rendition, current, disposed = false, locationsReady = false, storageUnavailable = false;
+  let book, rendition, current, disposed = false, locationsReady = false;
   let bookmarks = [], bookmarksReady = false, bookmarkBusy = false, lastSync = 0;
   let navigationQueue = Promise.resolve(), queued = 0, lastTouch = -Infinity;
   const readLocal = (key, fallback) => {
@@ -47,7 +47,6 @@
     if (cloud && !bookmarkBusy && Date.now() - lastSync > 30000) loadBookmarks();
   }
   $("epub-menu-toggle").addEventListener("click", toggleMenu);
-  $("epub-menu-close").addEventListener("click", () => menu.close());
   menu.addEventListener("click", event => {
     const r = menu.getBoundingClientRect();
     if (event.target === menu && (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom)) menu.close();
@@ -66,10 +65,11 @@
     turn(forward !== (book.package.metadata.direction === "rtl"));
   }
 
-  function tapAt(x, touch = false) {
+  function tapAt(x, y, touch = false) {
     const bounds = viewer.getBoundingClientRect();
     const fraction = (x - bounds.left) / bounds.width;
-    if (Math.abs(fraction - .5) <= .08) { toggleMenu(); return; }
+    // The menu opens from the upper half of the gutter only.
+    if (Math.abs(fraction - .5) <= .08 && y - bounds.top <= bounds.height / 2) { toggleMenu(); return; }
     if (!touch) return;
     turn((fraction > .5) !== (book.package.metadata.direction === "rtl"));
   }
@@ -88,10 +88,10 @@
     const doc = documentOrElement.ownerDocument || documentOrElement;
     const hasSelection = () => Boolean(doc.getSelection()?.toString());
     const interactive = target => target.closest?.("a, button, input, select, textarea, audio, video, [contenteditable]");
-    const xInViewer = x => {
-      if (doc === document) return x;
+    const toViewer = (x, y) => {
+      if (doc === document) return [x, y];
       const frame = doc.defaultView.frameElement, rect = frame.getBoundingClientRect();
-      return rect.left + x * rect.width / frame.offsetWidth;
+      return [rect.left + x * rect.width / frame.offsetWidth, rect.top + y * rect.height / frame.offsetHeight];
     };
     documentOrElement.addEventListener("touchstart", event => {
       start = null;
@@ -112,12 +112,12 @@
       if (!tap || event.touches.length || touch.identifier !== tap.id || performance.now() - tap.time > 350 || hasSelection() ||
           Math.hypot(touch.clientX - tap.x, touch.clientY - tap.y) > 10 || (window.visualViewport?.scale || 1) > 1.05) return;
       event.preventDefault();
-      tapAt(xInViewer(touch.clientX), true);
+      tapAt(...toViewer(touch.clientX, touch.clientY), true);
     }, { passive: false });
     documentOrElement.addEventListener("click", event => {
       if (performance.now() - lastTouch < 750 || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey ||
           event.altKey || hasSelection() || interactive(event.composedPath()[0])) return;
-      tapAt(xInViewer(event.clientX));
+      tapAt(...toViewer(event.clientX, event.clientY));
     });
   }
 
@@ -185,12 +185,9 @@
       if (disposed) return;
       locationsReady = book.locations.length() > 0;
       progress.disabled = !locationsReady;
-      if (!storageUnavailable) $("epub-progress-status").textContent = locationsReady ? "" : "This book has no text progress index. Use Contents to navigate.";
       updateProgress();
       if (cacheKey && !cacheLoaded) await locationCache(cacheKey, book.locations.save());
-    } catch {
-      if (!disposed) $("epub-progress-status").textContent = "Progress index unavailable. Contents and bookmarks still work.";
-    }
+    } catch { /* Contents and bookmarks still work without a progress index. */ }
   }
 
   function renderBookmarks() {
@@ -210,7 +207,7 @@
       li.append(jump, remove); list.append(li);
     }
     addBookmark.disabled = !current || !bookmarksReady || bookmarkBusy;
-    addBookmark.textContent = bookmarks.some(b => b.cfi === current?.start.cfi) ? "Bookmarked" : "Add bookmark";
+    addBookmark.textContent = bookmarks.some(b => b.cfi === current?.start.cfi) ? "Added" : "Add";
   }
   async function cloudRequest(operation) {
     const response = await fetch(bookmarkUrl, operation ? {
@@ -223,24 +220,18 @@
   async function loadBookmarks() {
     if (bookmarkBusy) return;
     bookmarkBusy = true;
-    bookmarkStatus.textContent = cloud ? "Syncing bookmarks…" : "Bookmarks stay in this browser.";
     try {
       bookmarks = cloud ? await cloudRequest() : readLocal(bookmarkKey, []);
       if (!Array.isArray(bookmarks)) bookmarks = [];
       bookmarksReady = true;
       lastSync = Date.now();
-      bookmarkStatus.textContent = cloud ? "Synced with your private library." : "Bookmarks stay in this browser.";
-      $("epub-bookmark-retry").hidden = true;
-    } catch (error) {
-      bookmarkStatus.textContent = error.message;
-      $("epub-bookmark-retry").hidden = false;
+    } catch { /* Retried the next time the menu opens. */
     } finally { bookmarkBusy = false; renderBookmarks(); }
   }
   async function changeBookmark(operation) {
     if (!bookmarksReady || bookmarkBusy) return;
     bookmarkBusy = true;
     renderBookmarks();
-    bookmarkStatus.textContent = "Saving bookmark…";
     try {
       if (cloud) bookmarks = await cloudRequest(operation);
       else {
@@ -250,9 +241,7 @@
         bookmarks = result;
       }
       lastSync = Date.now();
-      bookmarkStatus.textContent = cloud ? "Saved to your private library." : "Saved in this browser.";
-    } catch (error) {
-      bookmarkStatus.textContent = `Not saved: ${error.message}. Please try again.`;
+    } catch { /* Not saved; the list still shows what is stored. */
     } finally { bookmarkBusy = false; renderBookmarks(); }
   }
   addBookmark.addEventListener("click", () => {
@@ -260,7 +249,6 @@
     const chapter = toc.selectedOptions[0]?.textContent.trim() || `Chapter ${current.start.index + 1}`;
     changeBookmark({ type: "add", cfi: current.start.cfi, label: `${chapter} · ${locationsReady ? percent.textContent : position.textContent}`.slice(0, 300) });
   });
-  $("epub-bookmark-retry").addEventListener("click", loadBookmarks);
   loadBookmarks();
 
   try {
@@ -291,14 +279,14 @@
     rendition.on("relocated", location => {
       current = location;
       $("epub-columns").disabled = !rendition.canSwitchColumns;
-      $("epub-columns").textContent = rendition.columns === 2 ? "Single column (\\)" : "Two columns (\\)";
+      $("epub-columns").textContent = rendition.columns === 2 ? "One column" : "Two columns";
       $("epub-spread").disabled = !rendition.canSwitchSpread;
-      $("epub-spread").textContent = rendition.perSpread === 2 ? "Single page (/)" : "Double page (/)";
+      $("epub-spread").textContent = rendition.perSpread === 2 ? "One page" : "Two pages";
 
       showPageNumber(location.pagination);
       // Persist synchronously: a refresh immediately after a turn keeps this CFI.
       try { localStorage.setItem(stateKey, JSON.stringify({ cfi: location.start.cfi, href: location.start.href, updated: Date.now() })); }
-      catch { storageUnavailable = true; $("epub-progress-status").textContent = "Browser storage is unavailable; reading position cannot be saved."; }
+      catch { /* Position cannot be saved without browser storage. */ }
       const href = location.start.href.split("#")[0];
       const option = [...toc.options].find(o => o.value.split("#")[0] === href);
       if (option) toc.value = option.value;
