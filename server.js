@@ -10,7 +10,7 @@ import { createEntrySource } from "./lib/source.js";
 import { loadConfig, layerSettings, readSettings, resolveConfig, writeSettings, DEFAULTS } from "./lib/config.js";
 import {
   setup, clearCache, forgetNote, HOME_PATH, SEARCH_PATH, imageProxyMap, assetIds, resolveVaultLinks, listEntries,
-  renderHomePage, renderContentsPage, renderEntryPage, renderUnavailablePage, searchTextOf, scanVault
+  listEpubs, renderEpubPage, renderHomePage, renderContentsPage, renderEntryPage, renderUnavailablePage, searchTextOf, scanVault
 } from "./lib/render.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -106,6 +106,7 @@ setup({
   live: LIVE,
   // Linked from the home page.
   settingsPath: SETTINGS_PATH,
+  epubCloud: Boolean(REPO_SETTINGS || process.env.VERCEL),
   imageToken: IMAGE_GITHUB_TOKEN,
   temmlVersion: createRequire(import.meta.url)("temml/package.json").version
 });
@@ -126,6 +127,59 @@ app.use("/static", express.static(path.join(__dirname, "static"), {
 const JUSTIF_DIR = path.join(__dirname, "node_modules/justif");
 app.use("/vendor/justif", express.static(path.join(JUSTIF_DIR, "dist"), { maxAge: "30d" }));
 app.get("/vendor/justif/LICENSE", (req, res) => res.type("text/plain").sendFile(path.join(JUSTIF_DIR, "LICENSE")));
+
+app.use("/vendor/epubjs", express.static(path.join(__dirname, "node_modules/epubjs/dist")));
+app.use("/vendor/jszip", express.static(path.join(__dirname, "node_modules/jszip/dist")));
+
+app.get(["/epub/:id", "/epub-file/:id"], async (req, res) => {
+  try {
+    const book = (await listEpubs()).find(book => book.id === req.params.id);
+    if (!book) return res.status(404).type("html").send(renderUnavailablePage());
+    if (req.path.startsWith("/epub/")) return res.type("html").send(renderEpubPage(book, undefined, { homePath: SETTINGS_MODE === "repo" && !hasBookmarkSession(req) ? "/" : HOME_PATH }));
+    const asset = await entrySource.readAsset(book.path);
+    if (!asset) return res.status(404).send("Not found");
+    res.type("application/epub+zip").set("Cache-Control", "no-store");
+    if (asset.size) res.set("Content-Length", String(asset.size));
+    asset.stream.on("error", () => res.destroy()).pipe(res);
+  } catch (error) {
+    res.status(500).type("text").send(`Could not read EPUB: ${error.message}`);
+  }
+});
+
+// The private library URL unlocks personal bookmarks, as it does settings.
+// Shared EPUB URLs neither expose that URL nor grant write access.
+const BOOKMARK_COOKIE = "md2book-epub-owner";
+function bookmarkSignature(value) {
+  return crypto.createHmac("sha256", process.env.GITHUB_TOKEN || "").update(HOME_PATH + ":" + value).digest("hex");
+}
+function grantBookmarkSession(res) {
+  const expires = String(Date.now() + 30 * 86400000);
+  res.cookie(BOOKMARK_COOKIE, expires + "." + bookmarkSignature(expires), {
+    httpOnly: true, sameSite: "strict", secure: Boolean(process.env.VERCEL), maxAge: 30 * 86400000, path: "/"
+  });
+}
+function hasBookmarkSession(req) {
+  const cookie = (req.headers.cookie || "").split(";").map(s => s.trim()).find(s => s.startsWith(BOOKMARK_COOKIE + "="));
+  const value = cookie?.slice(BOOKMARK_COOKIE.length + 1) || "";
+  const [expires, signature] = value.split(".");
+  if (!/^\d+$/.test(expires || "") || Number(expires) < Date.now() || !/^[a-f0-9]{64}$/.test(signature || "")) return false;
+  return crypto.timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(bookmarkSignature(expires), "hex"));
+}
+function bookmarkGuard(req, res, next) {
+  res.set("Cache-Control", "no-store");
+  if (SETTINGS_MODE !== "repo" || !entrySource.bookmarks) return res.status(503).json({ error: "Cloud bookmarks need GITHUB_OWNER, GITHUB_REPO, GITHUB_TOKEN (Contents: Read and write), and a private HOME_PATH." });
+  if (!hasBookmarkSession(req)) return res.status(403).json({ error: "Open your private library URL first to enable cloud bookmarks on this device." });
+  if (!/^[a-f0-9]{64}$/.test(req.params.id)) return res.status(400).json({ error: "Invalid book id" });
+  next();
+}
+app.get("/api/epub-bookmarks/:id", bookmarkGuard, async (req, res) => {
+  try { res.json(await entrySource.bookmarks.read(req.params.id)); }
+  catch { res.status(502).json({ error: "Could not load cloud bookmarks. Check GitHub access and try again." }); }
+});
+app.post("/api/epub-bookmarks/:id", bookmarkGuard, express.json({ limit: "8kb" }), async (req, res) => {
+  try { res.json(await entrySource.bookmarks.update(req.params.id, req.body)); }
+  catch { res.status(400).json({ error: "Bookmark was not saved. Check GitHub write access and retry." }); }
+});
 
 const clients = new Set();
 
@@ -225,9 +279,10 @@ app.get(SEARCH_PATH, async (req, res) => {
 });
 
 app.get(HOME_PATH, async (_req, res) => {
+  if (SETTINGS_MODE === "repo") grantBookmarkSession(res);
   try {
     const entries = await listEntries();
-    res.type("html").send(resolveVaultLinks(renderHomePage(entries)));
+    res.type("html").send(resolveVaultLinks(renderHomePage(entries, await listEpubs())));
   } catch (error) {
     res.status(500).type("text").send(`Could not list notes from ${entrySource.label}\n\n${error.stack || error}`);
   }
@@ -262,13 +317,14 @@ app.get("/entry/:slug", async (req, res) => {
   }
 });
 
+let liveWatcher;
 if (LIVE) {
   const watchTargets = [
     entrySource.rootDir,
     path.join(__dirname, "static")
   ];
 
-  chokidar.watch(watchTargets, {
+  liveWatcher = chokidar.watch(watchTargets, {
     ignoreInitial: true,
     usePolling: process.env.WATCH_POLLING === "1",
     interval: 1000
@@ -343,7 +399,16 @@ app.put(SETTINGS_BASE + "/api/settings", settingsGuard, express.json({ limit: "2
 // bin/). Deployed on Vercel, `api/index.js` imports `app` instead and
 // Vercel handles listening.
 export function start({ port = PORT, open = process.env.NO_OPEN !== "1", openPath = HOME_PATH } = {}) {
-  return app.listen(port, () => {
+  return app.listen(port, error => {
+    if (error) {
+      console.error(error.code === "EADDRINUSE"
+        ? `md2book: port ${port} is already in use. Stop the other server or choose --port ${port + 1}.`
+        : `md2book: could not start: ${error.message}`);
+      process.exitCode = 1;
+      // A failed CLI start must not remain alive just watching the vault.
+      liveWatcher?.close();
+      return;
+    }
     const url = `http://localhost:${port}${HOME_PATH}`;
     console.log(`md2book: ${url}`);
     console.log(`Notes:   ${entrySource.label}`);

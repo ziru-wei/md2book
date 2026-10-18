@@ -211,12 +211,14 @@ html.show-through .page-back .page-area {
 /* CUSTOMIZABLE STYLE: letterpress — the light rim below each letter
    and the shadow above it (the impression), ink spread a hair to each
    side, and the ink's own weight. */
+html.letterpress .epub-ink,
 html.letterpress #book .page > :is(.page-area, .page-foot, .page-number, .page-comments) {
-  text-shadow:
+  --letterpress-shadow:
     0 calc(1.2px * var(--letterpress)) 0 rgba(255, 255, 255, calc(1.8 * var(--letterpress))),
     0 calc(-.7px * var(--letterpress)) 0 rgba(0, 0, 0, calc(.34 * var(--letterpress))),
     calc(.35px * var(--letterpress)) 0 0 rgba(20, 22, 28, calc(.3 * var(--letterpress))),
     calc(-.35px * var(--letterpress)) 0 0 rgba(20, 22, 28, calc(.3 * var(--letterpress)));
+  text-shadow: var(--letterpress-shadow);
   -webkit-text-stroke: calc(.45px * var(--letterpress)) rgba(0, 0, 0, calc(.22 * var(--letterpress)));
 }
 
@@ -225,7 +227,7 @@ html.letterpress #book .page > :is(.page-area, .page-foot, .page-number, .page-c
    text over it (.page-bleed, from reader.js), one blur for the whole
    area rather than one per letter, drawn once with the page. Kept
    faint: a soft halo, not a smudge. */
-html.ink-bleed #book .page > .page-bleed {
+html.ink-bleed :is(#book, #epub-viewer) .page > .page-bleed {
   position: absolute;
   inset: 0;
   z-index: 2;
@@ -264,6 +266,30 @@ html.letterpress #book .page > .page-bleed :is(.page-area, .page-foot, .page-com
   mask-repeat: no-repeat;
 }
 
+/* A mask hides whatever lies outside its element's box — here, letters
+   that reach a little past the text's edge: an italic date set right,
+   hung punctuation. (mask-clip: no-clip would keep them; Chrome takes
+   it and clips anyway.) So the text area's box reaches that far past
+   each edge, padded back by as much: the text stays where it was cut,
+   only the box is wider. On the pages on screen only, after they're
+   cut. */
+html.letterpress #book .page > .page-area {
+  --ink-reach: calc(1.2 * var(--body-size));
+  left: calc(var(--pad-left) - var(--ink-reach));
+  width: calc(var(--area-width) + 2 * var(--ink-reach));
+  padding: 0 var(--ink-reach);
+  clip-path: inset(0);
+}
+
+html.letterpress[data-layout="tablet"] #book .page--right > .page-area {
+  left: calc(var(--pad-right) - var(--ink-reach));
+}
+
+/* References pinned to the area's bottom-right stay at its text's. */
+html.letterpress #book .page > .page-area .references:not(.references--inline) {
+  right: var(--ink-reach);
+}
+
 /* Except pictures: they show unmasked from .page-pictures, a copy of
    the text area with nothing else in it, laid over it (reader.js). Not
    a stacking context of its own, so a multiplied image still blends
@@ -296,6 +322,11 @@ html.letterpress #book .page-pictures .page-area :is(img, .image-placeholder) {
 html.letterpress #book .page :is(.page-area, .page-foot) {
   -webkit-mask-position: calc(-1 * var(--pad-left)) calc(-1 * var(--pad-top));
   mask-position: calc(-1 * var(--pad-left)) calc(-1 * var(--pad-top));
+}
+
+html.letterpress #book .page > .page-area {
+  -webkit-mask-position: calc(var(--ink-reach) - var(--pad-left)) calc(-1 * var(--pad-top));
+  mask-position: calc(var(--ink-reach) - var(--pad-left)) calc(-1 * var(--pad-top));
 }
 
 html.letterpress #book .page .page-foot {
@@ -1392,6 +1423,16 @@ figure.md-table figcaption {
   line-height: 1.2;
 }
 
+/* Chinese in a caption: upright Huiwen Fangsong (Chinese has no
+   italic), a size down — at the caption's size a Chinese character
+   stands much taller than the italic Latin beside it. */
+:is(.body, .teaser-slot, .span-placed) figcaption .cjk {
+  /* CUSTOMIZABLE STYLE: Chinese in captions */
+  font-family: "Huiwen Fangsong", var(--serif);
+  font-style: normal;
+  font-size: .88em;
+}
+
 /* Fallback shown only if a remote image fails to load. */
 .image-placeholder {
   display: grid;
@@ -2338,7 +2379,8 @@ html:not(.is-touch) .page-zine .body :is(p, li).zh {
    document has any (html.has-notes).
    ========================================================= */
 
-html[data-layout="phone"] {
+html[data-layout="phone"],
+html[data-layout="phone"] .epub-face {
   /* CUSTOMIZABLE STYLE: phone page */
   --pad-x: 22px;
   --pad-top: 54px;
@@ -2352,7 +2394,8 @@ html[data-layout="phone"] {
 /* A document with side comments sets its text a little narrower. Pages
    with comments shift it left to open a right margin for them; the
    others keep it centered. */
-html[data-layout="phone"].has-notes {
+html[data-layout="phone"].has-notes,
+html[data-layout="phone"] .epub-face.page--notes {
   --pad-right: 92px;
 }
 
@@ -2361,7 +2404,8 @@ html[data-layout="phone"] .page:not(.page--notes) .page-foot {
   left: calc((var(--paper-width) - var(--area-width)) / 2);
 }
 
-html[data-layout="tablet"] {
+html[data-layout="tablet"],
+html[data-layout="tablet"] .epub-face {
   /* CUSTOMIZABLE STYLE: landscape tablet page (one side of the spread) */
   --pad-x: 56px;
   --pad-top: 48px;
@@ -2374,7 +2418,8 @@ html[data-layout="tablet"] {
 
 /* Wider outer margin (left on a left-hand page — mirrored on the right
    one), narrower gutter. */
-html[data-layout="tablet"].has-notes {
+html[data-layout="tablet"].has-notes,
+html[data-layout="tablet"] .epub-face.page--notes {
   --pad-left: 108px;
   --pad-right: 40px;
 }
@@ -2385,7 +2430,8 @@ html[data-layout="tablet"].has-notes {
    share of the page instead (19% each side; with side comments 26% on
    the outside, 12% inside), so text and margins keep their proportion
    — tabletSingle in reader.js counts with the same shares. */
-html[data-layout="tablet"]:not(.is-touch) {
+html[data-layout="tablet"]:not(.is-touch),
+html[data-layout="tablet"]:not(.is-touch) .epub-face {
   /* CUSTOMIZABLE STYLE: laptop tablet-style page */
   --pad-x: min(160px, calc(var(--paper-width) * .19));
   --pad-top: 100px;
@@ -2398,7 +2444,8 @@ html[data-layout="tablet"]:not(.is-touch) {
   --note-width: calc(var(--pad-left) - var(--note-inset) - 14px);
 }
 
-html[data-layout="tablet"]:not(.is-touch).has-notes {
+html[data-layout="tablet"]:not(.is-touch).has-notes,
+html[data-layout="tablet"]:not(.is-touch) .epub-face.page--notes {
   --pad-left: min(250px, calc(var(--paper-width) * .26));
   --pad-right: min(120px, calc(var(--paper-width) * .12));
 }
@@ -2407,13 +2454,15 @@ html[data-layout="tablet"]:not(.is-touch).has-notes {
    text no wider than --measure (or the share above, on a narrow
    window), the rest margin — split evenly, or, with side comments,
    in the same proportion as above. */
-html[data-layout="tablet"].tablet-single:not(.is-touch) {
+html[data-layout="tablet"].tablet-single:not(.is-touch),
+html[data-layout="tablet"].tablet-single:not(.is-touch) .epub-face {
   /* CUSTOMIZABLE STYLE: longest line on the one-page view */
   --measure: min(calc(var(--body-size) * 32), calc(var(--paper-width) * .62));
   --pad-x: calc((var(--paper-width) - var(--measure)) / 2);
 }
 
-html[data-layout="tablet"].tablet-single:not(.is-touch).has-notes {
+html[data-layout="tablet"].tablet-single:not(.is-touch).has-notes,
+html[data-layout="tablet"].tablet-single:not(.is-touch) .epub-face.page--notes {
   --pad-left: calc((var(--paper-width) - var(--measure)) * .68);
   --pad-right: calc((var(--paper-width) - var(--measure)) * .32);
   /* Side comments as wide as on a two-page spread at most, next to

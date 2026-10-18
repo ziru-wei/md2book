@@ -1104,10 +1104,12 @@
       if (!table) return;
       const L = settings.layouts;
       L.rules ||= [];
+      L.epubRules ||= [];
       const used = L.rules.map(r => String(r.collection).toLowerCase());
       const head = `<thead><tr><th>${esc(t("colCollection"))}</th>${COLUMNS.map(([, k, tipKey]) => `<th><span ${tip(tipKey)}>${esc(t(k))}</span></th>`).join("")}<th></th></tr></thead>`;
+      const epubKeys = new Set(["dropCap", "justify", "multiplyImages", "pageNumbers", "columns", "numberFigures", "numberTables", "numberHeadings", "showThrough", "letterpress", "inkBleed"]);
       const tr = (label, row, id, isAll, extra = "") =>
-        `<tr data-row="${id}">${label}${COLUMNS.map(([key]) => `<td>${cell(key, row, isAll)}</td>`).join("")}<td>${extra}</td></tr>`;
+        `<tr data-row="${id}">${label}${COLUMNS.map(([key]) => `<td>${String(id).startsWith("epub:") && !epubKeys.has(key) ? `<span class="na">—</span>` : cell(key, row, isAll)}</td>`).join("")}<td>${extra}</td></tr>`;
       const rows = [
         tr(`<th scope="row" class="default"><span ${tip("tipCollection")}>${esc(t("rowCollection"))}</span></th>`, L.collection, "collection", true),
         ...L.rules.map((rule, i) => {
@@ -1120,6 +1122,12 @@
             `<button type="button" class="remove-rule" data-remove="${i}" title="${esc(t("removeRule"))}" aria-label="${esc(t("removeRule"))}">×</button>`);
         })
       ];
+      for (const [i, book] of (vault.epubs || []).entries()) {
+        const rule = L.epubRules.find(r => r.epub === book.path);
+        rows.push(tr(`<th scope="row" title="${esc(book.path)}">EPUB · ${esc(book.title)}</th>`,
+          { ...L.collection, ...rule }, `epub:${i}`, true,
+          rule ? `<button type="button" class="remove-rule" data-remove-epub="${i}" title="${esc(t("removeRule"))}">×</button>` : ""));
+      }
       table.innerHTML = head + `<tbody>${rows.join("")}</tbody>`;
       showConflicts();
       const free = collectionNames().filter(n => !used.includes(n.toLowerCase()));
@@ -1144,6 +1152,12 @@
         document.querySelectorAll("[data-source-panel]").forEach(p => { p.hidden = p.dataset.sourcePanel !== source; });
       }
       if (event.target.id === "add-rule") addRule();
+      const epubIndex = event.target.dataset && event.target.dataset.removeEpub;
+      if (epubIndex !== undefined) {
+        settings.layouts.epubRules = settings.layouts.epubRules.filter(r => r.epub !== vault.epubs[Number(epubIndex)].path);
+        renderRules();
+        scheduleSave(true);
+      }
       const remove = event.target.dataset && event.target.dataset.remove;
       if (remove !== undefined) {
         settings.layouts.rules.splice(Number(remove), 1);
@@ -1157,14 +1171,22 @@
       const tr = el.closest("tr[data-row]");
       const id = tr.dataset.row;
       const L = settings.layouts;
-      const row = id === "collection" ? L.collection : L.rules[Number(id)];
+      let row;
+      if (id.startsWith("epub:")) {
+        const path = vault.epubs[Number(id.slice(5))].path;
+        row = L.epubRules.find(r => r.epub === path);
+        if (!row) {
+          row = { ...structuredClone(L.collection), epub: path };
+          L.epubRules.push(row);
+        }
+      } else row = id === "collection" ? L.collection : L.rules[Number(id)];
       const key = el.dataset.key;
       let value = el.type === "checkbox" ? el.checked : el.value;
       if (key === "columns") value = Number(value);
       if (key === "privateHeading") value = value.trim();
       row[key] = value;
       if (key === "applyToAll" && !value) delete row.applyToAll;
-      if (key === "collection" || key === "applyToAll") renderRules();
+      if (key === "collection" || key === "applyToAll" || id.startsWith("epub:")) renderRules();
     }
 
     // --- reading the form ------------------------------------------------------

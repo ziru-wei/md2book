@@ -51,3 +51,9 @@ fs.copyFileSync(path.join(root, "node_modules/justif/LICENSE"), path.join(out, "
 // GitHub Pages: serve files as they are (no Jekyll).
 fs.writeFileSync(path.join(out, ".nojekyll"), "");
 console.log("Built dist/");
+
+for (const [pkg, file, license] of [["epubjs", "epub.min.js", "license"], ["jszip", "jszip.min.js", "LICENSE.markdown"]]) {
+  fs.mkdirSync(path.join(out, "vendor", pkg), { recursive: true });
+  fs.copyFileSync(path.join(root, "node_modules", pkg, "dist", file), path.join(out, "vendor", pkg, file));
+  fs.copyFileSync(path.join(root, "node_modules", pkg, license), path.join(out, "vendor", pkg, "LICENSE"));
+}

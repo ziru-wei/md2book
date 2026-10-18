@@ -29,6 +29,7 @@
   if (!source || !book) return;
 
   const root = document.documentElement;
+  const div = window.createPageTurn.element;
   const tocDialog = document.getElementById("toc-dialog");
   // /contents lists entries oldest-first but opens on the newest one's
   // first page (see renderContentsPage in server.js).
@@ -232,67 +233,7 @@
   // down to the second line's baseline (Chinese: the foot of its
   // characters), and flush with the column's left edge — whatever the
   // font, size or leading, in English or Chinese.
-  const CJK_CHAR = /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/;
-  const measureCanvas = document.createElement("canvas").getContext("2d");
-
-  function fitDropCaps(area) {
-    if (root.classList.contains("no-drop-cap")) return;
-    for (const p of area.querySelectorAll(".body p.drop-cap")) {
-      const letter = [...p.textContent.trimStart()][0];
-      if (!letter) continue;
-      const style = getComputedStyle(p);
-      const size = parseFloat(style.fontSize);
-      const lineHeight = parseFloat(style.lineHeight) || size * 1.2;
-      const cjk = CJK_CHAR.test(letter);
-      // What the letter spans: a capital's height, or a character's.
-      const ref = cjk ? "国" : "H";
-      const font = px => `${style.fontStyle} 400 ${px}px ${style.fontFamily}`;
-      const ink = (text, px) => {
-        measureCanvas.font = font(px);
-        return measureCanvas.measureText(text);
-      };
-      const body = ink(ref, size);
-      const up = body.actualBoundingBoxAscent;
-      const down = cjk ? body.actualBoundingBoxDescent : 0;
-      const unit = ink(ref, 100);
-      const dropSize = (lineHeight + up + down) / ((unit.actualBoundingBoxAscent + (cjk ? unit.actualBoundingBoxDescent : 0)) / 100);
-
-      // Where the paragraph's first baseline is, and where the drop
-      // letter's own baseline sits in its box (line-height = its size).
-      const probe = () => {
-        const el = document.createElement("span");
-        el.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
-        return el;
-      };
-      const firstLine = probe();
-      p.classList.remove("drop-cap");
-      // A paragraph under three lines is too short to hold one.
-      if (p.getBoundingClientRect().height < 2.5 * lineHeight) continue;
-      p.prepend(firstLine);
-      const baseline = firstLine.getBoundingClientRect().bottom - p.getBoundingClientRect().top;
-      firstLine.remove();
-      p.classList.add("drop-cap");
-      const box = document.createElement("div");
-      box.style.cssText = `position:absolute;visibility:hidden;white-space:nowrap;font:${font(dropSize)};line-height:${dropSize}px`;
-      const own = probe();
-      box.append(letter, own);
-      area.appendChild(box);
-      const dropBaseline = own.getBoundingClientRect().bottom - box.getBoundingClientRect().top;
-      box.remove();
-
-      // The letter's ink top, where the first line's starts.
-      const top = (baseline - up) - (dropBaseline - unit.actualBoundingBoxAscent / 100 * dropSize);
-      const drop = ink(letter, dropSize);
-      const gap = 0.45 * size;
-      p.style.setProperty("--drop-size", dropSize + "px");
-      p.style.setProperty("--drop-line", dropSize + "px");
-      p.style.setProperty("--drop-top", top + "px");
-      // The float ends just above the third line, so only two wrap it.
-      p.style.setProperty("--drop-bottom", (2 * lineHeight - 0.5 - top - dropSize) + "px");
-      p.style.setProperty("--drop-left", drop.actualBoundingBoxLeft + "px");
-      p.style.setProperty("--drop-right", (gap - (drop.width - drop.actualBoundingBoxRight)) + "px");
-    }
-  }
+  const fitDropCaps = window.fitReaderDropCaps;
 
   // Fills `area` with a fresh copy of the flow and readies it for
   // measuring. Returns the running bylines it set aside (article →
@@ -1077,70 +1018,15 @@
   // Two columns: the margin next to the anchor's column. One column:
   // the page's outer margin — right on a phone, and on a tablet spread
   // the left page's left edge and the right page's right edge.
-  function noteSide(page, inLeftHalf) {
-    const layout = root.dataset.layout;
-    if (layout === "phone") return "right";
-    if (layout === "tablet") return page.classList.contains("page--left") ? "left" : "right";
-    return inLeftHalf ? "left" : "right";
-  }
-
   function placeMarginNotes(page) {
-    const notes = Array.from(page.querySelectorAll(".page-area .comment-margin-marker"));
-    if (!notes.length) return;
-
     const box = page.getBoundingClientRect();
-    const originTop = box.top + page.clientTop;
-    const midX = box.left + box.width / 2;
-
-    // Measured before anything moves. .comment-number is the anchor's
-    // small, stable part (the note itself still holds its whole text).
-    const items = notes.map(note => {
+    const items = Array.from(page.querySelectorAll(".page-area .comment-margin-marker")).map(note => {
       const anchor = note.closest(".comment-marker")?.querySelector(".comment-number") || note;
       const rect = anchor.getBoundingClientRect();
-      return { note, top: rect.top - originTop, side: noteSide(page, rect.left < midX) };
+      return { note, top: rect.top - box.top - page.clientTop,
+        side: window.readerNotes.side(page, rect.left < box.left + box.width / 2) };
     });
-
-    const layer = document.createElement("div");
-    layer.className = "page-comments";
-    page.appendChild(layer);
-    for (const item of items) {
-      item.note.classList.add("comment-margin-marker--" + item.side);
-      layer.appendChild(item.note);
-    }
-
-    // Notes stay between the first and last line of the text area.
-    const area = page.querySelector(".page-area").getBoundingClientRect();
-    const topLimit = area.top - originTop;
-    const bottomLimit = area.bottom - originTop;
-    const GAP = 6;
-    for (const side of ["left", "right"]) {
-      const column = items.filter(item => item.side === side);
-      const heights = column.map(item => item.note.offsetHeight);
-      const tops = column.map(item => item.top);
-      // 1. Down: each note level with its anchor, or just below the note
-      //    above it.
-      for (let i = 0, cursor = topLimit; i < tops.length; i++) {
-        tops[i] = Math.max(tops[i], cursor);
-        cursor = tops[i] + heights[i] + GAP;
-      }
-      // 2. Up: a note running past the bottom moves up (giving up being
-      //    level with its anchor), pushing the ones above it up too —
-      //    but none above the first line.
-      for (let i = tops.length - 1, limit = bottomLimit; i >= 0; i--) {
-        tops[i] = Math.max(topLimit, Math.min(tops[i], limit - heights[i]));
-        limit = tops[i] - GAP;
-      }
-      // 3. If they still don't all fit, keep them from overlapping and let
-      //    the last one run off the bottom.
-      for (let i = 0, cursor = topLimit; i < tops.length; i++) {
-        tops[i] = Math.max(tops[i], cursor);
-        cursor = tops[i] + heights[i] + GAP;
-      }
-      column.forEach((item, i) => { item.note.style.top = tops[i] + "px"; });
-    }
-    // Phone: only a page with notes moves its text over to make room for
-    // them (see book.css).
-    page.classList.add("page--notes");
+    window.readerNotes.place(page, items);
   }
 
   // Images still downloading get a flat loading background (their box
@@ -1275,19 +1161,7 @@
   // Ink bleed (book.css): the ink soaking into the paper — a blurred
   // copy of everything printed on the page (text, side comments, foot,
   // page number) over it.
-  function addBleed(list) {
-    list.forEach(page => {
-      const layers = page.querySelectorAll(":scope > :is(.page-area, .page-foot, .page-number, .page-comments)");
-      if (!layers.length) return;
-      const bleed = document.createElement("div");
-      bleed.className = "page-bleed";
-      bleed.setAttribute("aria-hidden", "true");
-      bleed.inert = true;
-      for (const layer of layers) bleed.appendChild(layer.cloneNode(true));
-      for (const el of bleed.querySelectorAll("[id]")) el.removeAttribute("id");
-      page.appendChild(bleed);
-    });
-  }
+  const addBleed = window.addReaderInkBleed;
 
   function addShowThrough(list) {
     const copies = list.map(page => {
@@ -1459,75 +1333,10 @@
   // Viewer
   // =========================================================
 
-  // Touch devices (phones, iPads) swipe through pages instead. Detected
-  // by the primary pointer being a finger rather than by screen width,
-  // so a landscape iPad counts too; maxTouchPoints also catches iPadOS
-  // Safari, which presents itself as a desktop Mac.
-  const isTouch =
-    matchMedia("(pointer: coarse)").matches ||
-    matchMedia("(hover: none)").matches ||
-    navigator.maxTouchPoints > 1;
-  // Tablets show a two-page spread in landscape, one page in portrait;
-  // phones always one. Every iPad's short side is >= 744 CSS px, every
-  // phone's well under 600.
-  const isTablet = isTouch && Math.min(screen.width, screen.height) >= 600;
-  // Safari (and every iOS browser — all WebKit) prints differently (see
-  // print.css).
-  root.classList.toggle("is-webkit-print", navigator.vendor === "Apple Computer, Inc.");
-  root.classList.toggle("is-touch", isTouch);
-
-  // Which page geometry to cut for (see book.css):
-  // - "book": the fixed two-column page, scaled to fit — desktop, and a
-  //   portrait tablet.
-  // - "phone": the page IS the screen, one column, larger type.
-  // - "tablet": a landscape tablet's two-page spread, each page half the
-  //   screen, one column.
-  // Only "book" pages are independent of the screen; the other two are
-  // cut again whenever the screen's shape changes.
-  // Desktop: opens on the book page, or — layout rows with one column
-  // (.desktop-tablet) — on the tablet-style spread. The backslash key
-  // switches between the two for this visit only: a reload opens the
-  // page as the settings lay it out again.
+  const geometry = window.createReaderLayout(root);
+  const { isTouch, isTablet, viewportWidth, viewportHeight, tabletSingle } = geometry;
   let wantsTablet = root.classList.contains("desktop-tablet");
-
-  // The tablet-style spread on a computer, in a window too narrow for
-  // two pages side by side: one page, the window's full width. Two
-  // would leave each page's text under 300px between its margins (the
-  // widest, with side comments: 250px and 120px, or 26% and 12% of the
-  // page when narrower — see book.css).
-  function tabletSingle() {
-    if (isTouch || root.dataset.layout !== "tablet") return false;
-    const page = viewportWidth() / 2;
-    return page - Math.min(250, page * 0.26) - Math.min(120, page * 0.12) < 300;
-  }
-
-  function layoutFor() {
-    if (!isTouch) return wantsTablet ? "tablet" : "book";
-    if (!isTablet) return "phone";
-    return viewportWidth() > viewportHeight() ? "tablet" : "book";
-  }
-
-  let layoutKey = "";
-
-  // Sets the layout and screen-derived page size; true if they changed.
-  function applyLayout() {
-    const layout = layoutFor();
-    const w = viewportWidth();
-    const h = viewportHeight();
-    const key = layout === "book" ? layout : `${layout}:${w}x${h}`;
-    if (key === layoutKey) return false;
-    layoutKey = key;
-    root.dataset.layout = layout;
-    root.classList.toggle("tablet-single", tabletSingle());
-    if (layout === "book") {
-      root.style.removeProperty("--paper-width");
-      root.style.removeProperty("--page-height");
-    } else {
-      root.style.setProperty("--paper-width", Math.floor(layout === "tablet" && !tabletSingle() ? w / 2 : w) + "px");
-      root.style.setProperty("--page-height", Math.floor(h) + "px");
-    }
-    return true;
-  }
+  function applyLayout() { return geometry.applyLayout(wantsTablet); }
 
   let pages = [];
   // The .page size from book.css, read while pages are still laid
@@ -1545,28 +1354,7 @@
 
   // Screen width in CSS px — not innerWidth, which on iOS is the visual
   // viewport and changes with pinch/auto zoom.
-  function viewportWidth() {
-    return root.clientWidth || window.innerWidth;
-  }
-
-  // 100svh: the height with the mobile address bar shown. It stays put
-  // while the bar slides in and out, unlike innerHeight, whose constant
-  // changes would feed a resize -> rescale loop.
-  function viewportHeight() {
-    const probe = document.createElement("div");
-    probe.style.cssText = "position:fixed;top:0;height:100svh;width:0;visibility:hidden;";
-    document.body.appendChild(probe);
-    const h = probe.offsetHeight || root.clientHeight || window.innerHeight;
-    probe.remove();
-    return h;
-  }
-
-  function pagesPerSpread() {
-    if (pages.length <= 1) return 1;
-    if (isTouch) return root.dataset.layout === "tablet" ? 2 : 1;
-    if (tabletSingle()) return 1;
-    return wantsDouble ? 2 : 1;
-  }
+  function pagesPerSpread() { return geometry.pagesPerSpread(wantsDouble, pages.length); }
 
   // Every spread scaled as a unit (transform, not zoom: Safari's zoom
   // shrinks a box without shrinking the text painted in it).
@@ -1722,426 +1510,14 @@
   // or screen can hold a page part-way and let go.
   // =========================================================
 
-  let turn = null;
-
-  function div(className) {
-    const el = document.createElement("div");
-    el.className = className;
-    return el;
-  }
-
-  // Each frame of a turn only moves and fades what's already drawn — no
-  // page, shape or shade is drawn again — so the browser can keep up at
-  // full speed. The fold cuts by clipping, not by clip-path (whose shapes
-  // are drawn afresh every frame): each page lies in a .leaf, inside a
-  // large square .leaf-plane that clips what's outside it. Turned so one
-  // edge runs along the fold, a plane shows just one side of it, and the
-  // page inside is turned back so it stays put (or lands where the fold
-  // throws it). The shades are gradients drawn once, faded in and out.
-
-  // 2D affine maps, as CSS matrix(a, b, c, d, e, f): x' = a x + c y + e,
-  // y' = b x + d y + f.
-  const IDENTITY = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
-  const translate = (x, y) => ({ a: 1, b: 0, c: 0, d: 1, e: x, f: y });
-  const rotate = angle => {
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    return { a: cos, b: sin, c: -sin, d: cos, e: 0, f: 0 };
-  };
-  const compose = (P, Q) => ({
-    a: P.a * Q.a + P.c * Q.b,
-    b: P.b * Q.a + P.d * Q.b,
-    c: P.a * Q.c + P.c * Q.d,
-    d: P.b * Q.c + P.d * Q.d,
-    e: P.a * Q.e + P.c * Q.f + P.e,
-    f: P.b * Q.e + P.d * Q.f + P.f
+  const pageTurn = window.createPageTurn({
+    get pageWidth() { return pageWidth; }, get pageHeight() { return pageHeight; },
+    get viewScale() { return viewScale; }, get spreads() { return spreads; },
+    get spreadPages() { return spreadPages; }, get perSpread() { return perSpread; },
+    get current() { return current; }, set current(value) { current = value; },
+    set navigated(value) { navigated = value; }, markSpreads
   });
-  const invert = M => {
-    const det = M.a * M.d - M.b * M.c;
-    return {
-      a: M.d / det, b: -M.b / det, c: -M.c / det, d: M.a / det,
-      e: (M.c * M.f - M.d * M.e) / det,
-      f: (M.b * M.e - M.a * M.f) / det
-    };
-  };
-  const css = M => `matrix(${[M.a, M.b, M.c, M.d, M.e, M.f].map(v => +v.toFixed(5)).join(", ")})`;
-
-  // The plane's size: wide enough to hold a page however it's turned.
-  const planeSize = () => 3 * Math.hypot(pageWidth, pageHeight);
-
-  // A leaf: `content` on a plane, `width` x `height` at the leaf's top
-  // left. book.css lays the plane out centred on that corner, the
-  // content in its middle.
-  function leaf(className, content, width = pageWidth, height = pageHeight) {
-    const el = div("leaf" + (className ? " " + className : ""));
-    el.style.width = width + "px";
-    el.style.height = height + "px";
-    const plane = div("leaf-plane");
-    plane.append(...content);
-    el.appendChild(plane);
-    return el;
-  }
-
-  // Puts `el`'s plane on the side of the fold line (through M) that `s`
-  // points to, and each of `items` ([element, map from its own
-  // coordinates to the sheet's]) where its map takes it. `origin`: where
-  // the leaf's corner is, on the sheet.
-  function cutAlong(el, M, s, items, origin = 0) {
-    const L = planeSize();
-    const half = L / 2;
-    // The plane's own square, [0, L]², onto the sheet: its left edge on
-    // the fold line, the rest on side `s`.
-    const along = [-s[1], s[0]];
-    const H = { a: s[0], b: s[1], c: -s[1], d: s[0], e: M[0] - along[0] * half, f: M[1] - along[1] * half };
-    el.firstChild.style.transform = css(compose(translate(-origin + half, half), H));
-    const back = compose(translate(-half, -half), invert(H));
-    for (const [item, map] of items) item.style.transform = css(compose(back, map));
-  }
-
-  // Lays leaf `el` and what's on it flat again.
-  function uncut(el) {
-    el.firstChild.style.transform = "";
-    for (const item of el.firstChild.children) item.style.transform = "";
-  }
-
-  // Paper can't stretch: the corner stays within reach of both ends of
-  // the spine.
-  function withinReach(p, center, radius) {
-    const dx = p[0] - center[0];
-    const dy = p[1] - center[1];
-    const d = Math.hypot(dx, dy);
-    return d <= radius ? p : [center[0] + dx * radius / d, center[1] + dy * radius / d];
-  }
-
-  // A soft shade band along the fold, fading out in direction `g`: drawn
-  // once (`background`, at full strength), then only placed and faded.
-  function band(width, background) {
-    const el = div("turn-band");
-    el.style.width = 2 * Math.hypot(pageWidth, pageHeight) + "px";
-    el.style.height = width + "px";
-    el.style.background = background;
-    return el;
-  }
-
-  function bandMap(el, at, g) {
-    const len = parseFloat(el.style.width);
-    return compose(compose(translate(at[0], at[1]), rotate(Math.atan2(-g[0], g[1]))), translate(-len / 2, 0));
-  }
-
-  // `grabY`: page height at which the page was taken (touch) — the
-  // corner nearest it is the one that turns.
-  function beginTurn(dir, grabY = null) {
-    const to = current + dir;
-    if (!spreads.length || to < 0 || to >= spreads.length) return null;
-    navigated = true;
-
-    const from = current;
-    const double = perSpread === 2;
-    const A = spreadPages[from];
-    const B = spreadPages[to];
-    const W = pageWidth;
-    const H = pageHeight;
-
-    // The pages turn where they lie, in their spreads (all laid out,
-    // stacked in one place). Two pages a spread: the next spread goes on
-    // top — its page under the turning one shows where the flap has
-    // lifted off, and its facing page is the flap, folded over. One page:
-    // the spread with the turning page goes on top, cut back to the
-    // fold, over the other.
-    let sheetX;      // where the turning page sits in its spread
-    let hingeX;      // its bound edge, in its own coordinates
-    let frontPage;
-    let backPage = null;
-    let underPage = null;
-    let top;
-    if (double) {
-      top = to;
-      if (dir > 0) {
-        sheetX = W;
-        hingeX = 0;
-        frontPage = A[1];
-        backPage = B[0];
-        underPage = B[1];
-      } else {
-        sheetX = 0;
-        hingeX = W;
-        frontPage = A[0];
-        backPage = B[1];
-        underPage = B[0];
-      }
-    } else {
-      top = dir > 0 ? from : to;
-      sheetX = 0;
-      hingeX = 0;
-      frontPage = dir > 0 ? A[0] : B[0];
-    }
-
-    const leafOf = page => page.parentElement.parentElement;
-    const overlay = (className, content, inner) => {
-      const el = leaf("turn-leaf " + className, content);
-      el.style.left = sheetX + "px";
-      inner.appendChild(el);
-      return el;
-    };
-    const dark = a => `rgba(6, 12, 22, ${a})`;
-    const topInner = spreads[top].firstElementChild;
-    const frontBand = band(W * 0.16, `linear-gradient(to bottom, ${dark(0.1)}, ${dark(0)})`);
-    const frontShade = overlay("turn-front-shade", [frontBand], leafOf(frontPage).parentElement);
-    const castBand = band(W * 0.3, `linear-gradient(to bottom, ${dark(0.32)}, ${dark(0)})`);
-    const cast = overlay("turn-cast", [castBand], topInner);
-    // The flap's light (and a lone page's plain back): on a sheet the
-    // size of the page, folded over with it.
-    const backBand = band(W * 0.45,
-      `linear-gradient(to bottom, rgba(255, 255, 255, .5), ${dark(0.1)} 22%, ${dark(0)} 70%)`);
-    const backSheet = div("turn-back-sheet" + (backPage ? "" : " turn-paper"));
-    backSheet.style.width = W + "px";
-    backSheet.style.height = H + "px";
-    backSheet.appendChild(backBand);
-    // One page a screen: nothing lies beyond the spine, so the flap is
-    // cut at the page's edge — it slides away round the spine rather
-    // than across the dark desk.
-    const backShade = overlay("turn-back-shade" + (double ? "" : " turn-on-page"), [backSheet], topInner);
-
-    const frontLeaf = leafOf(frontPage);
-    const backLeaf = backPage && leafOf(backPage);
-    const underLeaf = underPage && leafOf(underPage);
-    if (backLeaf) backLeaf.classList.add("is-turn-back");
-
-    spreads[from].classList.add("is-near");
-    spreads[to].classList.add("is-near");
-    spreads[top].style.zIndex = 4;
-    spreads[top === from ? to : from].style.zIndex = 3;
-
-    turn = {
-      dir, from, to, top, double, hingeX,
-      frontLeaf, backLeaf, underLeaf, backPage, underPage, frontPage,
-      frontShade, cast, backShade, backSheet, frontBand, castBand, backBand,
-      // Where the flap's page lies, on the sheet.
-      backOrigin: backLeaf ? backLeaf.offsetLeft - sheetX : 0,
-      corner: grabY !== null && grabY < H / 2 ? 0 : H,
-      // Backward with one page per screen: the previous page comes back
-      // over the current one — a forward turn of it, run in reverse.
-      reversed: !double && dir < 0,
-      progress: 0,
-      yBias: 0,
-      anim: null
-    };
-    drawTurn(0);
-    return turn;
-  }
-
-  function drawTurn(progress) {
-    const t = turn;
-    t.progress = Math.min(1, Math.max(0, progress));
-    const p = t.reversed ? 1 - t.progress : t.progress;
-    const W = pageWidth;
-    const H = pageHeight;
-    const freeX = W - t.hingeX;
-    const endX = 2 * t.hingeX - freeX;
-    const cy = t.corner;
-
-    // The corner's path: across to the far side of the spine, lifting
-    // off the page edge on the way (or wherever the finger holds it).
-    let P = [
-      freeX + (endX - freeX) * p,
-      cy + (cy ? -1 : 1) * H * 0.1 * Math.sin(Math.PI * p) + t.yBias * Math.sin(Math.PI * p)
-    ];
-    P = withinReach(P, [t.hingeX, cy], W);
-    P = withinReach(P, [t.hingeX, H - cy], Math.hypot(W, H));
-
-    const C = [freeX, cy];
-    const dx = P[0] - C[0];
-    const dy = P[1] - C[1];
-    const len = Math.hypot(dx, dy);
-    const flapParts = [t.backShade, t.cast, t.frontShade, t.backLeaf, t.underLeaf].filter(Boolean);
-    if (len < 0.5) {
-      for (const el of flapParts) el.style.visibility = "hidden";
-      if (!t.double) uncut(t.frontLeaf);
-      return;
-    }
-    for (const el of flapParts) el.style.visibility = "";
-
-    // Fold line: through M, normal n (pointing away from the corner).
-    const n = [dx / len, dy / len];
-    const m = [-n[0], -n[1]];
-    const M = [(C[0] + P[0]) / 2, (C[1] + P[1]) / 2];
-
-    // The flap is the back of the sheet: mirrored left-right (it's the
-    // other side), then reflected across the fold — on the kept side.
-    const r11 = 1 - 2 * n[0] * n[0];
-    const r12 = -2 * n[0] * n[1];
-    const r22 = 1 - 2 * n[1] * n[1];
-    const md = 2 * (M[0] * n[0] + M[1] * n[1]);
-    const flip = { a: -r11, b: -r12, c: r12, d: r22, e: r11 * W + md * n[0], f: r12 * W + md * n[1] };
-
-    // Light: the page bends into the fold, the flap catches light where
-    // it curls over, and it shades the page it uncovers.
-    const curl = Math.sin(Math.PI * Math.min(1, p * 1.4));
-    t.frontBand.style.opacity = curl.toFixed(3);
-    t.castBand.style.opacity = ((0.28 * curl + 0.04) / 0.32).toFixed(3);
-    t.backBand.style.opacity = curl.toFixed(3);
-    t.backBand.style.transform = css(bandMap(t.backBand, [W - M[0], M[1]], [n[0], -n[1]]));
-
-    if (t.double) {
-      // The page underneath shows where the flap lifted off; the facing
-      // page of the next spread is the flap.
-      cutAlong(t.underLeaf, M, m, [[t.underPage, IDENTITY]]);
-      cutAlong(t.backLeaf, M, n, [[t.backPage, flip]], t.backOrigin);
-    } else {
-      // The turning page, cut back to the fold.
-      cutAlong(t.frontLeaf, M, n, [[t.frontPage, IDENTITY]]);
-    }
-    cutAlong(t.backShade, M, n, [[t.backSheet, flip]]);
-    cutAlong(t.frontShade, M, n, [[t.frontBand, bandMap(t.frontBand, M, n)]]);
-    cutAlong(t.cast, M, m, [[t.castBand, bandMap(t.castBand, M, m)]]);
-  }
-
-  // Lays every page flat again and shows `index`.
-  function endTurn(index) {
-    const t = turn;
-    turn = null;
-    if (t.anim) cancelAnimationFrame(t.anim);
-    if (t.follow) cancelAnimationFrame(t.follow);
-    current = index;
-    markSpreads();
-    for (const i of [t.from, t.to]) spreads[i].style.zIndex = "";
-    for (const el of [t.frontLeaf, t.backLeaf, t.underLeaf]) {
-      if (!el) continue;
-      uncut(el);
-      el.style.visibility = "";
-      el.classList.remove("is-turn-back");
-    }
-    for (const el of [t.frontShade, t.cast, t.backShade]) el.remove();
-  }
-
-  function cancelTurn() {
-    if (turn) endTurn(turn.from);
-  }
-
-  // Animates the held turn to done (1) or back (0), easing out; a
-  // finger's height offset eases away with it.
-  function settleTurn(target, speed = 1) {
-    const t = turn;
-    if (!t) return;
-    if (t.anim) cancelAnimationFrame(t.anim);
-    if (t.follow) cancelAnimationFrame(t.follow);
-    t.follow = null;
-    t.target = null;
-    const start = t.progress;
-    const bias = t.yBias;
-    const duration = Math.max(120, 420 * Math.abs(target - start)) / speed;
-    const t0 = performance.now();
-    const step = now => {
-      if (turn !== t) return;
-      const k = Math.min(1, (now - t0) / duration);
-      const eased = 1 - Math.pow(1 - k, 3);
-      t.yBias = bias * (1 - eased);
-      drawTurn(start + (target - start) * eased);
-      if (k < 1) t.anim = requestAnimationFrame(step);
-      else endTurn(target === 1 ? t.to : t.from);
-    };
-    t.anim = requestAnimationFrame(step);
-  }
-
-  // Keys: a whole animated turn. A turn still settling is finished
-  // first, so quick presses keep up.
-  function turnPage(dir) {
-    if (turn) {
-      if (turn.dir === dir && turn.anim) endTurn(turn.to);
-      else cancelTurn();
-    }
-    if (!beginTurn(dir)) return;
-    const t = turn;
-    t.anim = requestAnimationFrame(t0 => {
-      const run = now => {
-        if (turn !== t) return;
-        const k = Math.min(1, (now - t0) / 380);
-        drawTurn(k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
-        if (k < 1) t.anim = requestAnimationFrame(run);
-        else endTurn(t.to);
-      };
-      run(t0);
-    });
-  }
-
-  // Screen px of travel for a whole turn. A finger carries the corner
-  // itself (two page widths across the spine of a spread; a little over
-  // one for a lone page); a trackpad swipe needs about one page width.
-  function turnDistance(source) {
-    const pages = source !== "touch" ? 0.9 : turn && turn.double ? 2 : 1.2;
-    return pages * pageWidth * viewScale;
-  }
-
-  // A trackpad's wheel events come unevenly — several in one frame, then
-  // none — so the page isn't drawn at each one: it eases toward where
-  // they've taken it (`target`), once a frame.
-  function followTarget() {
-    const t = turn;
-    if (!t || t.target === null || t.target === undefined) return;
-    const step = () => {
-      if (turn !== t || t.target === null) return;
-      const gap = t.target - t.progress;
-      if (Math.abs(gap) < 0.002) {
-        drawTurn(t.target);
-        t.follow = null;
-        return;
-      }
-      drawTurn(t.progress + gap * 0.35);
-      t.follow = requestAnimationFrame(step);
-    };
-    if (!t.follow) t.follow = requestAnimationFrame(step);
-  }
-
-  // Follows a drag of `delta` screen px (positive: toward the next
-  // page). `clientY` (touch): where the finger is, which the corner
-  // follows. Returns false when there's no page that way.
-  function dragTurn(delta, source, clientY = null) {
-    if (turn && turn.anim) endTurn(turn.progress > 0.5 ? turn.to : turn.from);
-    const pageY = () => {
-      const box = spreads[current].getBoundingClientRect();
-      return (clientY - (box.top + (box.height - pageHeight * viewScale) / 2)) / viewScale;
-    };
-    if (!turn) {
-      if (!beginTurn(Math.sign(delta), clientY === null ? null : pageY())) return false;
-    }
-    const distance = turnDistance(source);
-    if (source === "wheel") {
-      const from = turn.target ?? turn.progress;
-      const next = from + (delta * turn.dir) / distance;
-      if (next < 0) {
-        const rest = next * distance * turn.dir;
-        cancelTurn();
-        return rest === 0 ? true : dragTurn(rest, source, clientY);
-      }
-      turn.target = Math.min(1, next);
-      followTarget();
-      return true;
-    }
-    const next = turn.progress + (delta * turn.dir) / distance;
-    if (next < 0) {
-      // Dragged back past where it started: turn the other way instead.
-      const rest = next * distance * turn.dir;
-      cancelTurn();
-      return rest === 0 ? true : dragTurn(rest, source, clientY);
-    }
-    if (clientY !== null) {
-      // Hold the corner at the finger's height (relative to the arc).
-      const s = Math.sin(Math.PI * (turn.reversed ? 1 - next : next));
-      const arc = turn.corner + (turn.corner ? -1 : 1) * pageHeight * 0.1 * s;
-      turn.yBias = s > 0.05 ? Math.max(-pageHeight, Math.min(pageHeight, (pageY() - arc) / s)) : 0;
-    }
-    drawTurn(next);
-    return true;
-  }
-
-  // A released drag completes if it went past a quarter of the way or
-  // was still moving that way (px/ms); otherwise the page falls back.
-  function releaseTurn(velocity = 0) {
-    if (!turn) return;
-    const along = velocity * turn.dir;
-    const reached = turn.target ?? turn.progress;
-    settleTurn(reached > 0.25 || along > 0.35 ? 1 : 0, Math.max(1, Math.abs(velocity)));
-  }
+  const { leaf, planeSize, cancelTurn, settleTurn, turnPage, dragTurn, releaseTurn } = pageTurn;
 
   if (tocDialog) {
     tocDialog.querySelectorAll("[data-jump]").forEach(btn => {
@@ -2318,97 +1694,11 @@
       }
     });
 
-    // A trackpad two-finger swipe (horizontal wheel deltas) drags the
-    // page under the fingers, momentum included; when the events stop,
-    // it settles (see releaseTurn). One gesture turns at most one page:
-    // once it completes, the rest of that gesture is ignored. Left alone
-    // while pinch-zoomed in, so the swipe can pan instead.
-    // Once a swipe has carried the page a third of the way (momentum
-    // included) the turn finishes on its own — it doesn't wait for the
-    // trackpad's momentum events to die out.
-    //
-    // The rest of that swipe is ignored: the momentum macOS keeps
-    // sending after the fingers lift can last a second or more, and its
-    // deltas wobble as they fade, so a single bigger one must not count
-    // as a new swipe (it turned page after page). A new swipe is one
-    // that comes after the events stop (GESTURE_IDLE_GAP), one the other
-    // way, or — fingers back on the trackpad while momentum still runs —
-    // deltas growing steadily, event after event, well above where the
-    // momentum had died down to.
-    // Gaps are timed by the events' own timestamps, not a timer: a timer
-    // runs late while the page is busy (drawing a turn, re-cutting) and
-    // would end a swipe in the middle of its momentum.
-    let wheelIdle = null;
-    let wheelDone = false;
-    let lastWheelAt = -Infinity;
-    let doneAt = 0;
-    let lowest = Infinity;
-    let recent = [];
-    let lastDir = 0;
-    const GESTURE_IDLE_GAP = 140;
-    const COMMIT_AT = 0.33;
+    const wheel = window.createReaderWheel(pageTurn, {
+      blocked: () => tocDialog?.open || isZoomed()
+    });
+    window.addEventListener("wheel", wheel, { passive: false });
 
-    function freshSwipe(abs, now) {
-      if (now - doneAt < 250 || recent.length < 4) return false;
-      const [a, b, c, d] = recent.slice(-4);
-      return a < b && b < c && c < d && abs > Math.max(14, lowest * 4);
-    }
-
-    window.addEventListener("wheel", e => {
-      if (e.ctrlKey) return;
-      if (!turn && !wheelDone && Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
-      if (tocDialog && tocDialog.open) return;
-
-      if (isZoomed()) return;
-
-      e.preventDefault();
-
-      // Safari has given event times since 1970 rather than since the
-      // page opened: on one clock with performance.now() either way.
-      const at = e.timeStamp > 1e12 ? e.timeStamp - performance.timeOrigin : e.timeStamp;
-      if (at - lastWheelAt > GESTURE_IDLE_GAP) {
-        wheelDone = false;
-        recent = [];
-      }
-      lastWheelAt = at;
-      // The fingers stopped with the page part-way: it settles. Whatever
-      // the same swipe sends after that is part of it.
-      clearTimeout(wheelIdle);
-      wheelIdle = setTimeout(() => {
-        if (!turn || turn.anim) return;
-        releaseTurn();
-        wheelDone = true;
-        doneAt = performance.now();
-        lowest = Infinity;
-      }, GESTURE_IDLE_GAP);
-
-      const delta = e.deltaMode === 1 ? e.deltaX * 16 : e.deltaX;
-      const abs = Math.abs(delta);
-      const dir = Math.sign(delta);
-      recent.push(abs);
-      if (recent.length > 6) recent.shift();
-      if (wheelDone) {
-        lowest = Math.min(lowest, abs);
-        const reversed = dir && dir !== lastDir && abs > 6;
-        if (!reversed && !freshSwipe(abs, at)) return;
-        wheelDone = false;
-      }
-      // A swipe's first touch can report a tiny sign-flipped delta.
-      if (!turn && abs < 2) return;
-      if (dir) lastDir = dir;
-      if (!dragTurn(delta, "wheel")) {
-        wheelDone = true;
-        doneAt = at;
-        lowest = Infinity;
-        return;
-      }
-      if (turn && (turn.target ?? turn.progress) >= COMMIT_AT) {
-        settleTurn(1);
-        wheelDone = true;
-        doneAt = at;
-        lowest = Infinity;
-      }
-    }, { passive: false });
   }
 
   // =========================================================

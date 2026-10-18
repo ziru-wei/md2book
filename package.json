@@ -13,15 +13,17 @@
   "scripts": {
     "dev": "node --env-file-if-exists=.env server.js",
     "start": "node bin/md2book.js",
-    "test": "node --test test/",
+    "test": "node --test test/*.test.js",
     "build:web": "node scripts/build-web.mjs"
   },
   "dependencies": {
     "@vscode/markdown-it-katex": "^1.1.2",
     "cheerio": "^1.1.2",
     "chokidar": "^4.0.3",
+    "epubjs": "^0.3.93",
     "express": "^5.1.0",
     "gray-matter": "^4.0.3",
+    "jszip": "^3.10.1",
     "justif": "^0.9.1",
     "markdown-it": "^14.1.0",
     "markdown-it-deflist": "^4.0.0",

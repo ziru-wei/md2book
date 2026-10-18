@@ -58,7 +58,7 @@ export function createDirectorySource(dirHandle) {
       const all = await walk(dirHandle, "", new Map());
       const parts = [];
       for (const [rel, handle] of all) {
-        parts.push(isMarkdown(rel) ? `${rel}:${(await handle.getFile()).lastModified}` : rel);
+        parts.push((isMarkdown(rel) || /\.epub$/i.test(rel)) ? `${rel}:${(await handle.getFile()).lastModified}` : rel);
       }
       return parts.sort().join("\n");
     }

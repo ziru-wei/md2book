@@ -33,6 +33,8 @@ const TEXT = {
   en: {
     lede: "Read a folder of Markdown notes as a book. <em>An Obsidian vault works as-is.</em>",
     pick: "Choose a note repo…",
+    pickCompatible: "Choose folder (compatibility mode)",
+    pickerBlocked: "This embedded browser could not open the folder picker. Try compatibility mode below, or open the local md2book server at http://localhost:3000.",
     reopen: () => "Open the last note repo",
     private: "Your notes stay on this computer: the browser reads them, nothing is uploaded.",
     browserNote: "In this browser the note repo is read once, as it is now. Chrome and Edge also remember it and follow your edits.",
@@ -48,6 +50,8 @@ const TEXT = {
   zh: {
     lede: "把一个 Markdown 笔记文件夹读成一本书。<em>Obsidian 仓库直接就能用。</em>",
     pick: "选择笔记仓库…",
+    pickCompatible: "选择文件夹（兼容模式）",
+    pickerBlocked: "内置浏览器无法打开文件夹选择器。请点击下方兼容模式，或先运行本地 md2book 服务，再打开 http://localhost:3000。",
     reopen: () => "打开上次的笔记仓库",
     private: "笔记始终留在你的电脑上：由浏览器读取，不会上传到任何地方。",
     browserNote: "这个浏览器只会读取选择那一刻的笔记仓库内容。Chrome 和 Edge 还能记住它，并在笔记改动后自动刷新。",
@@ -216,6 +220,13 @@ async function pageHtml(path) {
     const res = await fetch(new URL("static/settings.html", APP_BASE));
     return res.text();
   }
+  const epubMatch = /^\/epub\/([0-9a-f]+)$/.exec(path);
+  if (epubMatch) {
+    const book = (await render.listEpubs()).find(b => b.id === epubMatch[1]);
+    if (!book) return render.renderUnavailablePage();
+    render.assetIds.set(book.id, book.path);
+    return render.renderEpubPage(book, `/asset/${book.id}`);
+  }
   const entries = await render.listEntries();
   let match;
   if ((match = /^\/entry\/([^/?#]+)$/.exec(path))) {
@@ -225,7 +236,7 @@ async function pageHtml(path) {
   if ((match = /^\/contents\/([^/?#]+)$/.exec(path))) {
     return render.resolveVaultLinks(await render.renderContentsPage(entries, decodeURIComponent(match[1])));
   }
-  if (path === "/") return render.resolveVaultLinks(render.renderHomePage(entries));
+  if (path === "/") return render.resolveVaultLinks(render.renderHomePage(entries, await render.listEpubs()));
   return render.renderUnavailablePage();
 }
 
@@ -470,7 +481,11 @@ function watch() {
 
 // --- Choosing a folder --------------------------------------------------
 
-const canPick = "showDirectoryPicker" in window;
+let canPick = typeof window.showDirectoryPicker === "function";
+$("#pick-compatible").addEventListener("click", () => {
+  $("#folder-input").value = "";
+  $("#folder-input").click();
+});
 
 async function openHandle(handle) {
   const directory = createDirectorySource(handle);
@@ -487,7 +502,11 @@ $("#pick").addEventListener("click", async () => {
   try {
     await openHandle(await showDirectoryPicker({ id: "md2book", mode: "read" }));
   } catch (error) {
-    if (error.name !== "AbortError") showError(error);
+    if (error.name !== "AbortError") {
+      if (["SecurityError", "NotAllowedError", "NotSupportedError"].includes(error.name)) canPick = false;
+      $("#browser-note").hidden = false;
+      showError(new Error(t("pickerBlocked")));
+    }
   }
 });
 
@@ -519,12 +538,14 @@ async function showLanding({ reopen = false } = {}) {
   $("#reopen").dataset.name = handle.name;
   $("#reopen").textContent = t("reopen")(handle.name);
   // Allowed already (this visit, or on every visit).
-  if (reopen && await handle.queryPermission({ mode: "read" }) === "granted") {
+  if (reopen && await handle.queryPermission({ mode: "read" }).catch(() => "denied") === "granted") {
     await openHandle(handle).catch(showError);
     return;
   }
   $("#reopen").onclick = async () => {
-    if (await handle.requestPermission({ mode: "read" }) === "granted") await openHandle(handle).catch(showError);
+    try {
+      if (await handle.requestPermission({ mode: "read" }) === "granted") await openHandle(handle);
+    } catch { showError(new Error(t("pickerBlocked"))); }
   };
 }
 
