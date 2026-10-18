@@ -21,7 +21,7 @@
   const saved = readLocal(stateKey, null);
   const fail = error => {
     status.hidden = false;
-    status.classList.add("failed");
+    document.documentElement.classList.remove("reader-loading");
     status.textContent = `Could not read EPUB: ${error.message || error}`;
   };
   const idle = task => {
