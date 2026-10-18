@@ -9,17 +9,16 @@ import { createEntrySource } from "../lib/source.js";
 import { createFileListSource } from "../web/source.js";
 import * as render from "../lib/render.js";
 
-test("EPUB layouts survive serialization without affecting collections or other books", () => {
+test("EPUBs share one layout row without affecting collections", () => {
   const config = resolveConfig(JSON.parse(JSON.stringify({ layouts: {
-    epubRules: [{ epub: "a/book.epub", columns: 1, justify: true }],
+    epub: { columns: 1, justify: true },
     rules: [{ collection: "a", columns: 2 }]
   } })));
-  assert.equal(rowForEpub(config, "a/book.epub").columns, 1);
-  assert.equal(rowForEpub(config, "b/book.epub").columns, 2);
-  assert.equal(rowForEpub(config, "a/BOOK.epub").justify, false);
+  assert.equal(rowForEpub(config).columns, 1);
+  assert.equal(rowForEpub(config).justify, true);
   assert.equal(rowFor(config, "a").justify, false);
-  rowForEpub(config, "a/book.epub").columns = 2;
-  assert.equal(rowForEpub(config, "a/book.epub").columns, 1);
+  rowForEpub(config).columns = 2;
+  assert.equal(rowForEpub(config).columns, 1);
 });
 
 test("recursive discovery, EPUB-only vaults and Markdown remain separate", async () => {

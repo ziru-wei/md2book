@@ -136,9 +136,12 @@ app.get(["/epub/:id", "/epub-file/:id"], async (req, res) => {
     const book = (await listEpubs()).find(book => book.id === req.params.id);
     if (!book) return res.status(404).type("html").send(renderUnavailablePage());
     if (req.path.startsWith("/epub/")) return res.type("html").send(renderEpubPage(book, undefined, { homePath: SETTINGS_MODE === "repo" && !hasBookmarkSession(req) ? "/" : HOME_PATH }));
-    const asset = await entrySource.readAsset(book.path);
+    // Served in ranges: a Vercel function's response is capped (about 4.5 MB).
+    const match = /^bytes=(\d+)-(\d+)$/.exec(req.get("range") || "");
+    const asset = await entrySource.readAsset(book.path, match && { start: Number(match[1]), end: Number(match[2]) });
     if (!asset) return res.status(404).send("Not found");
-    res.type("application/epub+zip").set("Cache-Control", "no-store");
+    res.type("application/epub+zip").set("Cache-Control", "no-store").set("Accept-Ranges", "bytes");
+    if (asset.range) res.status(206).set("Content-Range", `bytes ${asset.range.start}-${asset.range.end}/${asset.range.total}`);
     if (asset.size) res.set("Content-Length", String(asset.size));
     asset.stream.on("error", () => res.destroy()).pipe(res);
   } catch (error) {
