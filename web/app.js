@@ -530,6 +530,9 @@ async function showLanding({ reopen = false } = {}) {
   document.title = "md2book";
   translate();
   $("#browser-note").hidden = canPick;
+  // Without a folder picker (Safari, Firefox) the main button already opens the
+  // compatibility chooser: show one button, not two.
+  $("#pick-compatible").hidden = typeof window.showDirectoryPicker !== "function";
 
   const handle = canPick && await savedFolder();
   $("#reopen").hidden = !handle;

@@ -50,12 +50,12 @@
    identical type/margins. Only the outer spread's scale changes on resize. */
 html.epub-fixed-paper[data-layout="tablet"],
 html.epub-fixed-paper[data-layout="tablet"] .epub-face {
-  --pad-x: 132px; --pad-top: 96px; --pad-bottom: 112px;
-  --body-size: 18px; --body-leading: 1.5;
+  --pad-x: 116px; --pad-top: 92px; --pad-bottom: 108px;
+  --body-size: 21px; --body-leading: 1.52;
   --note-inset: 40px; --note-width: calc(var(--pad-left) - 54px);
 }
 html.epub-fixed-paper[data-layout="tablet"] .epub-face.page--notes {
-  --pad-left: 208px; --pad-right: 96px;
+  --pad-left: 200px; --pad-right: 84px;
 }
 
 
