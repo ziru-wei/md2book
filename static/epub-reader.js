@@ -110,11 +110,19 @@
     turn(forward !== (book.package.metadata.direction === "rtl"));
   }
 
+  // The part of the page on screen: all of it, or — pinch-zoomed and panned —
+  // the visible window, so a tap on its left or right edge still turns the page.
+  function visibleBox() {
+    const bounds = viewer.getBoundingClientRect(), vv = window.visualViewport;
+    if (!vv || vv.scale <= 1.02) return bounds;
+    return { left: Math.max(bounds.left, vv.offsetLeft), top: Math.max(bounds.top, vv.offsetTop),
+      width: vv.width, height: vv.height };
+  }
   function tapAt(x, y, touch = false) {
-    const bounds = viewer.getBoundingClientRect();
-    const fraction = (x - bounds.left) / bounds.width;
+    const box = visibleBox();
+    const fraction = (x - box.left) / box.width;
     // The menu opens from the upper half of the gutter only.
-    if (Math.abs(fraction - .5) <= .08 && y - bounds.top <= bounds.height / 2) { toggleMenu(); return; }
+    if (Math.abs(fraction - .5) <= .08 && y - box.top <= box.height / 2) { toggleMenu(); return; }
     if (!touch) return;
     turn((fraction > .5) !== (book.package.metadata.direction === "rtl"));
   }
@@ -127,6 +135,50 @@
     blocked: () => !rendition || menu.open || !$("epub-note-editor").hidden || (window.visualViewport?.scale || 1) > 1.05,
     direction: () => book?.package.metadata.direction === "rtl" ? -1 : 1
   });
+  // Pinch-zoom state: while zoomed a finger pans the page and never turns it.
+  const rootEl = document.documentElement;
+  const isZoomed = () => { const vv = window.visualViewport; return !!vv && (vv.scale > 1.02 || vv.width < rootEl.clientWidth - 2); };
+  const updateZoom = () => rootEl.classList.toggle("is-zoomed", isZoomed());
+  window.visualViewport?.addEventListener("resize", updateZoom);
+  window.visualViewport?.addEventListener("scroll", updateZoom);
+  // A finger drags the page: right-to-left turns forward, left-to-right back.
+  // Decided once the move is clearly horizontal; a second finger is a pinch.
+  (() => {
+    let drag = null;
+    const fingers = new Set();
+    const rtl = () => book?.package.metadata.direction === "rtl" ? -1 : 1;
+    viewer.addEventListener("pointerdown", event => {
+      if (event.pointerType !== "touch") return;
+      fingers.add(event.pointerId);
+      if (fingers.size > 1) { if (drag?.active) rendition?.settleTurn(0); drag = null; return; }
+      if (drag || isZoomed() || !rendition || document.getSelection()?.toString()) return;
+      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, lastX: event.clientX, lastT: event.timeStamp, v: 0, active: false };
+    });
+    viewer.addEventListener("pointermove", event => {
+      if (!drag || event.pointerId !== drag.id) return;
+      if (!drag.active && isZoomed()) { drag = null; return; }
+      if (!drag.active) {
+        const dx = event.clientX - drag.x;
+        if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(event.clientY - drag.y)) return;
+        drag.active = true;
+        try { viewer.setPointerCapture(event.pointerId); } catch { /* pointer already gone */ }
+      }
+      const step = (drag.lastX - event.clientX) * rtl();
+      const dt = Math.max(1, event.timeStamp - drag.lastT);
+      drag.v = .7 * drag.v + .3 * (step / dt);
+      drag.lastX = event.clientX; drag.lastT = event.timeStamp;
+      if (step) rendition.dragTurn(step, "touch", event.clientY);
+    });
+    const release = event => {
+      fingers.delete(event.pointerId);
+      if (!drag || event.pointerId !== drag.id) return;
+      const wasActive = drag.active, v = drag.v;
+      drag = null;
+      if (wasActive) rendition?.releaseTurn(v);
+    };
+    viewer.addEventListener("pointerup", release);
+    viewer.addEventListener("pointercancel", release);
+  })();
   function bindInput(documentOrElement) {
     documentOrElement.addEventListener("wheel", wheel, { passive: false });
     let start = null;
@@ -155,7 +207,7 @@
       start = null;
       const touch = event.changedTouches[0];
       if (!tap || event.touches.length || touch.identifier !== tap.id || performance.now() - tap.time > 350 || hasSelection() ||
-          Math.hypot(touch.clientX - tap.x, touch.clientY - tap.y) > 10 || (window.visualViewport?.scale || 1) > 1.05) return;
+          Math.hypot(touch.clientX - tap.x, touch.clientY - tap.y) > 10) return;
       event.preventDefault();
       tapAt(...toViewer(touch.clientX, touch.clientY), true);
     }, { passive: false });

@@ -441,13 +441,14 @@ window.createEpubView = function createEpubView(book, mount, row) {
   // The wheel callback is synchronous, while a cache miss may need to load a
   // chapter. Accumulate that gesture until ready; keep navigation serialized
   // until its fold commits or returns to the original sheet.
-  function dragTurn(delta) {
+  // `source` "touch": a finger drags the page by its corner at `clientY`.
+  function dragTurn(delta, source = "wheel", clientY = null) {
     if (!delta || disposed || !current) return false;
     if (engine.turn?.anim) engine.endTurn(engine.turn.progress > .5 ? engine.turn.to : engine.turn.from);
-    if (gesture?.started) return engine.dragTurn(delta, "wheel");
-    if (gesture) { gesture.delta += delta; return true; }
+    if (gesture?.started) return engine.dragTurn(delta, source, clientY);
+    if (gesture) { gesture.delta += delta; gesture.y = clientY; return true; }
     if (delta > 0 ? current.location.atEnd : current.location.atStart) return false;
-    const pending = { delta, started: false, action: null };
+    const pending = { delta, started: false, action: null, velocity: 0, source, y: clientY };
     gesture = pending;
     enqueue(async () => {
       if (!pending.delta) { if (gesture === pending) gesture = null; return; }
@@ -456,17 +457,17 @@ window.createEpubView = function createEpubView(book, mount, row) {
       await new Promise(resolve => {
         finishTurn(pair, resolve);
         pending.started = true;
-        engine.dragTurn(pending.delta, "wheel");
-        if (pending.action === "release") engine.releaseTurn();
+        engine.dragTurn(pending.delta, pending.source, pending.y);
+        if (pending.action === "release") engine.releaseTurn(pending.velocity);
         else if (pending.action !== null) engine.settleTurn(pending.action);
       });
       trim(); prefetch();
     }).catch(error => { gesture = null; emit("displayError", error); });
     return true;
   }
-  function settleGesture(action) {
-    if (gesture && !gesture.started) { gesture.action = action; return; }
-    if (action === "release") engine.releaseTurn(); else engine.settleTurn(action);
+  function settleGesture(action, velocity = 0) {
+    if (gesture && !gesture.started) { gesture.action = action; gesture.velocity = velocity; return; }
+    if (action === "release") engine.releaseTurn(velocity); else engine.settleTurn(action);
   }
   async function relayout() {
     clearTimeout(indexTimer); indexEpoch++;
@@ -499,7 +500,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
     toggleColumns: () => enqueue(() => { if (geometry.isTouch || fixedLayout) return; wantsTablet = !wantsTablet; return relayout(); }),
     toggleSpread: () => enqueue(() => { if (geometry.isTouch) return; wantsDouble = !wantsDouble; return relayout(); }),
     dragTurn,
-    releaseTurn: () => settleGesture("release"),
+    releaseTurn: velocity => settleGesture("release", velocity),
     settleTurn: target => settleGesture(target),
     get turn() {
       return engine.turn || (gesture ? { target: Math.min(1, Math.abs(gesture.delta) / (.9 * width * scale)), progress: 0, anim: null } : null);
