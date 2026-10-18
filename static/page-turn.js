@@ -194,7 +194,9 @@ window.createPageTurn = function createPageTurn(state) {
       frontShade, cast, backShade, backSheet, frontBand, castBand, backBand,
       // Where the flap's page lies, on the sheet.
       backOrigin: backLeaf ? backLeaf.offsetLeft - sheetX : 0,
-      corner: grabY !== null && grabY < H / 2 ? 0 : H,
+      // Taken near the top or bottom edge, the page turns from that corner;
+      // taken along the side it lifts there, with an upright fold.
+      corner: grabY === null ? H : grabY < H * 0.2 ? 0 : grabY > H * 0.8 ? H : grabY,
       // Backward with one page per screen: the previous page comes back
       // over the current one — a forward turn of it, run in reverse.
       reversed: !double && dir < 0,
@@ -220,10 +222,11 @@ window.createPageTurn = function createPageTurn(state) {
     // off the page edge on the way (or wherever the finger holds it).
     let P = [
       freeX + (endX - freeX) * p,
-      cy + (cy ? -1 : 1) * H * 0.1 * Math.sin(Math.PI * p) + t.yBias * Math.sin(Math.PI * p)
+      cy + (cy < H / 2 ? 1 : -1) * H * 0.1 * Math.sin(Math.PI * p) + t.yBias * Math.sin(Math.PI * p)
     ];
-    P = withinReach(P, [t.hingeX, cy], W);
-    P = withinReach(P, [t.hingeX, H - cy], Math.hypot(W, H));
+    // Paper can't stretch: within reach of both ends of the spine.
+    P = withinReach(P, [t.hingeX, 0], Math.hypot(W, cy));
+    P = withinReach(P, [t.hingeX, H], Math.hypot(W, H - cy));
 
     const C = [freeX, cy];
     const dx = P[0] - C[0];
@@ -405,7 +408,7 @@ window.createPageTurn = function createPageTurn(state) {
     if (clientY !== null) {
       // Hold the corner at the finger's height (relative to the arc).
       const s = Math.sin(Math.PI * (turn.reversed ? 1 - next : next));
-      const arc = turn.corner + (turn.corner ? -1 : 1) * state.pageHeight * 0.1 * s;
+      const arc = turn.corner + (turn.corner < state.pageHeight / 2 ? 1 : -1) * state.pageHeight * 0.1 * s;
       turn.yBias = s > 0.05 ? Math.max(-state.pageHeight, Math.min(state.pageHeight, (pageY() - arc) / s)) : 0;
     }
     drawTurn(next);
