@@ -199,6 +199,9 @@
     });
   }
   async function prepareLocations(bytes) {
+    // Indexing parses the whole book a second time: too much for a tablet's
+    // memory on a large file (the slider stays off; contents still work).
+    if (bytes.byteLength > (matchMedia("(pointer: coarse)").matches ? 12 : 80) * 1024 * 1024) return;
     try {
       let cacheKey;
       if (crypto.subtle) {

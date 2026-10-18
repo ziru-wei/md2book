@@ -3,6 +3,12 @@
 window.createEpubView = function createEpubView(book, mount, row) {
   const root = document.documentElement, geometry = window.createReaderLayout(root, { tabletAspectRatio: 4 / 5, fixedTablet: true });
   const fixedLayout = book.package.metadata.layout === "pre-paginated";
+  // Paper effects stack extra copies and blended text shadows on every sheet;
+  // a touch device (iPad Safari) runs out of memory with them.
+  if (geometry.isTouch) {
+    row = { ...row, showThrough: false, inkBleed: false, letterpress: false };
+    root.classList.remove("show-through", "ink-bleed", "letterpress");
+  }
   const content = window.createEpubContent(book, root, row, fixedLayout);
   root.classList.add("reader", "epub-fixed-paper");
   mount.tabIndex = 0;
@@ -130,9 +136,18 @@ window.createEpubView = function createEpubView(book, mount, row) {
     Object.assign(viewport.style, {left:-gap / 2 + "px", width:area.offsetWidth + gap + "px", height:area.offsetHeight + "px"});
     return {page, area, viewport, number, gap};
   }
-  function chapter(section) {
+  // Laid-out chapters hold a DOM clone of every sheet: keep only the few read
+  // lately. Page counting (`transient`) measures every chapter once but must not
+  // keep them, or a long book fills the device's memory.
+  const CHAPTER_CACHE = geometry.isTouch ? 3 : 6;
+  function chapter(section, transient = false) {
     const key = `${layoutKey}:${section.index}`;
-    if (!chapterCache.has(key)) {
+    if (chapterCache.has(key)) {
+      const hit = chapterCache.get(key);
+      chapterCache.delete(key); chapterCache.set(key, hit);
+      return hit;
+    }
+    {
       const pending = measurement.then(async () => {
         await waitForPaper();
         const notes = fixedLayout ? [] : await content.notesFor(section);
@@ -198,17 +213,20 @@ window.createEpubView = function createEpubView(book, mount, row) {
           return {pages,locations,total,notes,anchors};
         } finally { rendition?.destroy(); spread.el.remove(); }
       });
-      chapterCache.set(key,pending);
+      if (!transient) {
+        chapterCache.set(key,pending);
+        while (chapterCache.size > CHAPTER_CACHE) chapterCache.delete(chapterCache.keys().next().value);
+      }
       measurement = pending.catch(() => {});
       pending.catch(() => chapterCache.delete(key));
+      return pending;
     }
-    return chapterCache.get(key);
   }
   async function paper(spread, target, side, measuring = false, effects = true) {
     if (!target) { const {number} = pageShell(spread,side,false); number.hidden = true; return null; }
     const section = book.spine.get(target.index ?? target);
     if (!section) throw new Error(`Chapter not found: ${target}`);
-    const entry = await chapter(section);
+    const entry = await chapter(section, measuring);
     if (measuring) return;
     let sheet = 0;
     if (typeof target === "object") sheet = target.sheet < 0 ? entry.total - 1 : Math.min(target.sheet,entry.total - 1);
@@ -366,7 +384,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
       let entry = from;
       // Keep several forward leaves ready for a burst of trackpad/key input.
       // Preparation is outside the fold and uses cached chapter fragments.
-      for (let i = 0; i < (forward ? 3 : 1); i++) {
+      for (let i = 0; i < (forward && !geometry.isTouch ? 3 : 1); i++) {
         if (current !== from || (forward ? entry.location.atEnd : entry.location.atStart)) break;
         entry = await neighbor(entry, forward);
         if (!entry) break;
