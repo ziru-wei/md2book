@@ -220,38 +220,40 @@ html.letterpress #book .page > :is(.page-area, .page-foot, .page-number, .page-c
   -webkit-text-stroke: calc(.45px * var(--letterpress)) rgba(0, 0, 0, calc(.22 * var(--letterpress)));
 }
 
-/* Ink is never laid down evenly: denser here, starved there (the mask,
-   one per page, from reader.js) — and it soaks into the paper around
-   each letter: a blurred copy of the text over it (.page-bleed, from
-   reader.js), one blur for the whole area rather than one per letter,
-   drawn once with the page. */
-html.letterpress #book .page > .page-bleed {
+/* Ink bleed (a setting of its own, --ink-bleed its strength, 0–1): the
+   ink soaks into the paper around each letter — a blurred copy of the
+   text over it (.page-bleed, from reader.js), one blur for the whole
+   area rather than one per letter, drawn once with the page. Kept
+   faint: a soft halo, not a smudge. */
+html.ink-bleed #book .page > .page-bleed {
   position: absolute;
   inset: 0;
   z-index: 2;
   pointer-events: none;
   user-select: none;
   /* CUSTOMIZABLE STYLE: ink bleed — how far, and how dark */
-  filter: blur(calc(.35px + 1.1px * var(--letterpress)));
-  opacity: calc(.15 + .55 * var(--letterpress));
+  filter: blur(calc(.3px + .6px * var(--ink-bleed)));
+  opacity: calc(.08 + .3 * var(--ink-bleed));
 }
 
-html.letterpress .page-bleed .page-area {
+html.ink-bleed .page-bleed .page-area {
   background: none;
 }
 
-html.letterpress .page-bleed :is(.page-area, .page-foot, .page-number, .page-comments) {
+html.ink-bleed .page-bleed :is(.page-area, .page-foot, .page-number, .page-comments) {
   text-shadow: none;
   -webkit-text-stroke: 0;
 }
 
 /* Only the type bleeds: pictures and rules stay crisp. */
-html.letterpress .page-bleed :is(img, svg, .image-placeholder, hr, table) {
+html.ink-bleed .page-bleed :is(img, svg, .image-placeholder, hr, table) {
   visibility: hidden;
 }
 
-/* The same uneven ink on every layer printed on the page: one mask the
-   size of the page, lined up on each. */
+/* Letterpress: ink is never laid down evenly — denser here, starved
+   there (the mask, one per page, from reader.js): the same on every
+   layer printed on the page, the bleed's too, one mask the size of the
+   page, lined up on each. */
 html.letterpress #book .page > :is(.page-area, .page-foot, .page-comments),
 html.letterpress #book .page > .page-bleed :is(.page-area, .page-foot, .page-comments) {
   -webkit-mask-image: var(--ink-mask);
@@ -278,7 +280,7 @@ html.letterpress #book .body .cjk {
   -webkit-text-stroke-width: calc(.12px + .45px * var(--letterpress));
 }
 
-html.letterpress #book .page-bleed .body .cjk {
+html.ink-bleed #book .page-bleed .body .cjk {
   -webkit-text-stroke-width: 0;
 }
 
@@ -1399,9 +1401,6 @@ figure.md-table figcaption {
   text-decoration: none;
 }
 
-.reference-marker:hover {
-  text-decoration: underline;
-}
 
 /* Bare %%REF..%% citations — unlike [label](url) references, these
    have no visible label of their own, so the marker reads as regular
@@ -1420,9 +1419,6 @@ figure.md-table figcaption {
   text-decoration: none;
 }
 
-.reference-marker-group a:hover {
-  text-decoration: underline;
-}
 
 /* =========================================================
    Margin comments
@@ -1564,9 +1560,6 @@ figure.md-table figcaption {
   overflow-wrap: anywhere;
 }
 
-.reference-list a:hover {
-  text-decoration: underline;
-}
 
 /* =========================================================
    Code
@@ -1700,8 +1693,11 @@ figure.md-table figcaption {
   margin-left: -.75em;
 }
 
-/* On hover, the link — title and mark — inverted: white on black. */
-.wikilink:hover {
+/* On hover, a link in the text — a note's title and its mark, a
+   reference's [N], a reference in the list — is inverted: white on
+   black. Nothing it does moves a letter: no padding, no weight, a
+   shadow for the black's margin. */
+:is(.wikilink, .reference-marker, .reference-marker-group a, .reference-list a):hover {
   /* CUSTOMIZABLE STYLE: link hover */
   color: var(--paper);
   background: var(--ink);
@@ -2137,11 +2133,10 @@ dialog.toc-dialog::backdrop {
 
   box-shadow: none;
 
-  transition: transform .12s ease, box-shadow .12s ease;
+  transition: box-shadow .12s ease;
 }
 
 .wf-card:hover {
-  transform: translateY(-1px);
   box-shadow: 0 1px 5px rgba(0,0,0,.045);
 }
 

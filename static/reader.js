@@ -1256,8 +1256,14 @@
     const strength = parseFloat(getComputedStyle(root).getPropertyValue("--letterpress")) || 0.5;
     list.forEach((page, i) => {
       page.style.setProperty("--ink-mask", noiseMask(7919 + i, +(1 - 0.6 * strength).toFixed(2), 0.45));
-      // Ink soaking into the paper: a blurred copy of everything printed
-      // on the page — text, side comments, foot, page number — over it.
+    });
+  }
+
+  // Ink bleed (book.css): the ink soaking into the paper — a blurred
+  // copy of everything printed on the page (text, side comments, foot,
+  // page number) over it.
+  function addBleed(list) {
+    list.forEach(page => {
       const layers = page.querySelectorAll(":scope > :is(.page-area, .page-foot, .page-number, .page-comments)");
       if (!layers.length) return;
       const bleed = document.createElement("div");
@@ -1324,6 +1330,7 @@
       // would carry a second copy of another.
       if (root.classList.contains("show-through") && root.dataset.layout !== "phone") addShowThrough(next);
       if (root.classList.contains("letterpress")) addInk(next);
+      if (root.classList.contains("ink-bleed")) addBleed(next);
       // A re-cut (late font or image) that lands every line where it
       // already is changes nothing on screen — keep the pages showing.
       if (!force && pages.length && layoutSignature(next) === layoutSignature(pages)) return;

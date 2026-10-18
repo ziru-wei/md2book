@@ -531,6 +531,7 @@
         colPrivate: "Private heading",
         colShowThrough: "Show-through",
         colLetterpress: "Letterpress",
+        colInkBleed: "Ink bleed",
         rowCollection: "All",
         colApplyToAll: "Apply to all",
         conflict: (a, b, notes) => `"${a}" and "${b}" both apply to all their notes, but share ${notes}. Untick one; nothing is saved until then.`,
@@ -555,11 +556,13 @@
         adobeKitHint: "Optional, e.g. for a Chinese serif. Adobe only serves it on the domains added to that project.",
 
         paper: "Paper",
-        paperHint: "How strong the two paper effects are, wherever the table above turns them on.",
+        paperHint: "How strong the paper effects are, wherever the table above turns them on.",
         showThrough: "Show-through",
         showThroughHint: "The page on the back of each page shows through, faintly and mirrored, as in a printed book.",
         letterpress: "Letterpress",
         letterpressHint: "Letters look printed into the paper: edges a touch uneven, a faint impression around them.",
+        inkBleed: "Ink bleed",
+        inkBleedHint: "The ink soaks a little into the paper around each letter, a faint soft halo.",
         light: "Light",
         strong: "Strong",
         strength: "Strength"
@@ -648,6 +651,7 @@
         colPrivate: "私密标题",
         colShowThrough: "力透纸背",
         colLetterpress: "印刷压痕",
+        colInkBleed: "晕染",
         rowCollection: "所有",
         colApplyToAll: "应用到全部单篇",
         conflict: (a, b, notes) => `「${a}」和「${b}」都设为应用到全部单篇，但它们有共同的笔记：${notes}。取消其中一个；在此之前不会保存。`,
@@ -672,11 +676,13 @@
         adobeKitHint: "可选，比如用于中文衬线字体。Adobe 只在该项目里登记过的域名上提供字体。",
 
         paper: "纸张",
-        paperHint: "两种纸张效果的强弱。在上面的排版表里按合集开启。",
+        paperHint: "纸张效果的强弱。在上面的排版表里按合集开启。",
         showThrough: "力透纸背",
         showThroughHint: "每一页隐约透出背面那一页的内容（左右反向），像实体书的纸。",
         letterpress: "印刷压痕",
         letterpressHint: "文字像压印在纸上：边缘有极轻微的不平整，周围有一点下凹的压痕。",
+        inkBleed: "晕染",
+        inkBleedHint: "墨迹在文字周围微微渗进纸里，一圈很淡的柔光。",
         light: "轻",
         strong: "重",
         strength: "强度"
@@ -1030,6 +1036,7 @@
           <div class="hint" style="margin-top:-8px;margin-bottom:14px">${esc(t("paperHint"))}</div>
           ${effectField("paper.showThroughStrength", "showThrough", "showThroughHint")}
           ${effectField("paper.letterpressStrength", "letterpress", "letterpressHint")}
+          ${effectField("paper.inkBleedStrength", "inkBleed", "inkBleedHint")}
         </section>
       `;
       renderRules();
@@ -1065,6 +1072,7 @@
       ["numberTables", "colTables", "tipTables"], ["numberHeadings", "colHeadings", "tipHeadings"],
       ["columns", "colColumns", "tipColumns"], ["dates", "colDates", "tipDates"], ["privateHeading", "colPrivate", "tipPrivate"],
       ["showThrough", "colShowThrough", "showThroughHint"], ["letterpress", "colLetterpress", "letterpressHint"],
+      ["inkBleed", "colInkBleed", "inkBleedHint"],
       ["applyToAll", "colApplyToAll", "tipApplyToAll"]
     ];
     const tip = key => `class="tip" title="${esc(t(key))}"`;
