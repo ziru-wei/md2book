@@ -21,7 +21,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
   const chapters = book.spine.spineItems.filter(section => section.linear);
   let chapterPages = new Map();
   const pageIndexes = new Map();
-  let layoutKey = "", viewportKey = "";
+  let layoutKey = "", viewportKey = "", highlightsOf = () => [];
   let indexTimer, indexEpoch = 0, indexing = false, paginationError = false;
   function pagination(point) {
     let offset = 0;
@@ -228,6 +228,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
     shadow.adoptedStyleSheets = entry.pages[sheet].shadowRoot.adoptedStyleSheets;
     shadow.append(...[...entry.pages[sheet].shadowRoot.childNodes].map(node => node.cloneNode(true)));
     viewport.append(host);
+    window.epubAnnotations.paint(host.shadowRoot, highlightsOf(section.index));
     // Fonts are settled once in this document before the first visible page.
     const body = host.shadowRoot.querySelector('body');
     const css = readingDocument.defaultView.getComputedStyle(body);
@@ -484,6 +485,58 @@ window.createEpubView = function createEpubView(book, mount, row) {
     settleTurn: target => settleGesture(target),
     get turn() {
       return engine.turn || (gesture ? { target: Math.min(1, Math.abs(gesture.delta) / (.9 * width * scale)), progress: 0, anim: null } : null);
+    },
+    // Highlights are painted into the page clones; the saved list is the
+    // reader's (`fn(sectionIndex)` returns that chapter's).
+    setHighlights(fn) { highlightsOf = fn; },
+    refreshHighlights() {
+      for (const entry of spreads) for (const page of entry.pages) {
+        const host = page?.querySelector?.(".epub-page-content");
+        if (host && page.dataset.section !== undefined) window.epubAnnotations.paint(host.shadowRoot, highlightsOf(+page.dataset.section));
+      }
+    },
+    // The visible page text the viewer has selected, if any.
+    selection() {
+      const notes = window.epubAnnotations, selection = document.getSelection();
+      for (const host of mount.querySelectorAll(".spread.is-current .epub-page-content")) {
+        const shadow = host.shadowRoot;
+        let range = null;
+        try {
+          if (selection.getComposedRanges) {
+            const found = selection.getComposedRanges({ shadowRoots: [shadow] })[0];
+            if (found && !found.collapsed) { range = document.createRange(); range.setStart(found.startContainer, found.startOffset); range.setEnd(found.endContainer, found.endOffset); }
+          } else if (shadow.getSelection) {
+            const inner = shadow.getSelection();
+            if (inner?.rangeCount && !inner.isCollapsed) range = inner.getRangeAt(0);
+          }
+        } catch { range = null; }
+        const body = shadow.querySelector("body");
+        if (!range || !body || !body.contains(range.commonAncestorContainer) || !range.toString().trim()) continue;
+        const page = host.closest(".page");
+        if (!page || page.dataset.section === undefined) continue;
+        return { section: +page.dataset.section, rect: range.getBoundingClientRect(), ...notes.describe(body, range) };
+      }
+      return null;
+    },
+    // The 32 characters of the chapter before and after a selection, which
+    // the page alone may cut short at its edge.
+    async contextFor(info) {
+      const section = book.spine.get(info.section);
+      if (!section) return info;
+      const doc = await content.load(section.url), text = window.epubAnnotations.index(doc.body || doc.documentElement).text;
+      const hit = window.epubAnnotations.find(text, info);
+      return hit ? { ...info, prefix: text.slice(Math.max(0, hit.start - 32), hit.start), suffix: text.slice(hit.end, hit.end + 32) } : info;
+    },
+    // Where a highlight starts in the book, for jumping to it.
+    async cfiFor(h) {
+      const section = book.spine.get(h.section);
+      if (!section) return null;
+      const doc = await content.load(section.url), body = doc.body || doc.documentElement;
+      const idx = window.epubAnnotations.index(body), hit = window.epubAnnotations.find(idx.text, h);
+      const piece = hit && window.epubAnnotations.segments(idx, hit.start, hit.end)[0];
+      if (!piece) return null;
+      const range = doc.createRange(); range.setStart(piece.node, piece.from); range.setEnd(piece.node, piece.to);
+      return new ePub.CFI(range, section.cfiBase).toString();
     },
     currentLocation: () => current?.location,
     get canSwitchSpread() { return !geometry.isTouch; },

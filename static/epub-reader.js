@@ -8,9 +8,10 @@
   const addBookmark = $("epub-bookmark-add");
   const stateKey = `md2book.epub:${library}:${id}`;
   const bookmarkKey = stateKey + ":bookmarks";
+  const highlightKey = stateKey + ":highlights";
   const bookmarkUrl = `/api/epub-bookmarks/${id}`;
   let book, rendition, current, disposed = false, locationsReady = false;
-  let bookmarks = [], bookmarksReady = false, bookmarkBusy = false, lastSync = 0;
+  let bookmarks = [], highlights = [], bookmarksReady = false, bookmarkBusy = false, lastSync = 0;
   let navigationQueue = Promise.resolve(), queued = 0, lastTouch = -Infinity;
   const readLocal = (key, fallback) => {
     try { return JSON.parse(localStorage.getItem(key)) || fallback; }
@@ -78,7 +79,7 @@
     releaseTurn: () => rendition?.releaseTurn(),
     settleTurn: target => rendition?.settleTurn(target)
   }, {
-    blocked: () => !rendition || menu.open || (window.visualViewport?.scale || 1) > 1.05,
+    blocked: () => !rendition || menu.open || !$("epub-note-editor").hidden || (window.visualViewport?.scale || 1) > 1.05,
     direction: () => book?.package.metadata.direction === "rtl" ? -1 : 1
   });
   function bindInput(documentOrElement) {
@@ -86,7 +87,7 @@
     let start = null;
     const doc = documentOrElement.ownerDocument || documentOrElement;
     const hasSelection = () => Boolean(doc.getSelection()?.toString());
-    const interactive = target => target.closest?.("a, button, input, select, textarea, audio, video, [contenteditable]");
+    const interactive = target => target.closest?.("a, button, input, select, textarea, audio, video, [contenteditable], mark.epub-hl");
     const toViewer = (x, y) => {
       if (doc === document) return [x, y];
       const frame = doc.defaultView.frameElement, rect = frame.getBoundingClientRect();
@@ -221,25 +222,26 @@
     } : { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Cloud bookmarks are unavailable.");
-    return data.bookmarks;
+    return data;
   }
+  const arrayOf = value => Array.isArray(value) ? value : [];
   async function loadBookmarks() {
     if (bookmarkBusy) return;
     bookmarkBusy = true;
     try {
-      bookmarks = cloud ? await cloudRequest() : readLocal(bookmarkKey, []);
-      if (!Array.isArray(bookmarks)) bookmarks = [];
+      if (cloud) { const data = await cloudRequest(); bookmarks = arrayOf(data.bookmarks); highlights = arrayOf(data.highlights); }
+      else { bookmarks = arrayOf(readLocal(bookmarkKey, [])); highlights = arrayOf(readLocal(highlightKey, [])); }
       bookmarksReady = true;
       lastSync = Date.now();
     } catch { /* Retried the next time the menu opens. */
-    } finally { bookmarkBusy = false; renderBookmarks(); }
+    } finally { bookmarkBusy = false; renderBookmarks(); renderHighlights(); rendition?.refreshHighlights(); }
   }
   async function changeBookmark(operation) {
     if (!bookmarksReady || bookmarkBusy) return;
     bookmarkBusy = true;
     renderBookmarks();
     try {
-      if (cloud) bookmarks = await cloudRequest(operation);
+      if (cloud) bookmarks = (await cloudRequest(operation)).bookmarks;
       else {
         const result = readLocal(bookmarkKey, []).filter(b => b.cfi !== operation.cfi);
         if (operation.type === "add") result.push({ cfi: operation.cfi, label: operation.label, created: new Date().toISOString() });
@@ -255,6 +257,137 @@
     const chapter = chapterAt(current.start.index)?.label || `Chapter ${current.start.index + 1}`;
     changeBookmark({ type: "add", cfi: current.start.cfi, label: `${chapter}${locationsReady ? ` · ${percent.textContent}` : ""}`.slice(0, 300) });
   });
+
+  // Highlights and notes. Shown at once, saved in order behind the scenes;
+  // a failed save reloads what is actually stored.
+  const highlightsOf = index => highlights.filter(h => h.section === index);
+  let saving = Promise.resolve();
+  function changeHighlight(operation) {
+    if (!bookmarksReady) return;
+    if (operation.type === "highlight") {
+      const h = { ...operation.highlight, created: highlights.find(x => x.id === operation.highlight.id)?.created || new Date().toISOString() };
+      highlights = highlights.some(x => x.id === h.id) ? highlights.map(x => x.id === h.id ? h : x) : [...highlights, h];
+    } else highlights = highlights.filter(h => h.id !== operation.id);
+    renderHighlights(); rendition?.refreshHighlights();
+    saving = saving.then(async () => {
+      try {
+        if (cloud) await cloudRequest(operation);
+        else {
+          localStorage.setItem(highlightKey, JSON.stringify(highlights));
+          navigator.storage?.persist?.().catch(() => {});
+        }
+      } catch { bookmarkBusy = false; await loadBookmarks(); }
+    });
+  }
+  const newId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
+  function renderHighlights() {
+    const list = $("epub-highlights");
+    list.replaceChildren();
+    const sorted = [...highlights].sort((a, b) => a.section - b.section || String(a.created).localeCompare(String(b.created)));
+    for (const h of sorted) {
+      const li = document.createElement("li");
+      const jump = document.createElement("button");
+      jump.className = "epub-highlight-jump";
+      jump.innerHTML = '<span class="toc-title"></span>';
+      jump.firstChild.textContent = h.quote.trim();
+      if (h.note) { const note = document.createElement("span"); note.className = "toc-date"; note.textContent = h.note; jump.append(note); }
+      if (h.created) jump.title = new Date(h.created).toLocaleString();
+      jump.addEventListener("click", async () => {
+        const cfi = await rendition.cfiFor(h).catch(() => null);
+        menu.close(); navigate(() => rendition.display(cfi || book.spine.get(h.section).href));
+      });
+      const remove = document.createElement("button");
+      remove.className = "epub-bookmark-remove";
+      remove.innerHTML = '<span class="toc-title">×</span>';
+      remove.setAttribute("aria-label", "Remove highlight");
+      remove.addEventListener("click", () => changeHighlight({ type: "unhighlight", id: h.id }));
+      li.className = "toc-item"; li.append(jump, remove); list.append(li);
+    }
+    $("epub-highlights").previousElementSibling.hidden = !sorted.length;
+  }
+
+  const bar = $("epub-selection-bar"), editor = $("epub-note-editor"), noteText = $("epub-note-text");
+  let picked = null, editing = null, barTimer;
+  function place(el, rect, below) {
+    el.hidden = false;
+    const w = el.offsetWidth, h = el.offsetHeight;
+    const left = Math.max(8, Math.min(innerWidth - w - 8, rect.left + rect.width / 2 - w / 2));
+    const top = below ? Math.min(innerHeight - h - 8, rect.bottom + 8) : Math.max(8, rect.top - h - 8);
+    el.style.left = left + "px"; el.style.top = top + "px";
+  }
+  function closeEditor() { editing = null; editor.hidden = true; }
+  function openEditor(h, rect) {
+    editing = h; bar.hidden = true;
+    $("epub-note-quote").textContent = h.quote.trim();
+    noteText.value = h.note || "";
+    place(editor, rect, true);
+    noteText.focus({ preventScroll: true });
+  }
+  async function createHighlight(picked) {
+    const info = await rendition.contextFor(picked).catch(() => picked);
+    const h = { id: newId(), section: info.section, quote: info.quote.slice(0, 1000), prefix: info.prefix, suffix: info.suffix, note: "" };
+    changeHighlight({ type: "highlight", highlight: h });
+    document.getSelection()?.removeAllRanges();
+    bar.hidden = true; picked = null;
+    return h;
+  }
+  document.addEventListener("selectionchange", () => {
+    clearTimeout(barTimer);
+    barTimer = setTimeout(() => {
+      if (!rendition || menu.open || !editor.hidden || !bookmarksReady) return;
+      picked = rendition.selection();
+      if (picked) place(bar, picked.rect, false); else bar.hidden = true;
+    }, 250);
+  });
+  bar.addEventListener("mousedown", event => event.preventDefault());
+  bar.addEventListener("click", async event => {
+    const act = event.target.closest("button")?.dataset.act;
+    if (!act || !picked) return;
+    const rect = picked.rect, h = await createHighlight(picked);
+    if (act === "note") openEditor(h, rect);
+  });
+  viewer.addEventListener("click", event => {
+    const mark = event.composedPath().find(node => node.matches?.("mark.epub-hl"));
+    const h = mark && highlights.find(x => x.id === mark.dataset.id);
+    if (h && !document.getSelection()?.toString()) openEditor(h, mark.getBoundingClientRect());
+  });
+  editor.addEventListener("submit", event => {
+    event.preventDefault();
+    if (editing) changeHighlight({ type: "highlight", highlight: { ...editing, note: noteText.value.trim() } });
+    closeEditor();
+  });
+  $("epub-note-delete").addEventListener("click", () => {
+    if (editing) changeHighlight({ type: "unhighlight", id: editing.id });
+    closeEditor();
+  });
+  document.addEventListener("pointerdown", event => { if (!editor.hidden && !editor.contains(event.target)) closeEditor(); }, true);
+  document.addEventListener("keydown", event => { if (event.key === "Escape") closeEditor(); }, true);
+
+  // Without a cloud library the notes live in this browser, which can be
+  // cleared: a file copy keeps them safe.
+  if (!cloud) {
+    $("epub-backup").hidden = false;
+    $("epub-export").addEventListener("click", () => {
+      const file = new Blob([JSON.stringify({ bookmarks, highlights }, null, 2)], { type: "application/json" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(file); link.download = `${document.title || "book"}-notes.json`;
+      link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    });
+    $("epub-import").addEventListener("click", () => $("epub-import-file").click());
+    $("epub-import-file").addEventListener("change", async event => {
+      const file = event.target.files[0]; event.target.value = "";
+      if (!file || !bookmarksReady) return;
+      try {
+        const data = JSON.parse(await file.text());
+        const mergedBookmarks = [...bookmarks], mergedHighlights = [...highlights];
+        for (const b of arrayOf(data.bookmarks)) if (typeof b?.cfi === "string" && !mergedBookmarks.some(x => x.cfi === b.cfi)) mergedBookmarks.push({ cfi: b.cfi, label: String(b.label || "").slice(0, 300), created: b.created });
+        for (const h of arrayOf(data.highlights)) if (typeof h?.id === "string" && typeof h.quote === "string" && Number.isInteger(h.section) && !mergedHighlights.some(x => x.id === h.id)) mergedHighlights.push(h);
+        bookmarks = mergedBookmarks; highlights = mergedHighlights;
+        localStorage.setItem(bookmarkKey, JSON.stringify(bookmarks)); localStorage.setItem(highlightKey, JSON.stringify(highlights));
+        renderBookmarks(); renderHighlights(); rendition?.refreshHighlights();
+      } catch { /* Not a notes file. */ }
+    });
+  }
   loadBookmarks();
 
   try {
@@ -279,6 +412,7 @@
     book = ePub();
     await book.open(bytes, "binary");
     rendition = window.createEpubView(book, viewer, row);
+    rendition.setHighlights(highlightsOf);
     rendition.hooks.content.register(contents => bindInput(contents.document));
     bindInput(viewer);
     const shell = getComputedStyle(document.documentElement);

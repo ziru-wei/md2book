@@ -1,3 +1,4 @@
+import { notesFileName } from "./lib/epub-bookmarks.js";
 import express from "express";
 import chokidar from "chokidar";
 import { createRequire } from "node:module";
@@ -173,14 +174,19 @@ function bookmarkGuard(req, res, next) {
   if (SETTINGS_MODE !== "repo" || !entrySource.bookmarks) return res.status(503).json({ error: "Cloud bookmarks need GITHUB_OWNER, GITHUB_REPO, GITHUB_TOKEN (Contents: Read and write), and a private HOME_PATH." });
   if (!hasBookmarkSession(req)) return res.status(403).json({ error: "Open your private library URL first to enable cloud bookmarks on this device." });
   if (!/^[a-f0-9]{64}$/.test(req.params.id)) return res.status(400).json({ error: "Invalid book id" });
-  next();
+  listEpubs().then(books => {
+    const book = books.find(b => b.id === req.params.id);
+    if (!book) return res.status(404).json({ error: "Unknown book" });
+    req.notesName = notesFileName(book, books);
+    next();
+  }).catch(() => res.status(502).json({ error: "Could not list books. Check GitHub access and try again." }));
 }
 app.get("/api/epub-bookmarks/:id", bookmarkGuard, async (req, res) => {
-  try { res.json(await entrySource.bookmarks.read(req.params.id)); }
+  try { res.json(await entrySource.bookmarks.read(req.params.id, req.notesName)); }
   catch { res.status(502).json({ error: "Could not load cloud bookmarks. Check GitHub access and try again." }); }
 });
-app.post("/api/epub-bookmarks/:id", bookmarkGuard, express.json({ limit: "8kb" }), async (req, res) => {
-  try { res.json(await entrySource.bookmarks.update(req.params.id, req.body)); }
+app.post("/api/epub-bookmarks/:id", bookmarkGuard, express.json({ limit: "32kb" }), async (req, res) => {
+  try { res.json(await entrySource.bookmarks.update(req.params.id, req.body, req.notesName)); }
   catch { res.status(400).json({ error: "Bookmark was not saved. Check GitHub write access and retry." }); }
 });
 

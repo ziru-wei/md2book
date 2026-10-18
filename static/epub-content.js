@@ -376,6 +376,6 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
     if (source.classList.contains("page--notes")) copy.dataset.notes = "";
     page.prepend(copy);
   }
-  return { stylesheet, notesFor, prepare, placeNotes, showThrough, startCfi, hasPage, freezePage, clonePage,
+  return { load, stylesheet, notesFor, prepare, placeNotes, showThrough, startCfi, hasPage, freezePage, clonePage,
     addBleed: page => window.addReaderInkBleed([page], () => ({copy:clonePage(page,true),restore(){}})) };
 };
