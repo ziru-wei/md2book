@@ -1256,6 +1256,19 @@
     const strength = parseFloat(getComputedStyle(root).getPropertyValue("--letterpress")) || 0.5;
     list.forEach((page, i) => {
       page.style.setProperty("--ink-mask", noiseMask(7919 + i, +(1 - 0.6 * strength).toFixed(2), 0.45));
+      // Pictures aren't ink: the mask would mottle them. They show from
+      // a copy of the text area over it, with only them in it, unmasked
+      // (the area's own are hidden, see .page--pictures in book.css).
+      const area = page.querySelector(":scope > .page-area");
+      if (!area || !area.querySelector("img, .image-placeholder")) return;
+      const pictures = document.createElement("div");
+      pictures.className = "page-pictures";
+      pictures.setAttribute("aria-hidden", "true");
+      pictures.inert = true;
+      pictures.appendChild(area.cloneNode(true));
+      for (const el of pictures.querySelectorAll("[id]")) el.removeAttribute("id");
+      area.after(pictures);
+      page.classList.add("page--pictures");
     });
   }
 
@@ -1479,10 +1492,13 @@
 
   // The tablet-style spread on a computer, in a window too narrow for
   // two pages side by side: one page, the window's full width. Two
-  // would leave each page's text under ~260px between its margins
-  // (the widest, with side comments: 250px + 120px, see book.css).
+  // would leave each page's text under 300px between its margins (the
+  // widest, with side comments: 250px and 120px, or 26% and 12% of the
+  // page when narrower — see book.css).
   function tabletSingle() {
-    return !isTouch && root.dataset.layout === "tablet" && viewportWidth() / 2 - 370 < 260;
+    if (isTouch || root.dataset.layout !== "tablet") return false;
+    const page = viewportWidth() / 2;
+    return page - Math.min(250, page * 0.26) - Math.min(120, page * 0.12) < 300;
   }
 
   function layoutFor() {
@@ -1502,6 +1518,7 @@
     if (key === layoutKey) return false;
     layoutKey = key;
     root.dataset.layout = layout;
+    root.classList.toggle("tablet-single", tabletSingle());
     if (layout === "book") {
       root.style.removeProperty("--paper-width");
       root.style.removeProperty("--page-height");

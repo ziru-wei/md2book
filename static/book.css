@@ -157,8 +157,8 @@ html:has(body.page-contents) {
    Show-through ("力透纸背"): the page on the back of this one, mirrored,
    faint, under the ink of this page (reader.js puts
    the copy in, as .page-back; --show-through is its strength, 0–1).
-   It lies over the page rather than under: justified text's area has a
-   paper of its own (html.justify .page-area below) that would hide it.
+   It lies over the page rather than under: the text area has a paper
+   of its own (.page-area below) that would hide it.
    Not blended (multiply): that took Safari up to a second to draw
    whenever a page turned, and at this faintness dark ink over the pale
    paper looks the same either way. Nothing in the copy blends either. */
@@ -264,6 +264,35 @@ html.letterpress #book .page > .page-bleed :is(.page-area, .page-foot, .page-com
   mask-repeat: no-repeat;
 }
 
+/* Except pictures: they show unmasked from .page-pictures, a copy of
+   the text area with nothing else in it, laid over it (reader.js). Not
+   a stacking context of its own, so a multiplied image still blends
+   with the paper and text under it. */
+html.letterpress #book .page--pictures > .page-area :is(img, .image-placeholder),
+html.letterpress #book .page-pictures .page-area * {
+  visibility: hidden;
+}
+
+html.letterpress #book .page-pictures {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+html.letterpress #book .page-pictures .page-area {
+  background: none;
+  /* (A clip path would set it apart for blending, see .page-area.) */
+  clip-path: none;
+  overflow: hidden;
+  text-shadow: none;
+  -webkit-text-stroke: 0;
+}
+
+html.letterpress #book .page-pictures .page-area :is(img, .image-placeholder) {
+  visibility: visible;
+}
+
 html.letterpress #book .page :is(.page-area, .page-foot) {
   -webkit-mask-position: calc(-1 * var(--pad-left)) calc(-1 * var(--pad-top));
   mask-position: calc(-1 * var(--pad-left)) calc(-1 * var(--pad-top));
@@ -284,10 +313,12 @@ html.ink-bleed #book .page-bleed .body .cjk {
   -webkit-text-stroke-width: 0;
 }
 
-/* Justified text (see reader.js) hangs punctuation at line ends, and
-   nudges some letters, a little way into the margin: clip only past
-   that. */
-html.justify .page-area {
+/* Text runs a little way into the side margins: justified text (see
+   reader.js) hangs punctuation at line ends and nudges some letters,
+   and an italic's last letter leans past the edge it's set against (a
+   right-aligned date). Clip only past that, at the sides; top and
+   bottom stay cut at the page's text. */
+.page-area {
   overflow: visible;
   clip-path: inset(0 calc(-1.2 * var(--body-size)));
   /* clip-path sets the area apart for blending: without a paper of its
@@ -2349,23 +2380,46 @@ html[data-layout="tablet"].has-notes {
 }
 
 /* The same spread on a laptop (backslash key): a bigger window, so
-   roomier margins, larger type and smaller images. */
+   roomier margins, larger type and smaller images. The side margins
+   are fixed on a wide window; on a narrower one they take a fixed
+   share of the page instead (19% each side; with side comments 26% on
+   the outside, 12% inside), so text and margins keep their proportion
+   — tabletSingle in reader.js counts with the same shares. */
 html[data-layout="tablet"]:not(.is-touch) {
   /* CUSTOMIZABLE STYLE: laptop tablet-style page */
-  --pad-x: 160px;
+  --pad-x: min(160px, calc(var(--paper-width) * .19));
   --pad-top: 100px;
   --pad-bottom: 116px;
   --body-size: 15px;
   --body-leading: 1.45;
   /* Side comments keep a clear strip of paper between them and the
      page edge. */
-  --note-inset: 64px;
+  --note-inset: min(64px, calc(var(--pad-left) * .2));
   --note-width: calc(var(--pad-left) - var(--note-inset) - 14px);
 }
 
 html[data-layout="tablet"]:not(.is-touch).has-notes {
-  --pad-left: 250px;
-  --pad-right: 120px;
+  --pad-left: min(250px, calc(var(--paper-width) * .26));
+  --pad-right: min(120px, calc(var(--paper-width) * .12));
+}
+
+/* A window too narrow for two pages shows one, the window's width: its
+   text no wider than --measure (or the share above, on a narrow
+   window), the rest margin — split evenly, or, with side comments,
+   in the same proportion as above. */
+html[data-layout="tablet"].tablet-single:not(.is-touch) {
+  /* CUSTOMIZABLE STYLE: longest line on the one-page view */
+  --measure: min(calc(var(--body-size) * 32), calc(var(--paper-width) * .62));
+  --pad-x: calc((var(--paper-width) - var(--measure)) / 2);
+}
+
+html[data-layout="tablet"].tablet-single:not(.is-touch).has-notes {
+  --pad-left: calc((var(--paper-width) - var(--measure)) * .68);
+  --pad-right: calc((var(--paper-width) - var(--measure)) * .32);
+  /* Side comments as wide as on a two-page spread at most, next to
+     the text rather than out at the page edge. */
+  --note-width: min(172px, calc(var(--pad-left) - 78px));
+  --note-inset: calc(var(--pad-left) - var(--note-width) - 14px);
 }
 
 /* The figure itself, so its caption follows; one with its own width

@@ -97,7 +97,7 @@ html.reader body {
 }
 
 /* The text area prints unclipped (there's nothing past its columns
-   once a page is cut), and its paper (see html.justify .page-area in
+   once a page is cut), and its paper (see .page-area in
    book.css) prints white like the page. */
 .page-area {
   overflow: visible !important;
@@ -159,8 +159,14 @@ html.has-print-book .print-book {
    white, without the copy showing through from its back or the
    letterpress impression. */
 .page-back,
-.page-bleed {
+.page-bleed,
+.page-pictures {
   display: none !important;
+}
+
+/* Pictures print from the page itself (see .page-pictures in book.css). */
+.page--pictures > .page-area :is(img, .image-placeholder) {
+  visibility: visible !important;
 }
 
 html.letterpress #book .page > :is(.page-area, .page-foot, .page-number, .page-comments) {
