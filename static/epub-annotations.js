@@ -50,7 +50,7 @@
     return out;
   }
 
-  const STYLE = ".epub-hl{background:rgba(255,206,64,.38);color:inherit;cursor:pointer;border-radius:1px;-webkit-box-decoration-break:clone;box-decoration-break:clone}" +
+  const STYLE = "::selection{background:rgba(110,110,110,.38);color:inherit}.epub-hl{background:rgba(255,206,64,.38);color:inherit;cursor:pointer;border-radius:1px;-webkit-box-decoration-break:clone;box-decoration-break:clone}" +
     ".epub-hl[data-note]{box-shadow:0 1px 0 rgba(160,110,0,.7)}";
 
   function unpaint(shadow) {
@@ -64,12 +64,14 @@
   function paint(shadow, list) {
     unpaint(shadow);
     const body = shadow.querySelector("body");
-    if (!body || !list.length) return;
+    if (!body) return;
+    // Selected text is grey, whether or not the page has highlights.
     if (!shadow.querySelector("style[data-epub-hl]")) {
       const style = body.ownerDocument.createElement("style");
       style.dataset.epubHl = ""; style.textContent = STYLE;
       shadow.append(style);
     }
+    if (!list.length) return;
     for (const h of list) {
       const idx = index(body), hit = find(idx.text, h, true);
       if (!hit) continue;

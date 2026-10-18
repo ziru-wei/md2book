@@ -316,12 +316,14 @@
     el.style.left = left + "px"; el.style.top = top + "px";
   }
   function closeEditor() { editing = null; editor.hidden = true; }
-  function openEditor(h, rect) {
+  const coarse = () => matchMedia("(pointer: coarse)").matches;
+  function openEditor(h, rect, focus = true) {
     editing = h; bar.hidden = true;
     $("epub-note-quote").textContent = h.quote.trim();
     noteText.value = h.note || "";
+    $("epub-note-clear").hidden = !h.note;
     place(editor, rect, true);
-    noteText.focus({ preventScroll: true });
+    if (focus) noteText.focus({ preventScroll: true });
   }
   async function createHighlight(picked) {
     const info = await rendition.contextFor(picked).catch(() => picked);
@@ -336,10 +338,13 @@
     barTimer = setTimeout(() => {
       if (!rendition || menu.open || !editor.hidden || !bookmarksReady) return;
       picked = rendition.selection();
-      if (picked) place(bar, picked.rect, false); else bar.hidden = true;
+      // On touch screens the system menu sits above a selection: go below.
+      if (picked) place(bar, picked.rect, coarse()); else bar.hidden = true;
     }, 250);
   });
+  // Pressing the bar must not drop the selection (mouse or finger).
   bar.addEventListener("mousedown", event => event.preventDefault());
+  bar.addEventListener("touchstart", event => event.preventDefault(), { passive: false });
   bar.addEventListener("click", async event => {
     const act = event.target.closest("button")?.dataset.act;
     if (!act || !picked) return;
@@ -349,11 +354,15 @@
   viewer.addEventListener("click", event => {
     const mark = event.composedPath().find(node => node.matches?.("mark.epub-hl"));
     const h = mark && highlights.find(x => x.id === mark.dataset.id);
-    if (h && !document.getSelection()?.toString()) openEditor(h, mark.getBoundingClientRect());
+    if (h && !document.getSelection()?.toString()) openEditor(h, mark.getClientRects()[0] || mark.getBoundingClientRect(), !coarse());
   });
   editor.addEventListener("submit", event => {
     event.preventDefault();
     if (editing) changeHighlight({ type: "highlight", highlight: { ...editing, note: noteText.value.trim() } });
+    closeEditor();
+  });
+  $("epub-note-clear").addEventListener("click", () => {
+    if (editing) changeHighlight({ type: "highlight", highlight: { ...editing, note: "" } });
     closeEditor();
   });
   $("epub-note-delete").addEventListener("click", () => {
