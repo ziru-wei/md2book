@@ -279,7 +279,7 @@
       bookmarksReady = true;
       lastSync = Date.now();
     } catch { /* Retried the next time the menu opens. */
-    } finally { bookmarkBusy = false; renderBookmarks(); renderHighlights(); rendition?.refreshHighlights(); }
+    } finally { bookmarkBusy = false; renderBookmarks(); rendition?.refreshHighlights(); }
   }
   async function changeBookmark(operation) {
     if (!bookmarksReady || bookmarkBusy) return;
@@ -313,7 +313,7 @@
       const h = { ...operation.highlight, created: highlights.find(x => x.id === operation.highlight.id)?.created || new Date().toISOString() };
       highlights = highlights.some(x => x.id === h.id) ? highlights.map(x => x.id === h.id ? h : x) : [...highlights, h];
     } else highlights = highlights.filter(h => h.id !== operation.id);
-    renderHighlights(); rendition?.refreshHighlights();
+    rendition?.refreshHighlights();
     saving = saving.then(async () => {
       try {
         if (cloud) await cloudRequest(operation);
@@ -322,32 +322,6 @@
     });
   }
   const newId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
-  function renderHighlights() {
-    const list = $("epub-highlights");
-    list.replaceChildren();
-    const sorted = [...highlights].sort((a, b) => a.section - b.section || String(a.created).localeCompare(String(b.created)));
-    for (const h of sorted) {
-      const li = document.createElement("li");
-      const jump = document.createElement("button");
-      jump.className = "epub-highlight-jump";
-      jump.innerHTML = '<span class="toc-title"></span>';
-      jump.firstChild.textContent = h.quote.trim();
-      if (h.note) { const note = document.createElement("span"); note.className = "toc-date"; note.textContent = h.note; jump.append(note); }
-      if (h.created) jump.title = new Date(h.created).toLocaleString();
-      jump.addEventListener("click", async () => {
-        const cfi = await rendition.cfiFor(h).catch(() => null);
-        menu.close(); navigate(() => rendition.display(cfi || book.spine.get(h.section).href));
-      });
-      const remove = document.createElement("button");
-      remove.className = "epub-bookmark-remove";
-      remove.innerHTML = '<span class="toc-title">×</span>';
-      remove.setAttribute("aria-label", "Remove highlight");
-      remove.addEventListener("click", () => changeHighlight({ type: "unhighlight", id: h.id }));
-      li.className = "toc-item"; li.append(jump, remove); list.append(li);
-    }
-    $("epub-highlights").previousElementSibling.hidden = !sorted.length;
-  }
-
   const bar = $("epub-selection-bar"), editor = $("epub-note-editor"), noteText = $("epub-note-text");
   let picked = null, editing = null, barTimer;
   function place(el, rect, below) {
@@ -435,7 +409,7 @@
         for (const h of arrayOf(data.highlights)) if (typeof h?.id === "string" && typeof h.quote === "string" && Number.isInteger(h.section) && !mergedHighlights.some(x => x.id === h.id)) mergedHighlights.push(h);
         bookmarks = mergedBookmarks; highlights = mergedHighlights;
         await saveLocal({ bookmarks, highlights });
-        renderBookmarks(); renderHighlights(); rendition?.refreshHighlights();
+        renderBookmarks(); rendition?.refreshHighlights();
       } catch { /* Not a notes file. */ }
     });
   }
