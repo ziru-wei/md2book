@@ -5,7 +5,7 @@
   const $ = id => document.getElementById(id);
   const viewer = $("epub-viewer"), status = $("epub-status"), toc = $("epub-toc");
   const menu = $("epub-menu"), progress = $("epub-progress"), percent = $("epub-percent");
-  const addBookmark = $("epub-bookmark-add");
+  const addBookmark = $("epub-bookmark-add"), syncNote = $("epub-sync-note");
   const stateKey = `md2book.epub:${library}:${id}`;
   const bookmarkKey = stateKey + ":bookmarks";
   const highlightKey = stateKey + ":highlights";
@@ -281,7 +281,10 @@
       else { const data = await loadLocal(); bookmarks = arrayOf(data.bookmarks); highlights = arrayOf(data.highlights); }
       bookmarksReady = true;
       lastSync = Date.now();
-    } catch { /* Retried the next time the menu opens. */
+      syncNote.hidden = true;
+    } catch (error) {
+      // Retried the next time the menu opens; say why nothing is shown.
+      syncNote.textContent = error.message || "Could not load notes."; syncNote.hidden = false;
     } finally { bookmarkBusy = false; renderBookmarks(); rendition?.refreshHighlights(); }
   }
   async function changeBookmark(operation) {
@@ -297,7 +300,8 @@
         await saveLocal({ bookmarks, highlights });
       }
       lastSync = Date.now();
-    } catch { /* Not saved; the list still shows what is stored. */
+    } catch (error) {
+      syncNote.textContent = error.message || "Not saved."; syncNote.hidden = false;
     } finally { bookmarkBusy = false; renderBookmarks(); }
   }
   addBookmark.addEventListener("click", () => {
@@ -355,7 +359,7 @@
   document.addEventListener("selectionchange", () => {
     clearTimeout(barTimer);
     barTimer = setTimeout(() => {
-      if (!rendition || menu.open || !editor.hidden || !bookmarksReady) return;
+      if (!rendition || menu.open || !editor.hidden) return;
       picked = rendition.selection();
       // On touch screens the system menu sits above a selection: go below.
       if (picked) place(bar, picked.rect, coarse()); else bar.hidden = true;
@@ -367,6 +371,8 @@
   bar.addEventListener("click", async event => {
     const act = event.target.closest("button")?.dataset.act;
     if (!act || !picked) return;
+    // Notes could not be loaded (cloud sign-in missing): the menu says why.
+    if (!bookmarksReady) { bar.hidden = true; toggleMenu(); return; }
     const rect = picked.rect, h = await createHighlight(picked);
     if (act === "note") openEditor(h, rect);
   });
