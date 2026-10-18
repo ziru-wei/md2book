@@ -490,9 +490,10 @@ window.createEpubView = function createEpubView(book, mount, row) {
     // reader's (`fn(sectionIndex)` returns that chapter's).
     setHighlights(fn) { highlightsOf = fn; },
     refreshHighlights() {
-      for (const entry of spreads) for (const page of entry.pages) {
-        const host = page?.querySelector?.(".epub-page-content");
-        if (host && page.dataset.section !== undefined) window.epubAnnotations.paint(host.shadowRoot, highlightsOf(+page.dataset.section));
+      // Every copy of a page: the page itself, its show-through back and its ink layer.
+      for (const host of mount.querySelectorAll(".epub-page-content")) {
+        const owner = host.closest("[data-section]");
+        if (owner) window.epubAnnotations.paint(host.shadowRoot, highlightsOf(+owner.dataset.section));
       }
     },
     // The visible page text the viewer has selected, if any.
