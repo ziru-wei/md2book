@@ -1,7 +1,5 @@
 /* Paper, margins, typography, page numbers, gutter and turn layers come from
    book.css. Only EPUB's iframe adapter and menu controls need extra rules. */
-.epub-reader { color: var(--ink); }
-.epub-shell { height: 100svh; }
 .epub-face { --area-width: calc(var(--paper-width) - var(--pad-left) - var(--pad-right)); }
 .epub-face .page-area { overflow: hidden; clip-path: none; }
 .epub-viewport { position: absolute; top: 0; }
@@ -10,30 +8,19 @@
 #epub-status { position: fixed; z-index: 20; top: 1rem; left: 50%; transform: translateX(-50%); max-width: 90vw; background: var(--paper); padding: .8rem 1rem; }
 .epub-access-menu { position: fixed; top: 8px; left: 8px; z-index: 30; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; }
 .epub-access-menu:focus-visible { clip-path: none; width: auto; height: auto; padding: .6rem; }
-/* The menu is a loose leaf of the book's own paper: serif type, hairline rules,
-   no boxed controls. */
-#epub-menu { width: min(360px, 88vw); box-sizing: border-box; max-height: 80svh; padding: 2rem 2rem 1.6rem;
-  background: var(--paper); color: var(--ink); border: 0; border-radius: 1px; font-family: var(--serif);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent), 0 18px 48px rgba(0,0,0,.28); }
-#epub-menu::backdrop { background: rgba(0,0,0,.4); }
-#epub-menu h2 { margin: 0 0 1.1rem; padding-bottom: .9rem; font-size: 1.05rem; font-weight: 600; text-align: center;
-  line-height: 1.4; border-bottom: 1px solid color-mix(in srgb, var(--ink) 22%, transparent); }
-#epub-menu h3 { margin: 0; font-size: .7rem; font-weight: 400; letter-spacing: .14em; text-transform: uppercase; opacity: .6; }
-#epub-menu label { display: flex; justify-content: space-between; margin: 1.2rem 0 .4rem; font-size: .7rem; letter-spacing: .14em; text-transform: uppercase; opacity: .6; }
-.epub-view-options, .epub-bookmark-heading { display: flex; align-items: center; justify-content: space-between; gap: .8rem; }
-#epub-menu button, #epub-menu select { font: inherit; font-size: .9rem; color: inherit; background: transparent; border: 0; border-radius: 0; padding: .3rem 0; min-height: 36px; }
-#epub-menu button { cursor: pointer; border-bottom: 1px solid transparent; }
-#epub-menu button:hover:not(:disabled), #epub-menu button:focus-visible { border-bottom-color: currentColor; outline: none; }
-#epub-menu button:disabled { opacity: .35; cursor: default; }
-#epub-menu select { width: 100%; box-sizing: border-box; border-bottom: 1px solid color-mix(in srgb, var(--ink) 30%, transparent); }
-#epub-menu select option { color: var(--ink); background: var(--paper); }
-#epub-position { margin: 1rem 0 0; text-align: center; font-size: .8rem; opacity: .6; font-variant-numeric: tabular-nums; }
-#epub-progress { width: 100%; box-sizing: border-box; margin: 0; accent-color: var(--ink); }
-#epub-percent { font-variant-numeric: tabular-nums; letter-spacing: 0; }
-.epub-bookmark-heading { margin-top: 1.6rem; padding-top: 1rem; border-top: 1px solid color-mix(in srgb, var(--ink) 22%, transparent); }
-#epub-bookmarks { list-style: none; padding: 0; margin: .4rem 0 0; }
-#epub-bookmarks li { display: flex; gap: .5rem; margin: 0; }
-.epub-bookmark-jump { flex: 1; min-width: 0; text-align: left; overflow-wrap: anywhere; }
+/* The menu reuses the Markdown contents popup (.toc-dialog); only the slider
+   and bookmark controls are added. */
+#epub-menu { width: min(360px, 90vw); }
+#epub-menu .epub-progress-row, #epub-menu .epub-bookmark-heading { display: flex; justify-content: space-between; align-items: center; }
+#epub-menu .epub-progress-row { margin: 0 0 .3em; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+#epub-percent { font-variant-numeric: tabular-nums; }
+#epub-progress { width: 100%; box-sizing: border-box; margin: 0 0 1.2em; accent-color: rgba(241, 243, 244, .8); }
+#epub-menu .epub-bookmark-heading { margin-top: 1.2em; }
+#epub-menu .epub-bookmark-heading button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; text-transform: inherit; letter-spacing: inherit; padding: 0; }
+#epub-menu .epub-bookmark-heading button:disabled { opacity: .4; cursor: default; }
+#epub-bookmarks li { display: flex; }
+#epub-bookmarks li .toc-title { text-align: left; }
+#epub-bookmarks .epub-bookmark-remove { width: auto; flex: none; opacity: .55; }
 
 /* The margin layer must not intercept taps on the underlying iframe. */
 .epub-face .page-comments { pointer-events: none; }
@@ -68,3 +55,5 @@ html.epub-fixed-paper[data-layout="tablet"] .epub-face.page--notes {
 
 /* Retain bounded ink surfaces while the shared leaf clips and transforms them. */
 .epub-face > :is(.page-area,.page-bleed,.page-back) { will-change:transform; }
+#epub-toc .toc-item button { padding-left: calc(4px + var(--depth, 0) * 1.1em); }
+#epub-toc .toc-item.is-current .toc-title { color: #fff; }

@@ -4,13 +4,11 @@
   const { url, row, id, library, cloud } = options;
   const $ = id => document.getElementById(id);
   const viewer = $("epub-viewer"), status = $("epub-status"), toc = $("epub-toc");
-  const position = $("epub-position");
   const menu = $("epub-menu"), progress = $("epub-progress"), percent = $("epub-percent");
   const addBookmark = $("epub-bookmark-add");
   const stateKey = `md2book.epub:${library}:${id}`;
   const bookmarkKey = stateKey + ":bookmarks";
   const bookmarkUrl = `/api/epub-bookmarks/${id}`;
-  position.hidden = !row.pageNumbers;
   let book, rendition, current, disposed = false, locationsReady = false;
   let bookmarks = [], bookmarksReady = false, bookmarkBusy = false, lastSync = 0;
   let navigationQueue = Promise.resolve(), queued = 0, lastTouch = -Infinity;
@@ -197,15 +195,17 @@
     for (const bookmark of bookmarks) {
       const li = document.createElement("li");
       const jump = document.createElement("button");
-      jump.textContent = bookmark.label;
       jump.className = "epub-bookmark-jump";
+      jump.innerHTML = '<span class="toc-title"></span>';
+      jump.firstChild.textContent = bookmark.label;
       jump.addEventListener("click", () => { menu.close(); navigate(() => rendition.display(bookmark.cfi)); });
       const remove = document.createElement("button");
-      remove.textContent = "×";
+      remove.className = "epub-bookmark-remove";
+      remove.innerHTML = '<span class="toc-title">×</span>';
       remove.setAttribute("aria-label", `Remove bookmark: ${bookmark.label}`);
       remove.disabled = bookmarkBusy;
       remove.addEventListener("click", () => changeBookmark({ type: "remove", cfi: bookmark.cfi }));
-      li.append(jump, remove); list.append(li);
+      li.className = "toc-item"; li.append(jump, remove); list.append(li);
     }
     addBookmark.disabled = !current || !bookmarksReady || bookmarkBusy;
     addBookmark.textContent = bookmarks.some(b => b.cfi === current?.start.cfi) ? "Added" : "Add";
@@ -247,8 +247,8 @@
   }
   addBookmark.addEventListener("click", () => {
     if (!current || bookmarks.some(b => b.cfi === current.start.cfi)) return;
-    const chapter = toc.selectedOptions[0]?.textContent.trim() || `Chapter ${current.start.index + 1}`;
-    changeBookmark({ type: "add", cfi: current.start.cfi, label: `${chapter} · ${locationsReady ? percent.textContent : position.textContent}`.slice(0, 300) });
+    const chapter = toc.querySelector(".is-current .toc-title")?.textContent.trim() || `Chapter ${current.start.index + 1}`;
+    changeBookmark({ type: "add", cfi: current.start.cfi, label: `${chapter}${locationsReady ? ` · ${percent.textContent}` : ""}`.slice(0, 300) });
   });
   loadBookmarks();
 
@@ -274,8 +274,6 @@
     book = ePub();
     await book.open(bytes, "binary");
     rendition = window.createEpubView(book, viewer, row);
-    $("epub-columns").addEventListener("click", () => { menu.close(); navigate(() => rendition.toggleColumns()); });
-    $("epub-spread").addEventListener("click", () => { menu.close(); navigate(() => rendition.toggleSpread()); });
     rendition.hooks.content.register(contents => bindInput(contents.document));
     bindInput(viewer);
     const shell = getComputedStyle(document.documentElement);
@@ -286,42 +284,34 @@
     });
     rendition.on("keydown", keydown);
     document.addEventListener("keydown", keydown);
-    const showPageNumber = count => {
-      position.textContent = count?.error ? "Page count unavailable"
-        : count?.total != null && count?.page != null ? `${count.page} / ${count.total}`
-        : `Counting pages: ${count?.counted ?? 0} / ${count?.chapters ?? 0} chapters`;
-    };
-    rendition.on("pagination", showPageNumber);
     rendition.on("relocated", location => {
       current = location;
-      $("epub-columns").disabled = !rendition.canSwitchColumns;
-      $("epub-columns").textContent = rendition.columns === 2 ? "One column" : "Two columns";
-      $("epub-spread").disabled = !rendition.canSwitchSpread;
-      $("epub-spread").textContent = rendition.perSpread === 2 ? "One page" : "Two pages";
-
-      showPageNumber(location.pagination);
       // Persist synchronously: a refresh immediately after a turn keeps this CFI.
       try { localStorage.setItem(stateKey, JSON.stringify({ cfi: location.start.cfi, href: location.start.href, updated: Date.now() })); }
       catch { /* Position cannot be saved without browser storage. */ }
       const href = location.start.href.split("#")[0];
-      const option = [...toc.options].find(o => o.value.split("#")[0] === href);
-      if (option) toc.value = option.value;
+      for (const item of toc.children) item.classList.toggle("is-current", item.dataset.href.split("#")[0] === href);
       updateProgress(); renderBookmarks();
     });
     rendition.on("displayError", fail);
-    toc.addEventListener("change", () => { menu.close(); navigate(() => rendition.display(toc.value)); });
+    toc.addEventListener("click", event => {
+      const item = event.target.closest(".toc-item");
+      if (item) { menu.close(); navigate(() => rendition.display(item.dataset.href)); }
+    });
     const navigation = await book.loaded.navigation;
     function addItems(items, depth = 0) {
       for (const item of items) {
-        const option = document.createElement("option");
-        option.value = item.href;
-        option.textContent = `${"　".repeat(depth)}${item.label.trim()}`;
-        toc.appendChild(option);
+        const li = document.createElement("li");
+        li.className = "toc-item";
+        li.dataset.href = item.href;
+        li.style.setProperty("--depth", depth);
+        li.innerHTML = '<button type="button"><span class="toc-title"></span></button>';
+        li.querySelector(".toc-title").textContent = item.label.trim();
+        toc.appendChild(li);
         addItems(item.subitems || [], depth + 1);
       }
     }
     addItems(navigation.toc);
-    toc.disabled = !toc.options.length;
     const metadata = await book.loaded.metadata;
     if (metadata.title) { $("epub-title").textContent = metadata.title; document.title = metadata.title; }
     try { await rendition.display(saved?.cfi || undefined); }
