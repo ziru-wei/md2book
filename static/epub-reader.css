@@ -6,7 +6,12 @@
 .epub-face .page-area { overflow: hidden; clip-path: none; }
 .epub-viewport { position: absolute; top: 0; }
 .epub-face .page-area iframe { border: 0; }
-#epub-status { position: fixed; z-index: 20; top: 1rem; left: 50%; transform: translateX(-50%); max-width: 90vw; background: var(--paper); padding: .8rem 1rem; }
+/* Plain dark ground with a spinner until the first page is ready. */
+#epub-status { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: #151515; }
+#epub-status:not(.failed)::before { content: ""; width: 28px; height: 28px; border: 2px solid rgba(255,255,255,.18);
+  border-top-color: rgba(255,255,255,.75); border-radius: 50%; animation: epub-spin .8s linear infinite; }
+#epub-status.failed { color: #ddd; padding: 1rem; text-align: center; }
+@keyframes epub-spin { to { transform: rotate(360deg); } }
 .epub-access-menu { position: fixed; top: 8px; left: 8px; z-index: 30; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; }
 .epub-access-menu:focus-visible { clip-path: none; width: auto; height: auto; padding: .6rem; }
 /* The menu is a loose leaf of the book's own paper: serif type, hairline rules,
@@ -67,3 +72,4 @@ html.epub-fixed-paper[data-layout="tablet"] .epub-face.page--notes {
 
 /* Retain bounded ink surfaces while the shared leaf clips and transforms them. */
 .epub-face > :is(.page-area,.page-bleed,.page-back) { will-change:transform; }
+#epub-status[hidden] { display: none; }

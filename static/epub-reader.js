@@ -21,6 +21,7 @@
   const saved = readLocal(stateKey, null);
   const fail = error => {
     status.hidden = false;
+    status.classList.add("failed");
     status.textContent = `Could not read EPUB: ${error.message || error}`;
   };
   const idle = task => {
@@ -252,9 +253,24 @@
   loadBookmarks();
 
   try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`File request failed (${response.status})`);
-    const bytes = await response.arrayBuffer();
+    // In ranges where the server honours them: a serverless response is capped.
+    const CHUNK = 3 * 1024 * 1024;
+    const first = await fetch(url, { headers: { Range: `bytes=0-${CHUNK - 1}` } });
+    if (!first.ok) throw new Error(`File request failed (${first.status})`);
+    let bytes = await first.arrayBuffer();
+    const total = first.status === 206 && Number(/\/(\d+)$/.exec(first.headers.get("content-range") || "")?.[1]);
+    if (total && total > bytes.byteLength) {
+      const parts = [bytes];
+      for (let start = bytes.byteLength; start < total; start += CHUNK) {
+        const part = await fetch(url, { headers: { Range: `bytes=${start}-${Math.min(start + CHUNK, total) - 1}` } });
+        if (part.status !== 206) throw new Error(`File request failed (${part.status})`);
+        parts.push(await part.arrayBuffer());
+      }
+      const whole = new Uint8Array(total);
+      let offset = 0;
+      for (const part of parts) { whole.set(new Uint8Array(part), offset); offset += part.byteLength; }
+      bytes = whole.buffer;
+    }
     book = ePub();
     await book.open(bytes, "binary");
     rendition = window.createEpubView(book, viewer, row);
