@@ -87,7 +87,7 @@
     let start = null;
     const doc = documentOrElement.ownerDocument || documentOrElement;
     const hasSelection = () => Boolean(doc.getSelection()?.toString());
-    const interactive = target => target.closest?.("a, button, input, select, textarea, audio, video, [contenteditable], mark.epub-hl");
+    const interactive = target => target.closest?.("a, button, input, select, textarea, audio, video, [contenteditable], span.epub-hl");
     const toViewer = (x, y) => {
       if (doc === document) return [x, y];
       const frame = doc.defaultView.frameElement, rect = frame.getBoundingClientRect();
@@ -352,7 +352,7 @@
     if (act === "note") openEditor(h, rect);
   });
   viewer.addEventListener("click", event => {
-    const mark = event.composedPath().find(node => node.matches?.("mark.epub-hl"));
+    const mark = event.composedPath().find(node => node.matches?.("span.epub-hl"));
     const h = mark && highlights.find(x => x.id === mark.dataset.id);
     if (h && !document.getSelection()?.toString()) openEditor(h, mark.getClientRects()[0] || mark.getBoundingClientRect(), !coarse());
   });

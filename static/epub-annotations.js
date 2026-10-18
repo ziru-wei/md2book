@@ -50,11 +50,11 @@
     return out;
   }
 
-  const STYLE = "::selection{background:rgba(110,110,110,.38);color:inherit}.epub-hl{background:rgba(255,206,64,.38);color:inherit;cursor:pointer;border-radius:1px;-webkit-box-decoration-break:clone;box-decoration-break:clone}" +
+  const STYLE = "::selection{background:rgba(110,110,110,.38);color:inherit}.epub-hl{background:rgba(255,196,0,.55);mix-blend-mode:multiply;color:inherit;cursor:pointer;border-radius:1px;-webkit-box-decoration-break:clone;box-decoration-break:clone}" +
     ".epub-hl[data-note]{box-shadow:0 1px 0 rgba(160,110,0,.7)}";
 
   function unpaint(shadow) {
-    for (const mark of [...shadow.querySelectorAll("mark.epub-hl")]) {
+    for (const mark of [...shadow.querySelectorAll("span.epub-hl")]) {
       const parent = mark.parentNode;
       mark.replaceWith(...mark.childNodes);
       parent.normalize();
@@ -80,7 +80,7 @@
         if (!node.data.slice(from, to).trim()) continue;
         const target = to < node.length ? (node.splitText(to), node) : node;
         const middle = from > 0 ? target.splitText(from) : target;
-        const mark = body.ownerDocument.createElement("mark");
+        const mark = body.ownerDocument.createElement("span");
         mark.className = "epub-hl"; mark.dataset.id = h.id;
         if (h.note) mark.dataset.note = "";
         middle.replaceWith(mark); mark.append(middle);

@@ -16,9 +16,9 @@
 #epub-percent { font-variant-numeric: tabular-nums; }
 #epub-progress { -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 14px; margin: 0 0 1.2em; padding: 0; background: transparent; cursor: pointer; }
 #epub-progress:disabled { opacity: .4; cursor: default; }
-#epub-progress::-webkit-slider-runnable-track { height: 1px; background: rgba(241, 243, 244, .3); }
+#epub-progress::-webkit-slider-runnable-track { height: 1px; background: var(--rule); }
 #epub-progress::-webkit-slider-thumb { -webkit-appearance: none; width: 7px; height: 7px; margin-top: -3px; border-radius: 50%; background: rgba(241, 243, 244, .9); border: 0; }
-#epub-progress::-moz-range-track { height: 1px; background: rgba(241, 243, 244, .3); }
+#epub-progress::-moz-range-track { height: 1px; background: var(--rule); }
 #epub-progress::-moz-range-thumb { width: 7px; height: 7px; border-radius: 50%; background: rgba(241, 243, 244, .9); border: 0; }
 #epub-progress:focus-visible { outline: none; }
 #epub-menu .epub-bookmark-heading { margin-top: 1.2em; }
@@ -83,6 +83,14 @@ html.epub-fixed-paper[data-layout="tablet"] .epub-face.page--notes {
 .epub-highlight-jump .toc-date { text-transform: none; letter-spacing: 0; font-size: 11px; margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
 #epub-highlights li { display: flex; }
 #epub-highlights .toc-item button:first-child { flex: 1; min-width: 0; text-align: left; }
-.epub-backup { display: flex; gap: 2px; margin-top: 1.2em; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-.epub-backup button { font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; background: none; border: 0; padding: 4px 6px 4px 0; cursor: pointer; }
+.epub-backup { display: flex; align-items: center; gap: 4px; margin-top: 1.2em; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.epub-backup span { flex: 1; }
+.epub-backup button { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; color: inherit; background: none; border: 0; border-radius: 2px; cursor: pointer; }
+.epub-backup button:hover { background: rgba(241, 243, 244, .08); color: rgba(241, 243, 244, .92); }
+.epub-backup svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .epub-backup[hidden] { display: none; }
+
+/* Dividers sit above the Bookmarks and Notes headings (the progress line is the
+   same hairline), not under the book title. */
+#epub-menu > .toc-tag-label { border-bottom: 0; padding-bottom: .9em; }
+#epub-menu > .epub-bookmark-heading { margin-top: 1.2em; padding: .9em 0 .6em; border-top: 1px solid var(--rule); border-bottom: 0; }
