@@ -189,6 +189,10 @@
     } catch { /* Contents and bookmarks still work without a progress index. */ }
   }
 
+  // The contents entry a spine position falls under: the last one starting
+  // at or before it (several entries may share one file).
+  const chapters = [];
+  const chapterAt = index => chapters.filter(c => c.index <= index).pop();
   function renderBookmarks() {
     const list = $("epub-bookmarks");
     list.replaceChildren();
@@ -198,6 +202,7 @@
       jump.className = "epub-bookmark-jump";
       jump.innerHTML = '<span class="toc-title"></span>';
       jump.firstChild.textContent = bookmark.label;
+      if (bookmark.created) jump.title = new Date(bookmark.created).toLocaleString();
       jump.addEventListener("click", () => { menu.close(); navigate(() => rendition.display(bookmark.cfi)); });
       const remove = document.createElement("button");
       remove.className = "epub-bookmark-remove";
@@ -247,7 +252,7 @@
   }
   addBookmark.addEventListener("click", () => {
     if (!current || bookmarks.some(b => b.cfi === current.start.cfi)) return;
-    const chapter = toc.querySelector(".is-current .toc-title")?.textContent.trim() || `Chapter ${current.start.index + 1}`;
+    const chapter = chapterAt(current.start.index)?.label || `Chapter ${current.start.index + 1}`;
     changeBookmark({ type: "add", cfi: current.start.cfi, label: `${chapter}${locationsReady ? ` · ${percent.textContent}` : ""}`.slice(0, 300) });
   });
   loadBookmarks();
@@ -290,7 +295,8 @@
       try { localStorage.setItem(stateKey, JSON.stringify({ cfi: location.start.cfi, href: location.start.href, updated: Date.now() })); }
       catch { /* Position cannot be saved without browser storage. */ }
       const href = location.start.href.split("#")[0];
-      for (const item of toc.children) item.classList.toggle("is-current", item.dataset.href.split("#")[0] === href);
+      const here = chapterAt(location.start.index);
+      for (const item of toc.children) item.classList.toggle("is-current", item === here?.li);
       updateProgress(); renderBookmarks();
     });
     rendition.on("displayError", fail);
@@ -307,6 +313,8 @@
         li.style.setProperty("--depth", depth);
         li.innerHTML = '<button type="button"><span class="toc-title"></span></button>';
         li.querySelector(".toc-title").textContent = item.label.trim();
+        const spine = book.spine.get(item.href);
+        if (spine) chapters.push({ index: spine.index, label: item.label.trim(), li });
         toc.appendChild(li);
         addItems(item.subitems || [], depth + 1);
       }

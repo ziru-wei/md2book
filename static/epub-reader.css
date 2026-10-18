@@ -14,7 +14,13 @@
 #epub-menu .epub-progress-row, #epub-menu .epub-bookmark-heading { display: flex; justify-content: space-between; align-items: center; }
 #epub-menu .epub-progress-row { margin: 0 0 .3em; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 #epub-percent { font-variant-numeric: tabular-nums; }
-#epub-progress { width: 100%; box-sizing: border-box; margin: 0 0 1.2em; accent-color: rgba(241, 243, 244, .8); }
+#epub-progress { -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 14px; margin: 0 0 1.2em; padding: 0; background: transparent; cursor: pointer; }
+#epub-progress:disabled { opacity: .4; cursor: default; }
+#epub-progress::-webkit-slider-runnable-track { height: 1px; background: rgba(241, 243, 244, .3); }
+#epub-progress::-webkit-slider-thumb { -webkit-appearance: none; width: 7px; height: 7px; margin-top: -3px; border-radius: 50%; background: rgba(241, 243, 244, .9); border: 0; }
+#epub-progress::-moz-range-track { height: 1px; background: rgba(241, 243, 244, .3); }
+#epub-progress::-moz-range-thumb { width: 7px; height: 7px; border-radius: 50%; background: rgba(241, 243, 244, .9); border: 0; }
+#epub-progress:focus-visible { outline: none; }
 #epub-menu .epub-bookmark-heading { margin-top: 1.2em; }
 #epub-menu .epub-bookmark-heading button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; text-transform: inherit; letter-spacing: inherit; padding: 0; }
 #epub-menu .epub-bookmark-heading button:disabled { opacity: .4; cursor: default; }
