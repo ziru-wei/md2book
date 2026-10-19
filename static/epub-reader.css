@@ -94,8 +94,38 @@ html:not(.is-touch) .epub-face > :is(.page-area,.page-bleed,.page-back) { will-c
 #epub-menu .epub-sync-note[hidden] { display: none; }
 html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 
-/* Touch selection handles: a dot on a short stem, with a generous touch area. */
-.epub-handle { position: fixed; z-index: 41; width: 44px; height: 44px; margin: -6px 0 0 -22px; touch-action: none; }
+/* Selection handles: a hairline the height of the text, a small dot at the outer
+   end (top for the start, bottom for the end), inside a 44 px touch area. */
+.epub-handle { position: fixed; z-index: 41; width: 44px; margin: -14px 0 0 -22px; padding: 14px 0; box-sizing: content-box; touch-action: none; }
 .epub-handle[hidden] { display: none; }
-.epub-handle::before { content: ""; position: absolute; left: 21px; top: 0; width: 2px; height: 14px; background: rgb(110 110 110 / .9); }
-.epub-handle::after { content: ""; position: absolute; left: 15px; top: 12px; width: 14px; height: 14px; border-radius: 50%; background: rgb(110 110 110 / .95); box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.epub-handle::before { content: ""; position: absolute; left: 21.25px; top: 14px; bottom: 14px; width: 1.5px; background: #5b5f63; }
+.epub-handle::after { content: ""; position: absolute; left: 18.5px; width: 7px; height: 7px; border-radius: 50%; background: #5b5f63; }
+#epub-handle-start::after { top: 9px; }
+#epub-handle-end::after { bottom: 9px; }
+
+/* The bookmark: a silk ribbon hanging from the head of the sheet on its spine side. */
+.epub-ribbon { position: absolute; top: -3px; z-index: 3; width: 15px; height: 92px; cursor: pointer;
+  background: linear-gradient(90deg, #7a2020, #9b2f2f 45%, #b44444 58%, #862525);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 87%, 0 100%); filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
+.epub-ribbon::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, transparent 1px 3px); }
+.epub-face.page--right > .epub-ribbon { left: 26px; }
+.epub-face.page--left > .epub-ribbon { right: 26px; }
+html:not(.is-touch) .epub-face > .epub-ribbon { transform-origin: top center; animation: epub-sway 7s ease-in-out infinite; }
+@keyframes epub-sway { 50% { transform: rotate(1.2deg); } }
+@media (prefers-reduced-motion: reduce) { html .epub-face > .epub-ribbon { animation: none; } }
+
+/* A highlight pressed through to the back: the marks of the page behind, mirrored and faint. */
+/* Over the page, like the show-through copy: the text area has a paper of its own. */
+.epub-bleed { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
+.epub-bleed i { position: absolute; display: block; opacity: .5; filter: blur(.9px);
+  background: linear-gradient(90deg, rgb(150 200 80 / 70%), rgb(150 200 80 / 14%) 28%, rgb(150 200 80 / 10%) 72%, rgb(150 200 80 / 70%)); }
+
+/* Menu: bookmark rows carry a tiny ribbon; ribbons also mark the progress line. */
+.epub-glyph { display: inline-block; width: 6px; height: 14px; margin-right: 9px; vertical-align: -2px; background: #9b2f2f; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%); }
+.epub-bookmark-jump .toc-title { display: inline; }
+.epub-progress-wrap { position: relative; }
+#epub-ticks { position: absolute; left: 0; right: 0; top: -4px; height: 10px; pointer-events: none; }
+#epub-ticks i { position: absolute; top: 0; width: 5px; height: 11px; margin-left: -2.5px; background: #9b2f2f; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%); }
+
+/* The reader and the Safari bars around it are all paper. */
+html:has(body.epub-page), body.epub-page { background: var(--paper); }

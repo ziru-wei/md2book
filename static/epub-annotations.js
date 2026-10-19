@@ -50,13 +50,16 @@
     return out;
   }
 
-  // The soft green marker stroke used for highlights in PaperToaster.
-  const G = "178 214 121";
+  // The soft green marker stroke of PaperToaster, pressed harder at both ends
+  // and pale in the middle, as a marker is.
+  const G = "168 210 96";
+  const STROKE = a => `linear-gradient(103deg,transparent 1%,rgb(${G} / ${96 * a}%) 3%,rgb(${G} / ${68 * a}%) 8%,rgb(${G} / ${18 * a}%) 24%,rgb(${G} / ${12 * a}%) 62%,rgb(${G} / ${26 * a}%) 88%,rgb(${G} / ${76 * a}%) 96%,transparent 99%),linear-gradient(181deg,transparent 0%,rgb(${G} / ${34 * a}%) 8%,transparent 18%)`;
   const STYLE = "::selection{background:rgba(110,110,110,.38);color:inherit}" +
     "@media (pointer:coarse){body,body *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}}" +
-    `.epub-hl{display:inline;color:inherit;cursor:pointer;border-radius:.18em;background:linear-gradient(103deg,transparent 1%,rgb(${G} / 84%) 3%,rgb(${G} / 58%) 7%,rgb(${G} / 32%) 91%,rgb(${G} / 62%) 96%,transparent 99%),linear-gradient(181deg,transparent 0%,rgb(${G} / 30%) 8%,transparent 16%);text-shadow:-.35em .3em .45em rgb(${G} / 18%);-webkit-box-decoration-break:clone;box-decoration-break:clone}` +
-    `.epub-hl:hover{background:linear-gradient(103deg,transparent 1%,rgb(${G} / 92%) 3%,rgb(${G} / 70%) 7%,rgb(${G} / 44%) 91%,rgb(${G} / 74%) 96%,transparent 99%),linear-gradient(181deg,transparent 0%,rgb(${G} / 38%) 8%,transparent 16%)}` +
-    ".epub-hl[data-note]{box-shadow:0 1px 0 rgba(110,150,60,.75)}" +
+    `.epub-hl{display:inline;color:inherit;cursor:pointer;background:${STROKE(1)};-webkit-box-decoration-break:clone;box-decoration-break:clone;text-shadow:-.35em .3em .45em rgb(${G} / 20%)}` +
+    `.epub-hl:hover{background:${STROKE(1.04)}}` +
+    // A note: a plain, thick, straight underline in dark green.
+    ".epub-hl[data-note]{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px;text-decoration-skip-ink:none;text-decoration-color:rgb(78 112 40)}" +
     // A selection waiting for Highlight/Note on a touch screen: grey, like selected text.
     ".epub-hl.is-pending,.epub-hl.is-pending:hover{background:rgba(110,110,110,.38);text-shadow:none}\n";
 
@@ -167,10 +170,22 @@
     const rects = [...range.getClientRects()].filter(r => r.width && r.height);
     const first = rects[0] || range.getBoundingClientRect(), last = rects[rects.length - 1] || first;
     return { quote: text.slice(start, end), prefix: text.slice(Math.max(0, start - 32), start), suffix: text.slice(end, end + 32),
-      rect: range.getBoundingClientRect(), startPoint: { x: first.left, y: first.bottom }, endPoint: { x: last.right, y: last.bottom } };
+      rect: range.getBoundingClientRect(),
+      startPoint: { x: first.left, y: first.top, h: first.height }, endPoint: { x: last.right, y: last.top, h: last.height } };
   }
 
-  const api = { find, index, segments, paint, unpaint, describe, pointToOffset, wordAt, rangeAt, measure };
+  // Where a painted highlight sits in a page's text: [start, end) of its marks.
+  function spanOffsets(body, id) {
+    const idx = index(body);
+    let start = Infinity, end = -1;
+    for (const part of idx.parts) {
+      const mark = part.node.parentElement && part.node.parentElement.closest("span.epub-hl");
+      if (mark && mark.dataset.id === id) { start = Math.min(start, part.start); end = Math.max(end, part.start + part.node.length); }
+    }
+    return end < 0 ? null : [start, end];
+  }
+
+  const api = { find, index, segments, paint, unpaint, describe, pointToOffset, wordAt, rangeAt, measure, spanOffsets };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.epubAnnotations = api;
 })(typeof window !== "undefined" ? window : globalThis);

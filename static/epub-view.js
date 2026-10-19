@@ -222,6 +222,55 @@ window.createEpubView = function createEpubView(book, mount, row) {
       return pending;
     }
   }
+  // --- Bookmarks (a ribbon on the sheet) and highlight bleed-through -------
+  let bookmarkCfis = () => [], onRibbon = null;
+  const pageRange = new WeakMap();
+  const compareCfi = (a, b) => { try { return new ePub.CFI().compare(a, b); } catch { return 0; } };
+  const ribbonHits = page => {
+    const range = pageRange.get(page);
+    return range ? bookmarkCfis().filter(cfi => compareCfi(cfi, range.start) >= 0 && (!range.end || compareCfi(cfi, range.end) < 0)) : [];
+  };
+  function setRibbon(page) {
+    const hits = ribbonHits(page), ribbon = page.querySelector(":scope > .epub-ribbon");
+    if (hits.length && !ribbon) {
+      const el = element("epub-ribbon");
+      el.setAttribute("role", "button"); el.setAttribute("aria-label", "Remove bookmark");
+      el.addEventListener("click", event => { event.stopPropagation(); onRibbon?.(ribbonHits(page)); });
+      page.append(el);
+    } else if (!hits.length && ribbon) ribbon.remove();
+  }
+  // A highlight is pressed hard enough to show on the back of the sheet: the
+  // marks of the page behind this one, mirrored, faint, under this page's text.
+  async function setBleed(page) {
+    page.querySelector(":scope > .epub-bleed")?.remove();
+    const section = +page.dataset.section, sheet = +page.dataset.sheet, total = +page.dataset.total;
+    if (!(section >= 0) || disposed) return;
+    const target = adjacent({ index: section, sheet, total }, perSpread === 1 || page.classList.contains("page--right"));
+    const marks = target ? highlightsOf(target.index).filter(h => !h.pending) : [];
+    if (!marks.length) return;
+    const tsection = book.spine.get(target.index);
+    if (!tsection) return;
+    const tentry = await chapter(tsection);
+    const tsheet = target.sheet < 0 ? tentry.total - 1 : Math.min(target.sheet, tentry.total - 1);
+    const probe = { el: element("spread epub-preparing"), inner: element("spread-inner"), pages: [], renders: [] };
+    probe.el.inert = true; probe.el.append(probe.inner); mount.append(probe.el);
+    try {
+      const { page: tp, viewport } = pageShell(probe, page.classList.contains("page--right") ? 0 : 1, tentry.notes.length > 0);
+      const host = tentry.pages[tsheet].cloneNode();
+      const shadow = host.attachShadow({ mode: "open" });
+      shadow.adoptedStyleSheets = tentry.pages[tsheet].shadowRoot.adoptedStyleSheets;
+      shadow.append(...[...tentry.pages[tsheet].shadowRoot.childNodes].map(node => node.cloneNode(true)));
+      viewport.append(host);
+      window.epubAnnotations.paint(shadow, marks);
+      const box = tp.getBoundingClientRect(), layer = element("epub-bleed");
+      for (const span of shadow.querySelectorAll("span.epub-hl")) for (const r of span.getClientRects()) {
+        const bar = document.createElement("i");
+        bar.style.cssText = `left:${box.width - (r.left - box.left) - r.width}px;top:${r.top - box.top}px;width:${r.width}px;height:${r.height}px`;
+        layer.append(bar);
+      }
+      if (layer.childElementCount && page.isConnected && !page.querySelector(":scope > .epub-bleed")) page.append(layer);
+    } finally { destroySpread(probe); }
+  }
   async function paper(spread, target, side, measuring = false, effects = true) {
     if (!target) { const {number} = pageShell(spread,side,false); number.hidden = true; return null; }
     const section = book.spine.get(target.index ?? target);
@@ -270,6 +319,9 @@ window.createEpubView = function createEpubView(book, mount, row) {
     page.dataset.section = section.index; page.dataset.sheet = sheet; page.dataset.total = entry.total;
     await waitForPaper();
     content.placeNotes(page,[{document:host.shadowRoot}],entry.notes);
+    pageRange.set(page, { start: entry.locations[sheet].start.cfi, end: entry.locations[sheet + 1]?.start.cfi });
+    setRibbon(page);
+    await setBleed(page).catch(() => {});
     if (effects && row.inkBleed) content.addBleed(page);
     return {point,location};
   }
@@ -514,6 +566,16 @@ window.createEpubView = function createEpubView(book, mount, row) {
         const owner = host.closest("[data-section]");
         if (owner) window.epubAnnotations.paint(host.shadowRoot, highlightsOf(+owner.dataset.section));
       }
+      for (const entry of spreads) for (const page of entry.pages) setBleed(page).catch(() => {});
+    },
+    // `cfis()`: the bookmarks' positions; `remove(cfis)`: a tap on a ribbon.
+    setBookmarks(cfis, remove) { bookmarkCfis = cfis; onRibbon = remove; },
+    refreshBookmarks() { for (const entry of spreads) for (const page of entry.pages) setRibbon(page); },
+    // A painted highlight, as a selection to adjust: its page text offsets.
+    editInfo(mark) {
+      const shadow = mark.getRootNode(), body = shadow.querySelector?.("body"), page = shadow.host?.closest(".page");
+      const offsets = body && window.epubAnnotations.spanOffsets(body, mark.dataset.id);
+      return offsets && page && page.dataset.section !== undefined ? { section: +page.dataset.section, shadow, offsets } : null;
     },
     // Touch selection (our own): the page text under a finger, as offsets.
     hostAt(x, y) {

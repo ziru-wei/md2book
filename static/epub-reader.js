@@ -190,7 +190,7 @@
     let start = null;
     const doc = documentOrElement.ownerDocument || documentOrElement;
     const hasSelection = () => doc === document ? selectionActive() : Boolean(doc.getSelection()?.toString());
-    const interactive = target => target.closest?.("a, button, input, select, textarea, audio, video, [contenteditable], span.epub-hl");
+    const interactive = target => target.closest?.("a, button, input, select, textarea, audio, video, [contenteditable], span.epub-hl, .epub-ribbon");
     const toViewer = (x, y) => {
       if (doc === document) return [x, y];
       const frame = doc.defaultView.frameElement, rect = frame.getBoundingClientRect();
@@ -290,6 +290,7 @@
       }
       if (disposed) return;
       locationsReady = book.locations.length() > 0;
+      renderTicks();
       progress.disabled = !locationsReady;
       updateProgress();
       if (cacheKey && !cacheLoaded) await locationCache(cacheKey, book.locations.save());
@@ -307,8 +308,8 @@
       const li = document.createElement("li");
       const jump = document.createElement("button");
       jump.className = "epub-bookmark-jump";
-      jump.innerHTML = '<span class="toc-title"></span>';
-      jump.firstChild.textContent = bookmark.label;
+      jump.innerHTML = '<span class="epub-glyph" aria-hidden="true"></span><span class="toc-title"></span>';
+      jump.lastChild.textContent = bookmark.label;
       if (bookmark.created) jump.title = new Date(bookmark.created).toLocaleString();
       jump.addEventListener("click", () => { menu.close(); navigate(() => rendition.display(bookmark.cfi)); });
       const remove = document.createElement("button");
@@ -319,8 +320,24 @@
       remove.addEventListener("click", () => changeBookmark({ type: "remove", cfi: bookmark.cfi }));
       li.className = "toc-item"; li.append(jump, remove); list.append(li);
     }
+    rendition?.refreshBookmarks();
+    renderTicks();
     addBookmark.disabled = !current || !bookmarksReady || bookmarkBusy;
     addBookmark.textContent = bookmarks.some(b => b.cfi === current?.start.cfi) ? "Added" : "Add";
+  }
+  // Small ribbons on the progress line, where the bookmarks are in the book.
+  function renderTicks() {
+    const line = $("epub-ticks");
+    if (!line) return;
+    line.replaceChildren();
+    if (!locationsReady) return;
+    for (const bookmark of bookmarks) {
+      const at = book.locations.percentageFromCfi(bookmark.cfi);
+      if (!Number.isFinite(at) || at < 0) continue;
+      const tick = document.createElement("i");
+      tick.style.left = (at * 100) + "%";
+      line.append(tick);
+    }
   }
   async function cloudRequest(operation) {
     const response = await fetch(bookmarkUrl, operation ? {
@@ -370,7 +387,7 @@
 
   // Highlights and notes. Shown at once, saved in order behind the scenes;
   // a failed save reloads what is actually stored.
-  const highlightsOf = index => [...highlights.filter(h => h.section === index), ...(pending?.section === index ? [pending] : [])];
+  const highlightsOf = index => [...highlights.filter(h => h.section === index && h.id !== pending?.id), ...(pending?.section === index ? [pending] : [])];
   let saving = Promise.resolve();
   function changeHighlight(operation) {
     if (!bookmarksReady) return;
@@ -426,10 +443,13 @@
     const m = pending && rendition.measure(pending);
     if (!m) { clearPending(); return; }
     picked = { section: pending.section, quote: m.quote, prefix: m.prefix, suffix: m.suffix, rect: m.rect };
-    handles[0].style.left = m.startPoint.x + "px"; handles[0].style.top = m.startPoint.y + "px";
-    handles[1].style.left = m.endPoint.x + "px"; handles[1].style.top = m.endPoint.y + "px";
-    handles.forEach(h => { h.hidden = false; });
-    place(bar, { left: m.rect.left, width: m.rect.width, top: m.rect.top, bottom: m.endPoint.y + 40 }, true);
+    for (const [handle, point] of [[handles[0], m.startPoint], [handles[1], m.endPoint]]) {
+      handle.style.left = point.x + "px"; handle.style.top = point.y + "px"; handle.style.height = point.h + "px"; handle.hidden = false;
+    }
+    // A new selection offers Highlight and Note; a tapped highlight, Note and Delete.
+    bar.querySelector('[data-act="highlight"]').hidden = !!pending.edit;
+    bar.querySelector('[data-act="delete"]').hidden = !pending.edit;
+    place(bar, { left: m.rect.left, width: m.rect.width, top: m.rect.top, bottom: m.endPoint.y + m.endPoint.h + 18 }, true);
   }
   function startSelection(x, y) {
     const found = rendition?.pickWord(x, y);
@@ -438,6 +458,27 @@
     rendition.refreshHighlights();
     showSelection();
     return true;
+  }
+  // A tap on a highlight selects it: handles to stretch it, and Note / Delete.
+  function startEdit(mark) {
+    const h = highlights.find(x => x.id === mark.dataset.id), found = h && rendition.editInfo(mark);
+    if (!found) return false;
+    if (pending?.id === h.id) return true;
+    clearPending();
+    pending = { ...found, id: h.id, edit: true, base: h, note: h.note, quote: h.quote, prefix: h.prefix, suffix: h.suffix };
+    rendition.refreshHighlights();
+    showSelection();
+    return true;
+  }
+  // The stretched range of a tapped highlight is saved when the handle is let go.
+  async function commitEdit() {
+    if (!pending?.edit) return;
+    const m = rendition.measure(pending), base = pending.base;
+    if (!m || m.quote === base.quote) return;
+    const info = await rendition.contextFor({ section: pending.section, quote: m.quote.slice(0, 1000), prefix: m.prefix, suffix: m.suffix }).catch(() => m);
+    const next = { ...base, quote: info.quote, prefix: info.prefix, suffix: info.suffix };
+    if (pending?.edit) pending.base = next;
+    changeHighlight({ type: "highlight", highlight: next });
   }
   // A long press selects the word under the finger; the handles stretch it.
   (() => {
@@ -469,11 +510,17 @@
   })();
   handles.forEach((handle, which) => {
     let dragging = false;
-    handle.addEventListener("pointerdown", event => { event.preventDefault(); dragging = true; try { handle.setPointerCapture(event.pointerId); } catch { /* gone */ } });
+    let grab = 0;
+    handle.addEventListener("pointerdown", event => {
+      event.preventDefault(); dragging = true;
+      // Keep aiming at the line the handle was taken on, however the finger sits on it.
+      const box = handle.getBoundingClientRect();
+      grab = box.top + 14 + (box.height - 28) / 2 - event.clientY;
+      try { handle.setPointerCapture(event.pointerId); } catch { /* gone */ }
+    });
     handle.addEventListener("pointermove", event => {
       if (!dragging || !pending) return;
-      // The finger is under the text it points at: aim a little above it.
-      const at = rendition.offsetAt(pending.shadow, event.clientX, event.clientY - 30);
+      const at = rendition.offsetAt(pending.shadow, event.clientX, event.clientY + grab);
       if (at === null) return;
       const [start, end] = pending.offsets;
       const next = which === 0 ? [Math.min(at, end - 1), end] : [start, Math.max(at, start + 1)];
@@ -482,7 +529,7 @@
       rendition.refreshHighlights();
       showSelection();
     });
-    const stop = () => { dragging = false; };
+    const stop = () => { if (dragging) { dragging = false; commitEdit(); } };
     handle.addEventListener("pointerup", stop);
     handle.addEventListener("pointercancel", stop);
   });
@@ -491,7 +538,7 @@
     // Touch screens never use the native selection (see above).
     if (coarse()) return;
     barTimer = setTimeout(() => {
-      if (!rendition || menu.open || !editor.hidden) return;
+      if (!rendition || menu.open || !editor.hidden || pending) return;
       picked = rendition.selection();
       if (picked) place(bar, picked.rect, false); else bar.hidden = true;
     }, 250);
@@ -506,13 +553,20 @@
     if (!act || !picked) return;
     // Notes could not be loaded (cloud sign-in missing): the menu says why.
     if (!bookmarksReady) { bar.hidden = true; toggleMenu(); return; }
-    const rect = picked.rect, h = await createHighlight(picked);
+    const rect = picked.rect;
+    if (pending?.edit) {
+      const base = pending.base;
+      clearPending();
+      if (act === "delete") changeHighlight({ type: "unhighlight", id: base.id });
+      else openEditor(highlights.find(x => x.id === base.id) || base, rect);
+      return;
+    }
+    const h = await createHighlight(picked);
     if (act === "note") openEditor(h, rect);
   });
   viewer.addEventListener("click", event => {
     const mark = event.composedPath().find(node => node.matches?.("span.epub-hl"));
-    const h = mark && highlights.find(x => x.id === mark.dataset.id);
-    if (h && !document.getSelection()?.toString()) openEditor(h, mark.getClientRects()[0] || mark.getBoundingClientRect(), !coarse());
+    if (mark && mark.dataset.id !== "pending" && !document.getSelection()?.toString()) startEdit(mark);
   });
   editor.addEventListener("submit", event => {
     event.preventDefault();
@@ -580,6 +634,7 @@
     await book.open(bytes, "binary");
     rendition = window.createEpubView(book, viewer, row);
     rendition.setHighlights(highlightsOf);
+    rendition.setBookmarks(() => bookmarks.map(b => b.cfi), async cfis => { for (const cfi of cfis) await changeBookmark({ type: "remove", cfi }); });
     rendition.hooks.content.register(contents => bindInput(contents.document));
     bindInput(viewer);
     const shell = getComputedStyle(document.documentElement);
