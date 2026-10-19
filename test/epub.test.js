@@ -41,8 +41,8 @@ test("recursive discovery, EPUB-only vaults and Markdown remain separate", async
     assert.deepEqual(vault.collections, [{ name: "nested", notes: 1 }]);
     assert.equal(vault.epubs.length, 2);
     const home = render.renderHomePage(entries, epubs);
-    assert.ok(home.indexOf('aria-label="EPUB"') < home.indexOf('class="index-header'));
-    assert.ok(!render.renderHomePage(entries).includes('aria-label="EPUB"'));
+    assert.ok(home.includes(`/epub/${epubs[0].id}`) && home.includes(`/epub/${epubs[1].id}`));
+    assert.ok(!render.renderHomePage(entries).includes("/epub/"));
     assert.ok(render.renderHomePage([], epubs).includes(`/epub/${epubs[0].id}`));
     const reader = render.renderEpubPage(epubs[0]);
     assert.ok(reader.includes("static/epub-reader.js"));

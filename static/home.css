@@ -1,0 +1,165 @@
+/* The home page (static/home.js draws it). Everything is nested under #home
+   so none of it leaks into the reader's styles (book.css). */
+
+html:has(body.page-home) { background: #eceff1; }
+
+body.page-home {
+  --ink: #232527;
+  --muted: #72777b;
+  --line: #232527;
+  --bg: #eceff1;
+  --panel: #f6f8f9;
+  --ui: "iA Writer Quattro V", "Sarasa Mono HC", "Sarasa Fixed SC", ui-sans-serif, system-ui, sans-serif;
+  /* Only text that is the book's own (spines, covers, note titles) is serif. */
+  --book: "Source Serif 4", "Huiwen Fangsong", "Songti SC", "STSong", "Noto Serif CJK SC", Georgia, serif;
+  margin: 0;
+  padding: 54px 24px 130px;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--ui);
+}
+
+#home {
+  max-width: 920px;
+  margin: 0 auto;
+  position: relative;
+
+  button { font: inherit; color: inherit; cursor: pointer; }
+  a { color: inherit; text-decoration: none; }
+
+  .ic { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .ic.s { width: 12px; height: 12px; stroke-width: 2; vertical-align: -1px; margin-left: 3px; }
+
+  /* ---- header ---- */
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 34px; }
+  .brand { font: 500 22px var(--ui); letter-spacing: .22em; text-transform: uppercase; }
+  .tools { display: flex; align-items: center; gap: 10px; position: relative; }
+  .sbox { display: flex; align-items: center; height: 32px; border: 1px solid var(--ink); border-radius: 999px; overflow: hidden; }
+  .sbox input { width: 0; padding: 0; border: 0; outline: 0; background: none; font: 13px var(--ui); color: var(--ink); transition: width .2s, padding .2s; }
+  .sbox.open input { width: 230px; padding: 0 4px 0 14px; }
+  .ib { width: 30px; height: 30px; border: 0; background: none; color: var(--ink); display: grid; place-items: center; border-radius: 50%; }
+  .ib:hover { background: var(--ink); color: #fff; }
+  .gearb { width: 32px; height: 32px; border: 1px solid var(--ink); }
+  .back { display: inline-flex; align-items: center; gap: 8px; font: 500 11px var(--ui); letter-spacing: .1em; text-transform: uppercase; padding: 6px 8px 6px 0; }
+  .back:hover { text-decoration: underline; text-underline-offset: 4px; }
+
+  /* ---- search results ---- */
+  .sr { position: absolute; right: 42px; top: 40px; width: 440px; max-width: calc(100vw - 48px); max-height: 60vh; overflow: auto; background: var(--panel); border: 1px solid var(--ink); z-index: 500; display: none; padding: 6px 0; }
+  .sr.on { display: block; }
+  .sr h6 { margin: 8px 12px 2px; font: 500 10px var(--ui); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  .sr .none { padding: 10px 12px; font: 12.5px var(--ui); color: var(--muted); }
+  .sr mark { background: none; color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
+  /* ---- a note / book row: in search results, loose leaves, all notes ---- */
+  .it { display: flex; align-items: baseline; gap: 10px; font: 14px/1.5 var(--book); cursor: pointer; }
+  .it .d { font: 500 10px var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); width: 50px; flex: none; }
+  .it .c { margin-left: auto; font: 10.5px var(--ui); color: var(--muted); white-space: nowrap; }
+  .it:hover { background: var(--ink); color: #fff; }
+  .it:hover .d, .it:hover .c { color: #b9c0c5; }
+  .sr .it { padding: 3px 12px; font-size: 13.5px; }
+  .sr .it .d { width: 74px; letter-spacing: .06em; }
+
+  /* ---- sections ---- */
+  .zone { margin-bottom: 52px; }
+  .kicker { font: 500 12px var(--ui); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin: 0 0 22px; }
+  .zone-head { display: flex; align-items: center; justify-content: space-between; }
+  .zone-head .kicker { margin: 0; }
+  /* "\ Single notes ▼": a part of Output, folding with its triangle */
+  .subhead { border: 0; background: none; padding: 0; font: 500 12px var(--ui); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); display: inline-flex; align-items: baseline; gap: 8px; cursor: pointer; }
+  .subhead:hover { color: var(--ink); }
+  .subhead .bs { letter-spacing: 0; }
+  .subhead .tri { font-size: 9px; letter-spacing: 0; }
+  .lv-list[hidden] { display: none; }
+  .alllink { font: 500 11px var(--ui); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .alllink:hover { color: var(--ink); }
+  .empty { color: var(--muted); font: 13px var(--ui); }
+
+  /* ---- the segments at the bottom (anchors to the sections) ---- */
+  .seg[hidden] { display: none; }
+  .seg { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 9999; display: flex; gap: 2px; padding: 3px; background: var(--bg); border: 1px solid var(--ink); border-radius: 999px; }
+  .seg button { border: 0; background: none; border-radius: 999px; font: 500 10.5px var(--ui); letter-spacing: .12em; text-transform: uppercase; padding: 5px 16px; color: var(--ink); transition: background .15s, color .15s; }
+  .seg button.on { color: #fff; background: var(--ink); }
+
+  /* ---- shelves ---- */
+  /* each case is as wide as its shelf, and sits in the middle of the page */
+  .case { margin: 0 auto 34px; position: relative; width: fit-content; max-width: 100%; }
+  .case-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; padding: 0 4px; }
+  .case-head h3 { margin: 0; font: 500 13px var(--ui); letter-spacing: .16em; text-transform: uppercase; }
+  .chips { display: flex; gap: 4px 6px; flex-wrap: wrap; }
+  .chip { border: 1px solid transparent; background: none; padding: 0 8px; font: 11px/20px var(--ui); letter-spacing: -.01em; color: var(--muted); border-radius: 999px; }
+  .chip:hover { color: var(--ink); border-color: #aeb5ba; }
+  .chip.on { background: var(--ink); color: #f1f3f4; }
+  .chip .d { opacity: .55; margin-left: 4px; font-size: 11px; }
+  .frame { padding: 4px 0 0; max-width: 100%; }
+  .shelf { position: relative; padding-top: 26px; padding-bottom: 22px; }
+  .row { display: flex; align-items: flex-end; min-height: 120px; padding-left: 40px; }
+  .board { height: 1px; background: var(--line); position: relative; }
+  .grp { display: flex; align-items: flex-end; position: relative; }
+  .grp.sep { margin-left: 88px; }
+  .grp.sep::before { content: ""; position: absolute; left: -44px; bottom: 0; width: 1px; height: 50%; background: var(--line); z-index: 300; }
+  .tag { position: absolute; left: 0; top: calc(100% + 8px); z-index: 5; font: 500 10px/9px var(--ui); letter-spacing: .14em; text-transform: uppercase; color: var(--ink); white-space: nowrap; }
+  .tag i { font-style: normal; opacity: .5; padding: 0 3px; }
+
+  /* ---- books: simpleshelf's 3D spine and cover (MIT, kat3samsin) ---- */
+  .ss-book { flex: none; position: relative; cursor: pointer; perspective: 800px; z-index: 1; display: block; transition: transform .2s ease; }
+  .ss-book:hover, .ss-book.open { z-index: 100; }
+  .ss-book.open { transform: translateY(-18px); }
+  .ss-3d { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform .3s ease; transform: rotateY(-25deg); transform-origin: center bottom; }
+  .ss-book:hover .ss-3d, .ss-book.open .ss-3d { transform: rotateY(-55deg) rotateX(-8deg); }
+  .ss-spine { position: absolute; inset: 0; border-radius: 2px; display: flex; justify-content: center; align-items: flex-start; gap: 4px; padding: 11px 2px 10px; backface-visibility: hidden; overflow: hidden; }
+  .ss-title, .ss-au { writing-mode: vertical-rl; overflow-wrap: anywhere; }
+  .ss-title { font: 600 11.5px/1.25 var(--book); letter-spacing: .02em; }
+  .ss-au { font: 400 9.5px/1.25 var(--book); opacity: .68; letter-spacing: .03em; }
+  /* a collection: black cloth hardcover, muted spine, foil lettering */
+  .ss-spine.out { align-items: center; color: #e4d8b8; }
+  .ss-spine.out::before, .ss-spine.out::after { content: ""; position: absolute; left: 3px; right: 3px; height: 3px; border-top: 1px solid #e4d8b8; border-bottom: 1px solid #e4d8b8; opacity: .45; }
+  .ss-spine.out::before { top: 9px; } .ss-spine.out::after { bottom: 9px; }
+  .ss-spine.out .ss-title { font-weight: 500; letter-spacing: .06em; }
+  .ss-cover { position: absolute; top: 0; left: 100%; height: 100%; aspect-ratio: 170 / 240; background-size: cover; background-position: center; border: 1px solid; box-sizing: border-box; transform-origin: left center; transform: rotateY(90deg); backface-visibility: hidden; }
+  .ss-rib { position: absolute; top: 0; left: 50%; margin-left: -3px; width: 6px; height: 15px; background: #a43b3b; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 70%, 0 100%); }
+
+  /* ---- a collection's notes, next to its book ---- */
+  .drawer { position: absolute; left: var(--dl, 0); top: 100%; width: 244px; z-index: 400; border: 1px solid var(--ink); background: var(--panel); }
+  .dh { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 2px 10px; border-bottom: 1px solid var(--ink); font: 400 13px/1.3 var(--book); }
+  .dh:hover { background: var(--ink); color: #fff; }
+  .dlw { padding: 4px 7px 5px 10px; }
+  .dl { max-height: 150px; overflow-y: auto; padding-right: 9px; overscroll-behavior: contain; }
+  .dl::-webkit-scrollbar { width: 4px; } .dl::-webkit-scrollbar-thumb { background: #8a949b; }
+  /* a date, then its title close by (two lines at most, then an ellipsis) */
+  .drawer ul { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: max-content 1fr; column-gap: 8px; align-items: baseline; }
+  .drawer li, .drawer .it { display: contents; }
+  .drawer .it .d { padding: 2px 0; font: 500 10px var(--ui); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .drawer .it .t { padding: 2px 0; font: 12.5px/1.35 var(--book); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .drawer li.yr { display: block; grid-column: 1 / -1; text-align: center; font: 500 10px var(--ui); letter-spacing: .16em; color: var(--muted); padding: 6px 0 2px; }
+  .drawer .it:hover { background: none; color: inherit; }
+  .drawer .it:hover .d { color: var(--muted); }
+  .drawer .it:hover .t { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+
+  /* ---- loose leaves / all notes ---- */
+  .lv-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px 44px; align-items: start; }
+  .lv-list .it { padding: 2px 6px; margin: 0 -6px; break-inside: avoid; }
+  .month { margin: 26px 0 6px; font: 500 10.5px var(--ui); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  .all-chips { margin: 0 0 6px; }
+  .all-list { display: grid; column-gap: 44px; align-items: start; }
+  .all-list .it { padding: 2px 6px; margin: 0 -6px; break-inside: avoid; }
+  .all-list.has-years .it .d { width: 96px; }
+}
+
+/* A Chinese month ("拾壹月") is wider than "OCT". */
+html:lang(zh-CN) #home .it .d { width: 58px; }
+html:lang(zh-CN) #home .all-list.has-years .it .d { width: 116px; }
+html:lang(zh-CN) #home .sr .it .d { width: 96px; }
+
+/* ---- settings: a floating panel over the home page, above everything ---- */
+.h-settings { position: fixed; inset: 0; z-index: 2147483000; background: rgba(35, 37, 39, .5); display: none; align-items: center; justify-content: center; padding: 24px; }
+.h-settings.on { display: flex; }
+.h-settings .panel { position: relative; width: min(1000px, 100%); height: min(88vh, 900px); background: #eceff1; box-shadow: 0 20px 60px rgba(0, 0, 0, .35); border: 1px solid #232527; }
+.h-settings iframe { width: 100%; height: 100%; border: 0; display: block; background: #eceff1; }
+.h-settings .x { position: absolute; top: 10px; right: 10px; width: 30px; height: 30px; border: 1px solid #232527; border-radius: 50%; background: #f6f8f9; color: #232527; display: grid; place-items: center; cursor: pointer; z-index: 1; padding: 0; }
+.h-settings .x:hover { background: #232527; color: #fff; }
+.h-settings .x svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+
+@media (max-width: 760px) {
+  body.page-home { padding: 24px 16px 120px; }
+  #home .sbox.open input { width: 150px; }
+}

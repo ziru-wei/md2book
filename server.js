@@ -11,7 +11,7 @@ import { createEntrySource } from "./lib/source.js";
 import { loadConfig, layerSettings, readSettings, resolveConfig, writeSettings, DEFAULTS } from "./lib/config.js";
 import {
   setup, clearCache, forgetNote, HOME_PATH, SEARCH_PATH, imageProxyMap, assetIds, resolveVaultLinks, listEntries,
-  listEpubs, renderEpubPage, renderHomePage, renderContentsPage, renderEntryPage, renderUnavailablePage, searchTextOf, scanVault
+  listEpubs, listLibrary, findBookCover, findPdf, renderPdfPage, renderEpubPage, renderHomePage, renderContentsPage, renderEntryPage, renderUnavailablePage, searchTextOf, scanVault
 } from "./lib/render.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -147,6 +147,41 @@ app.get(["/epub/:id", "/epub-file/:id"], async (req, res) => {
     asset.stream.on("error", () => res.destroy()).pipe(res);
   } catch (error) {
     res.status(500).type("text").send(`Could not read EPUB: ${error.message}`);
+  }
+});
+
+// A book's cover, taken from the EPUB.
+app.get("/epub-cover/:id", async (req, res) => {
+  try {
+    const cover = await findBookCover(req.params.id);
+    if (!cover) return res.status(404).send("No cover");
+    res.type(cover.type).set("Cache-Control", "private, max-age=300").send(Buffer.from(cover.bytes));
+  } catch (error) {
+    res.status(500).type("text").send(`Could not read the cover: ${error.message}`);
+  }
+});
+
+// A PDF is read in a page of its own (pdf.js, see renderPdfPage); the file
+// itself is served for that page to draw, inline.
+app.get("/pdf/:id", async (req, res) => {
+  try {
+    const book = await findPdf(req.params.id);
+    if (!book) return res.status(404).type("html").send(renderUnavailablePage());
+    res.type("html").send(renderPdfPage(book));
+  } catch (error) {
+    res.status(500).type("text").send(`Could not read PDF: ${error.message}`);
+  }
+});
+app.get("/pdf-file/:id", async (req, res) => {
+  try {
+    const book = await findPdf(req.params.id);
+    const asset = book && await entrySource.readAsset(book.path);
+    if (!asset) return res.status(404).send("Not found");
+    res.type("application/pdf").set("Content-Disposition", "inline").set("Cache-Control", "no-store");
+    if (asset.size) res.set("Content-Length", String(asset.size));
+    asset.stream.on("error", () => res.destroy()).pipe(res);
+  } catch (error) {
+    res.status(500).type("text").send(`Could not read PDF: ${error.message}`);
   }
 });
 
@@ -291,7 +326,10 @@ app.get(HOME_PATH, async (_req, res) => {
   if (SETTINGS_MODE === "repo") grantBookmarkSession(res);
   try {
     const entries = await listEntries();
-    res.type("html").send(resolveVaultLinks(renderHomePage(entries, await listEpubs())));
+    // The library's details come from reading each file; a file that
+    // can't be read shouldn't keep the home page from opening.
+    const books = await listLibrary().catch(() => listEpubs());
+    res.type("html").send(resolveVaultLinks(renderHomePage(entries, books)));
   } catch (error) {
     res.status(500).type("text").send(`Could not list notes from ${entrySource.label}\n\n${error.stack || error}`);
   }

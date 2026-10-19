@@ -173,6 +173,9 @@ async function useSource(nextSource) {
     staticBase: APP_BASE,
     // Remote images load straight from where they are.
     proxyImages: false,
+    // The links at the top of the home page.
+    settingsPath: "/settings",
+    homeLinks: () => [{ href: "/open", text: t("noteRepo"), title: t("otherFolder") }],
     temmlVersion: TEMML_VERSION
   });
   for (const { url } of blobUrls.values()) URL.revokeObjectURL(url);
@@ -236,7 +239,7 @@ async function pageHtml(path) {
   if ((match = /^\/contents\/([^/?#]+)$/.exec(path))) {
     return render.resolveVaultLinks(await render.renderContentsPage(entries, decodeURIComponent(match[1])));
   }
-  if (path === "/") return render.resolveVaultLinks(render.renderHomePage(entries, await render.listEpubs()));
+  if (path === "/") return render.resolveVaultLinks(render.renderHomePage(entries, await render.listLibrary()));
   return render.renderUnavailablePage();
 }
 
@@ -271,28 +274,9 @@ const BRIDGE = `<script>
       return new Response(JSON.stringify(r.body), { status: r.status, headers: { "Content-Type": "application/json" } });
     });
   };
-  if (app.onHome) {
-    document.addEventListener("DOMContentLoaded", function () {
-      var home = document.querySelector(".home");
-      if (!home) return;
-      var nav = document.createElement("nav");
-      nav.className = "site-nav";
-      nav.setAttribute("aria-label", "md2book");
-      [["/open", app.text("noteRepo"), app.text("otherFolder")], ["/settings", app.text("settings"), ""]].forEach(function (item, i) {
-        if (i) nav.appendChild(Object.assign(document.createElement("span"), { className: "sep" }));
-        var link = document.createElement("a");
-        link.href = item[0];
-        link.textContent = item[1];
-        if (item[2]) link.title = item[2];
-        nav.appendChild(link);
-      });
-      home.prepend(nav);
-    });
-  }
 })();
 </script>
 <style>
-  /* (The links at the top of the home page: .site-nav in book.css.) */
   /* Printed as part of the window around it (see "beforeprint" below):
      each page fills exactly one sheet, whatever print.css would do. */
   @media print {

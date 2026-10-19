@@ -4,18 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>md2book settings</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Libertinus+Serif:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: rgb(245, 245, 245);
-      --paper: #fbfbfa;
+      --bg: #eceff1;
+      --paper: #f6f8f9;
       --ink: #232527;
       --muted: #72777b;
-      --rule: #d5d9dc;
+      --rule: #c9cfd3;
       --accent: #232527;
-      --serif: "Libertinus Serif", Georgia, "Songti SC", "Noto Serif SC", serif;
+      --serif: "iA Writer Quattro V", "Sarasa Mono HC", "Sarasa Fixed SC", ui-sans-serif, system-ui, sans-serif;
     }
 
     * { box-sizing: border-box; }
@@ -24,7 +21,7 @@
       margin: 0;
       background: var(--bg);
       color: var(--ink);
-      font: 15px/1.5 var(--serif);
+      font: 14px/1.55 var(--serif);
     }
 
     .layout {
@@ -36,10 +33,10 @@
     nav {
       position: sticky;
       top: 24px;
-      flex: 0 0 150px;
+      flex: 0 0 76px;
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 4px;
     }
 
     nav button {
@@ -47,9 +44,10 @@
       background: none;
       text-align: left;
       font: inherit;
-      font-size: 15px;
-      padding: 8px 12px;
-      border-radius: 5px;
+      font-size: 12.5px;
+      letter-spacing: .04em;
+      padding: 4px 10px;
+      border-radius: 999px;
       color: var(--muted);
       cursor: pointer;
     }
@@ -57,10 +55,8 @@
     nav button:hover { color: var(--ink); }
 
     nav button[aria-current="true"] {
-      background: var(--paper);
-      color: var(--ink);
-      font-weight: 600;
-      box-shadow: inset 0 0 0 1px var(--rule);
+      background: var(--ink);
+      color: #fff;
     }
 
     #form {
@@ -68,10 +64,17 @@
       min-width: 0;
     }
 
+    /* The tabs go above the form on a narrow screen; inside the panel
+       floating over the home page they keep to its left until it's tiny. */
     @media (max-width: 700px) {
-      .layout { flex-direction: column; gap: 14px; }
-      nav { position: static; flex-direction: row; flex-wrap: wrap; }
+      html:not(.embedded) .layout { flex-direction: column; gap: 14px; }
+      html:not(.embedded) nav { position: static; flex: none; flex-direction: row; flex-wrap: wrap; }
     }
+    @media (max-width: 460px) {
+      .embedded .layout { flex-direction: column; gap: 14px; }
+      .embedded nav { position: static; flex: none; flex-direction: row; flex-wrap: wrap; }
+    }
+    .embedded main { padding-top: 52px; }
 
     main {
       max-width: 1120px;
@@ -413,12 +416,43 @@
 
     .add-rule:disabled { color: var(--muted); cursor: default; }
 
+    /* Floating over the home page (an iframe): no way back to the site, it's behind. */
+    .embedded #open-site, .embedded .meta [data-t="notesHint"] { display: none; }
+
+    /* A., B., C. rows of the collection rules */
+    .title.abc { background: #dfe3e6; padding: 4px 10px; border-radius: 4px; margin-bottom: 8px; }
+
+    /* Arrange: a pool of folders, and below it Input and Output side by side */
+    .pool { display: flex; flex-wrap: wrap; gap: 6px; min-height: 40px; padding: 8px 10px; border: 1px dashed var(--ink); border-radius: 6px; margin-bottom: 14px; background: rgba(255, 255, 255, .5); }
+    .fchip { display: inline-flex; align-items: baseline; padding: 3px 10px; border: 1px solid var(--ink); border-radius: 999px; background: #fff; cursor: grab; font-size: 13px; }
+    .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+    .cols section { margin-bottom: 0; min-width: 0; background: none; border: 0; padding: 0; }
+    @media (max-width: 560px) { .cols { grid-template-columns: 1fr; } }
+    [data-zone].over { background: rgba(35, 37, 39, .1); }
+    section.plain { background: none; border: 0; padding: 0; margin-bottom: 14px; }
+    .fchip .sep { margin: 0 6px; color: var(--muted); }
+    .fchip.lifted { opacity: .4; }
+    .fchip.ghost { position: fixed; top: -100px; left: -100px; background: #fff; }
+    .dropbox { border: 1px dashed var(--ink); border-radius: 6px; padding: 10px 12px 12px; min-height: 84px; background: rgba(255, 255, 255, .5); }
+    .dropbox h2 { margin: 0 0 8px; font-size: 15px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .fchip .count { margin-left: 4px; }
+    .fchip button { border: 0; background: none; color: var(--muted); font-size: 14px; line-height: 1; cursor: pointer; padding: 0 0 0 6px; }
+    .fchip button:hover { color: var(--ink); }
+    .drophint { color: var(--muted); font-size: 13px; padding: 6px 0; }
+    .preview { margin-bottom: 12px; }
+    .cardhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 13px; }
+    .mini { display: flex; align-items: flex-end; gap: 2px; padding: 0 12px 0 8px; margin-top: 6px; border-bottom: 1px solid var(--ink); min-height: 12px; width: fit-content; min-width: 100px; max-width: 100%; }
+    .mini i { width: 6px; border-radius: 1px 1px 0 0; }
+    .mini .count { margin-left: 6px; }
+
     [hidden] { display: none !important; }
 
     a { color: inherit; }
   </style>
 </head>
 <body>
+  <script>if (window.top !== window) document.documentElement.classList.add("embedded");</script>
   <main>
     <header>
       <h1 data-t="heading"></h1>
@@ -436,6 +470,7 @@
     <div class="layout">
       <nav aria-label="Settings sections">
         <button type="button" data-pane="publish" data-t="navPublish"></button>
+        <button type="button" data-pane="io" data-t="navIO"></button>
         <button type="button" data-pane="layout" data-t="navLayout"></button>
       </nav>
       <div id="form"></div>
@@ -452,8 +487,19 @@
         savedTo: "Saved to",
         notesIn: "Notes in",
         notesHint: "(to use another folder: node bin/md2book.js settings <folder>)",
-        navPublish: "Publishing",
+        navPublish: "Site",
         navLayout: "Layout",
+        navIO: "Arrange",
+        selectAll: "Select all",
+        foldersTitle: "Folders",
+        arrangeHint: "Drag a folder into Input or Output below. Folders left here are ignored.",
+        dropHere: "Drop a folder here",
+        putBack: "Put back",
+        readingTitle: "Input · Reading",
+        readingHint: "EPUB and PDF files on the home page's Input shelves.",
+        writingTitle: "Output · Writing",
+        topLevel: "(top level)",
+        noInputFiles: "No EPUB or PDF files to shelve.",
         openSite: "Open the site →",
         saving: "Saving…",
         saved: "Saved",
@@ -464,35 +510,39 @@
 
         site: "Site",
         title: "Title",
-        titleHint: "The heading of the home page.",
+        titleHint: "Shown at the top of the home page.",
         browserTitle: "Browser tab title",
-        browserTitleHint: "Leave empty to use the title.",
+        browserTitleHint: "Defaults to the title.",
         author: "Author",
         authorHint: "Written into each page's metadata.",
         homePath: "Home page address",
-        homePathHint: "Where the list of every note lives, e.g. /a1b2c3 to keep it unlisted on a public site. Single notes and collections keep their own links. Takes effect after md2book restarts.",
+        homePathHint: "e.g. /a1b2c3, to keep the home page private. Needs a restart.",
 
-        publishing: "Publishing",
-        publishWhich: "Which notes are published",
-        publishAll: "Every note, except those with publish: false",
-        publishField: "Only notes that have this frontmatter field:",
-        idField: "Permanent link field",
-        idFieldHint: "A note with this frontmatter field keeps the same address when you rename or move it.",
+        publishing: "Included notes",
+        publishWhich: "Which notes",
+        publishAll: "All notes (except those with publish: false)",
+        publishField: "Only notes with the property:",
+        idField: "Link ID property",
+        idFieldHint: "Keeps a note's link when it is renamed or moved.",
 
         collections: "Collections",
-        collectionsHint: "A collection is a group of notes read as one book, at /contents/<name>.",
+        collectionsHint: "Several notes laid out one after another, as a book in the Output part. A note can be in more than one collection; the three ways below work together.",
         folders: "Folders",
-        foldersHint: "A folder collection holds every note inside it, subfolders included.",
-        srcFolders: "Folders",
-        srcProperties: "Properties",
-        srcInline: "#Tags",
-        inlineHint: "#tags written in the text of notes.",
+        foldersHint: "Each ticked folder, with every note inside it, is a collection.",
+        folderRoles: "Folder type",
+        folderRolesHint: "Output: its notes are laid out as collections.\nInput: its EPUB and PDF files are kept for reading.",
+        roleOutput: "Output",
+        roleInput: "Input",
+        srcFolders: "A. By folder",
+        srcProperties: "B. By property",
+        srcInline: "C. By #tag",
+        inlineHint: "Each ticked #tag is a collection.",
         foldersAll: "Every top-level folder",
         foldersChosen: "Only these folders",
         foldersNone: "No folders",
         noFolders: "No folders in your notes.",
         tagFields: "Tags from frontmatter fields",
-        tagFieldsHint: "Tags in a frontmatter property (e.g. publishTag). Tick a property to turn its tags into collections.",
+        tagFieldsHint: "Each ticked value is a collection.",
         allTags: "All its tags",
         chosenTags: "Only these tags:",
         noFields: "No frontmatter fields in your notes.",
@@ -513,7 +563,7 @@
         tipFigures: "\"Figure 1.\" under images.",
         tipTables: "\"Table 1.\" under tables.",
         tipHeadings: "Section numbers (1, 1.1 …) before headings.",
-        tipColumns: "How a desktop browser opens the page: 2, the two-column book page; 1, the one-column tablet-style spread. The \\ key switches between them while reading. Phones and tablets are unaffected.",
+        tipColumns: "How a desktop browser opens the page: 2, the two-column page; 1, the one-column tablet-style spread. The \\ key switches between them while reading. Phones and tablets are unaffected.",
         tipDates: "The \"written on …, updated …\" line.",
         tipPrivate: "A level-2 heading with exactly this text: it and everything after it are left out.",
         colCollection: "",
@@ -573,8 +623,19 @@
         savedTo: "保存在",
         notesIn: "笔记文件夹",
         notesHint: "（换一个文件夹：node bin/md2book.js settings <文件夹路径>）",
-        navPublish: "发布",
+        navPublish: "站点",
         navLayout: "排版",
+        navIO: "排列",
+        selectAll: "全选",
+        foldersTitle: "文件夹",
+        arrangeHint: "把文件夹拖到下面的输入或输出。留在这里的文件夹会被忽略。",
+        dropHere: "把文件夹拖到这里",
+        putBack: "放回",
+        readingTitle: "输入 · 阅读",
+        readingHint: "显示在首页输入书架上的 EPUB 和 PDF。",
+        writingTitle: "输出 · 写作",
+        topLevel: "（顶层）",
+        noInputFiles: "没有可上架的 EPUB 或 PDF。",
         openSite: "打开站点 →",
         saving: "正在保存…",
         saved: "已保存",
@@ -585,35 +646,39 @@
 
         site: "站点",
         title: "标题",
-        titleHint: "首页上显示的标题。",
+        titleHint: "显示在首页顶部。",
         browserTitle: "浏览器标签页标题",
-        browserTitleHint: "留空则与标题相同。",
+        browserTitleHint: "默认和标题相同。",
         author: "作者",
         authorHint: "写入每个页面的元信息。",
         homePath: "首页地址",
-        homePathHint: "「所有笔记列表」所在的路径，比如 /a1b2c3，让公开站点不被随意浏览；单篇笔记和合集的链接不受影响。重启 md2book 后生效。",
+        homePathHint: "比如 /a1b2c3，让首页不被随意打开。重启后生效。",
 
-        publishing: "发布",
-        publishWhich: "哪些笔记会被发布",
+        publishing: "包含哪些笔记",
+        publishWhich: "哪些笔记",
         publishAll: "所有笔记（写了 publish: false 的除外）",
-        publishField: "只发布带有这个 frontmatter 字段的笔记：",
-        idField: "永久链接字段",
-        idFieldHint: "带有这个 frontmatter 字段的笔记，改名或移动后地址不变。",
+        publishField: "只有带这个属性的笔记：",
+        idField: "链接 ID 属性",
+        idFieldHint: "改名或移动后，笔记的链接不变。",
 
         collections: "合集",
-        collectionsHint: "合集是一组笔记，在 /contents/<名字> 当作一本书来读。",
+        collectionsHint: "多篇笔记连排在一起，作为输出部分的书本。一篇笔记可以属于多个合集，下面三种方式可以同时使用。",
         folders: "文件夹",
-        foldersHint: "文件夹合集包含其中所有笔记，包括各层子文件夹。",
-        srcFolders: "文件夹",
-        srcProperties: "属性",
-        srcInline: "#标签",
-        inlineHint: "笔记正文里写的 #标签。",
+        foldersHint: "勾选的每个文件夹（含其中所有笔记）是一个合集。",
+        folderRoles: "文件夹类型",
+        folderRolesHint: "输出：其中的笔记排成合集。\n输入：存放用来阅读的 EPUB 和 PDF。",
+        roleOutput: "输出",
+        roleInput: "输入",
+        srcFolders: "A. 按文件夹",
+        srcProperties: "B. 按属性",
+        srcInline: "C. 按 #标签",
+        inlineHint: "勾选的每个 #标签是一个合集。",
         foldersAll: "每个顶层文件夹",
         foldersChosen: "只用这些文件夹",
         foldersNone: "不用文件夹",
         noFolders: "笔记里没有文件夹。",
         tagFields: "frontmatter 字段里的标签",
-        tagFieldsHint: "frontmatter 属性（比如 publishTag）里的标签。勾选一个属性，它的标签就会成为合集。",
+        tagFieldsHint: "勾选的每个值是一个合集。",
         allTags: "所有标签",
         chosenTags: "只用这些标签：",
         noFields: "笔记里没有 frontmatter 字段。",
@@ -634,7 +699,7 @@
         tipFigures: "图片下方的「Figure 1.」。",
         tipTables: "表格下方的「Table 1.」。",
         tipHeadings: "标题前的章节编号（1、1.1……）。",
-        tipColumns: "桌面浏览器默认打开的样子：2 是双栏书页，1 是单栏的平板式双页。阅读时按 \\ 可以切换。手机和平板不受影响。",
+        tipColumns: "桌面浏览器默认打开的样子：2 是双栏页面，1 是单栏的平板式双页。阅读时按 \\ 可以切换。手机和平板不受影响。",
         tipDates: "「written on …, updated …」这一行。",
         tipPrivate: "正文里这个文字的二级标题，连同它之后的内容都不会发布。",
         colCollection: "",
@@ -704,7 +769,7 @@
         publishField: "Only notes that have this frontmatter field:",
         idField: "Fixed address field",
         idFieldHint: "A note with this frontmatter field keeps the same address in this browser when you rename or move it.",
-        collectionsHint: "A collection is a group of notes read as one book."
+        collectionsHint: "Several notes laid out one after another, as an output document. A note can be in more than one collection."
       },
       zh: {
         navPublish: "笔记",
@@ -715,7 +780,7 @@
         publishField: "只显示带有这个 frontmatter 字段的笔记：",
         idField: "固定地址字段",
         idFieldHint: "带有这个 frontmatter 字段的笔记，改名或移动后，在这个浏览器里的地址不变。",
-        collectionsHint: "合集是一组笔记，当作一本书来读。",
+        collectionsHint: "多篇笔记连排在一起，作为输出文档。一篇笔记可以属于多个合集。",
         tipPrivate: "正文里这个文字的二级标题，连同它之后的内容都不会显示。"
       }
     };
@@ -763,12 +828,16 @@
     const t = key => TEXT[lang][key] ?? TEXT.en[key] ?? key;
 
     let defaults = null;
-    // Which collection source the segmented control shows.
-    let source = "folders";
     let settings = null;   // defaults merged with the saved file
     let vault = null;
 
     const $ = (sel, root = document) => root.querySelector(sel);
+    // A path in full — but floating over the home page, only its last part (the rest on hover).
+    function showPath(el, value) {
+      const text = String(value ?? "");
+      el.textContent = window.top !== window ? text.split(/[\\/]/).filter(Boolean).pop() || text : text;
+      el.title = text;
+    }
     const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
     function isObject(v) { return v && typeof v === "object" && !Array.isArray(v); }
@@ -868,7 +937,7 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || res.status);
         vault = data.vault;
-        $("#file").textContent = data.file;
+        showPath($("#file"), data.file);
         // Changed collections can make notes shared that weren't: list
         // the clash (later changes won't save until it's resolved).
         showConflicts();
@@ -940,6 +1009,78 @@
       }).join("")}</div>`;
     }
 
+    // ---- Arrange: every top-level folder is input, output, or (left in the pool) ignored ----
+
+    // Which top-level folder a path is in ("" at the top).
+    const topOf = path => (path ? path.split("/")[0] : "");
+
+    // The top-level folders, with their notes and their EPUB / PDF files.
+    function topFolders() {
+      const notes = new Map(vault.folders.filter(f => !f.name.includes("/")).map(f => [f.name, f.notes]));
+      const files = new Map();
+      for (const b of vault.books || []) {
+        const top = topOf(b.folder);
+        if (!top) continue;
+        if (!files.has(top)) files.set(top, []);
+        files.get(top).push(b);
+      }
+      return { names: [...new Set([...notes.keys(), ...files.keys()])].sort((x, y) => x.localeCompare(y)), notes, files };
+    }
+
+    // Where each one is now. Until a folder has been moved by hand it is
+    // automatic (see collections.outputFolders in lib/config-core.js).
+    function arrangement() {
+      const { names, notes, files } = topFolders();
+      const lower = list => new Set((list || []).map(f => String(f).toLowerCase()));
+      const inputSet = lower(settings.collections.inputFolders);
+      const explicit = Array.isArray(settings.collections.outputFolders);
+      const outputSet = lower(settings.collections.outputFolders);
+      const input = names.filter(n => inputSet.has(n.toLowerCase()) || (!explicit && !notes.has(n)));
+      const output = names.filter(n => !input.includes(n) && (explicit ? outputSet.has(n.toLowerCase()) : notes.has(n)));
+      return { input, output, pool: names.filter(n => !input.includes(n) && !output.includes(n)), notes, files };
+    }
+
+    function moveFolder(name, zone) {
+      const a = arrangement();
+      const input = a.input.filter(n => n !== name), output = a.output.filter(n => n !== name);
+      if (zone === "input") input.push(name);
+      if (zone === "output") output.push(name);
+      settings.collections.inputFolders = input;
+      settings.collections.outputFolders = output;
+      const y = window.scrollY;
+      render();
+      window.scrollTo(0, y);
+      scheduleSave(true);
+    }
+
+    const MINI_COLOURS = ["#2f3d4f", "#6b2f33", "#b9a67c", "#4d5a4a", "#8a5a3c", "#7d8a95", "#3a4a45", "#a69f93"];
+    const miniHash = str => { let h = 7; for (const c of str) h = (h * 31 + c.codePointAt(0)) >>> 0; return h; };
+
+    // A folder as a chip. In the pool it is just its name; once it is in Input
+    // (the files it shelves: "4×epub&pdf", "2×pdf") or Output (its notes:
+    // "5×md") it says how many of those there are.
+    function folderChip(name, a, zone) {
+      let count = "";
+      if (zone === "input") {
+        const list = a.files.get(name) || [];
+        const epub = list.filter(b => b.fmt === "epub").length, pdf = list.length - epub;
+        // A folder with no EPUB or PDF files puts nothing on the shelves: no count.
+        count = list.length ? `${list.length}×${epub && pdf ? "epub&pdf" : epub ? "epub" : "pdf"}` : "";
+      } else if (zone === "output") {
+        count = `${a.notes.get(name) || 0}×md`;
+      }
+      return `<span class="fchip" draggable="true" data-folder="${esc(name)}">${esc(name)}${count ? `<span class="sep">|</span><span class="count">${esc(count)}</span>` : ""}${zone !== "pool" ? `<button type="button" data-unplace="${esc(name)}" title="${esc(t("putBack"))}" aria-label="${esc(t("putBack"))}">×</button>` : ""}</span>`;
+    }
+
+    // What an input folder puts on the Input shelves: its files as small spines.
+    function shelfPreview(name, a) {
+      const list = a.files.get(name) || [];
+      const epub = list.filter(b => b.fmt === "epub").length, pdf = list.length - epub;
+      const counts = [epub ? `${epub} EPUB` : "", pdf ? `${pdf} PDF` : ""].filter(Boolean).join(" · ");
+      const spines = list.slice(0, 40).map(b => `<i style="height:${16 + miniHash(b.title) % 20}px;background:${MINI_COLOURS[miniHash(b.title + "c") % MINI_COLOURS.length]}"></i>`).join("");
+      return `<div class="preview"><div class="cardhead"><span>${esc(name)}<span class="count">${esc(counts)}</span></span></div><div class="mini">${spines}${list.length > 40 ? `<span class="count">+${list.length - 40}</span>` : ""}</div></div>`;
+    }
+
     // --- rendering -----------------------------------------------------------
 
     function render() {
@@ -951,23 +1092,22 @@
 
       const s = settings;
       const folders = s.collections.folders;
-      const folderMode = folders === true ? "all" : Array.isArray(folders) ? "chosen" : "none";
       const inline = s.collections.inlineTags;
-      const inlineMode = inline === true || inline === "*" ? "all" : Array.isArray(inline) ? "chosen" : "off";
       const tags = s.collections.tags || {};
-
+      const arr = arrangement();
+      const outputTops = arr.output;
+      const outputFolders = vault.folders.filter(f => outputTops.includes(topOf(f.name)));
+      const topFolderNames = outputTops.filter(n => arr.notes.has(n));
+      const folderPicked = folders === true ? topFolderNames : Array.isArray(folders) ? folders : [];
+      const inlinePicked = inline === true || inline === "*" ? vault.inlineTags.map(v => v.name) : Array.isArray(inline) ? inline : [];
+      const selectAll = (group, total, picked) => total ? `<label class="check selectall"><input type="checkbox" data-all="${esc(group)}" data-total="${total}" data-picked="${picked}" /> ${esc(t("selectAll"))}</label>` : "";
       const fieldsHtml = vault.fields.length ? vault.fields.map(field => {
         const rule = tags[field.name];
-        const on = rule !== undefined;
-        const mode = rule === "*" || rule === true ? "all" : "chosen";
-        return `<div class="tagfield" data-field="${esc(field.name)}">
-          <label class="check"><input type="checkbox" data-field-on="${esc(field.name)}" ${on ? "checked" : ""} /> <b>${esc(field.name)}</b><span class="count">${esc(field.values.length)} ${lang === "zh" ? "个值" : "values"}</span></label>
-          <div class="sub" ${on ? "" : "hidden"}>
-            ${radios("tagmode-" + field.name, [["all", "allTags"], ["chosen", "chosenTags"]], mode)}
-            <div ${mode === "chosen" ? "" : "hidden"}>${checklist(field.values, Array.isArray(rule) ? rule : [], "tag:" + field.name, "noFields")}</div>
-          </div>
-        </div>`;
+        const picked = rule === "*" || rule === true ? field.values.map(v => v.name) : Array.isArray(rule) ? rule : [];
+        return `<div class="tagfield"><div class="hint" style="margin:8px 0 2px"><b>${esc(field.name)}</b></div>${checklist(field.values, picked, "tag:" + field.name, "noFields")}</div>`;
       }).join("") : `<div class="empty">${esc(t("noFields"))}</div>`;
+      const tagTotal = vault.fields.reduce((n, f) => n + f.values.length, 0);
+      const tagPicked = vault.fields.reduce((n, f) => { const r = tags[f.name]; return n + (r === "*" || r === true ? f.values.length : Array.isArray(r) ? r.length : 0); }, 0);
 
       $("#form").innerHTML = `
         <section data-pane="publish">
@@ -975,48 +1115,64 @@
           ${textField("site.title", "title", "titleHint")}
           ${textField("site.browserTitle", "browserTitle", "browserTitleHint", { placeholder: s.site.title })}
           ${textField("site.author", "author", "authorHint")}
-          ${textField("site.homePath", "homePath", "homePathHint", { empty: "/" })}
         </section>
 
         <section data-pane="publish">
           <h2>${esc(t("publishing"))}</h2>
           ${repoMode ? `<div class="field">
-            <span class="title">${esc(t("publishWhich"))}</span>
             <div>${s.publish.require ? `${esc(t("publishField"))} <code>${esc(s.publish.require)}</code>` : esc(t("publishAll"))}</div>
             <div class="hint">${esc(t("publishRuleHint"))}</div>
           </div>` : `<div class="field">
-            <span class="title">${esc(t("publishWhich"))}</span>
             <div class="choices" style="flex-direction:column;gap:6px">
               <label><input type="radio" name="publish" value="all" ${s.publish.require ? "" : "checked"} /> ${esc(t("publishAll"))}</label>
               <label><input type="radio" name="publish" value="field" ${s.publish.require ? "checked" : ""} /> ${esc(t("publishField"))}
                 <input type="text" id="publish-field" style="width:160px" value="${esc(s.publish.require || "publishID")}" /></label>
             </div>
           </div>
-          ${textField("publish.idField", "idField", "idFieldHint")}`}
+          `}
         </section>
 
-        <section data-pane="publish">
-          <h2>${esc(t("collections"))}</h2>
-          <div class="hint" style="margin-top:-8px;margin-bottom:14px">${esc(t("collectionsHint"))}</div>
-          <div class="segmented" role="tablist">
-            ${[["folders", "srcFolders"], ["properties", "srcProperties"], ["inline", "srcInline"]].map(([id, key]) =>
-              `<button type="button" role="tab" data-source="${id}" aria-selected="${source === id}">${esc(t(key))}</button>`).join("")}
-          </div>
-          <div class="field" data-source-panel="folders" ${source === "folders" ? "" : "hidden"}>
-            <div class="hint">${esc(t("foldersHint"))}</div>
-            ${radios("folders", [["all", "foldersAll"], ["chosen", "foldersChosen"], ["none", "foldersNone"]], folderMode)}
-            <div ${folderMode === "chosen" ? "" : "hidden"}>${checklist(vault.folders, Array.isArray(folders) ? folders : [], "folders", "noFolders")}</div>
-          </div>
-          <div class="field" data-source-panel="properties" ${source === "properties" ? "" : "hidden"}>
-            <div class="hint">${esc(t("tagFieldsHint"))}</div>
-            ${fieldsHtml}
-          </div>
-          <div class="field" data-source-panel="inline" ${source === "inline" ? "" : "hidden"}>
-            <div class="hint">${esc(t("inlineHint"))}</div>
-            ${radios("inline", [["off", "inlineOff"], ["all", "inlineAll"], ["chosen", "inlineChosen"]], inlineMode)}
-            <div ${inlineMode === "chosen" ? "" : "hidden"}>${checklist(vault.inlineTags, Array.isArray(inline) ? inline : [], "inline", "noInline")}</div>
-          </div>
+        <section data-pane="io" class="plain">
+          <div class="hint" style="margin:0 0 8px">${esc(t("arrangeHint"))}</div>
+          <div class="pool" data-zone="pool">${arr.pool.map(n => folderChip(n, arr, "pool")).join("") || `<span class="count">—</span>`}</div>
         </section>
+
+        <div class="cols" data-pane="io">
+          <section class="col">
+            <div class="dropbox" data-zone="input">
+              <h2>${esc(t("readingTitle"))}</h2>
+              <div class="chips">${arr.input.map(n => folderChip(n, arr, "input")).join("") || `<span class="drophint">${esc(t("dropHere"))}</span>`}</div>
+            </div>
+            <div class="hint" style="margin:10px 0">${esc(t("readingHint"))}</div>
+            ${arr.input.filter(n => (arr.files.get(n) || []).length).map(n => shelfPreview(n, arr)).join("")}
+          </section>
+          <section class="col">
+            <div class="dropbox" data-zone="output">
+              <h2>${esc(t("writingTitle"))}</h2>
+              <div class="chips">${arr.output.map(n => folderChip(n, arr, "output")).join("") || `<span class="drophint">${esc(t("dropHere"))}</span>`}</div>
+            </div>
+            ${arr.output.length ? `
+            <div class="hint" style="margin:14px 0">${esc(t("collectionsHint"))}</div>
+            <div class="field">
+              <span class="title abc">${esc(t("srcFolders"))}</span>
+              <div class="hint">${esc(t("foldersHint"))}</div>
+              ${selectAll("folders", outputFolders.length, folderPicked.length)}
+              ${checklist(outputFolders, folderPicked, "folders", "noFolders")}
+            </div>
+            <div class="field">
+              <span class="title abc">${esc(t("srcProperties"))}</span>
+              <div class="hint">${esc(t("tagFieldsHint"))}</div>
+              ${selectAll("tag:", tagTotal, tagPicked)}
+              ${fieldsHtml}
+            </div>
+            <div class="field">
+              <span class="title abc">${esc(t("srcInline"))}</span>
+              <div class="hint">${esc(t("inlineHint"))}</div>
+              ${selectAll("inline", vault.inlineTags.length, inlinePicked.length)}
+              ${checklist(vault.inlineTags, inlinePicked, "inline", "noInline")}
+            </div>` : ""}
+          </section>
+        </div>
 
         <section data-pane="layout">
           <h2>${esc(t("layouts"))}</h2>
@@ -1042,16 +1198,17 @@
         </section>
       `;
       renderRules();
+      syncSelectAll();
       showPane();
     }
 
     // --- navigation: Publishing / Layout ---------------------------------------
 
-    const PANES = ["publish", "layout"];
+    const PANES = ["publish", "io", "layout"];
     let pane = PANES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "publish";
 
     function showPane() {
-      document.querySelectorAll("#form section").forEach(section => { section.hidden = section.dataset.pane !== pane; });
+      document.querySelectorAll("#form [data-pane]").forEach(section => { section.hidden = section.dataset.pane !== pane; });
       document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-current", String(b.dataset.pane === pane)));
     }
 
@@ -1143,12 +1300,6 @@
     }
 
     document.addEventListener("click", event => {
-      const seg = event.target.closest && event.target.closest("[data-source]");
-      if (seg) {
-        source = seg.dataset.source;
-        document.querySelectorAll("[data-source]").forEach(b => b.setAttribute("aria-selected", String(b === seg)));
-        document.querySelectorAll("[data-source-panel]").forEach(p => { p.hidden = p.dataset.sourcePanel !== source; });
-      }
       if (event.target.id === "add-rule") addRule();
       const remove = event.target.dataset && event.target.dataset.remove;
       if (remove !== undefined) {
@@ -1177,10 +1328,43 @@
       if (key === "collection" || key === "applyToAll" || id === "epub") renderRules();
     }
 
+    // The "select all" boxes follow their lists: ticked when every item is, half when some are.
+    function syncSelectAll() {
+      document.querySelectorAll("input[data-all]").forEach(all => {
+        const items = [...document.querySelectorAll("input[data-group]")].filter(b => b.dataset.group === all.dataset.all || (all.dataset.all === "tag:" && b.dataset.group.startsWith("tag:")));
+        const on = items.filter(b => b.checked).length;
+        all.checked = items.length > 0 && on === items.length;
+        all.indeterminate = on > 0 && on < items.length;
+      });
+    }
+
     // --- reading the form ------------------------------------------------------
 
     function chosenIn(group) {
       return Array.from(document.querySelectorAll(`input[data-group="${CSS.escape(group)}"]:checked`), el => el.value);
+    }
+
+    // One of the three lists of collections, read back from what is ticked
+    // (the others, and rules for properties not in the notes, stay as they are).
+    function commitLists(group) {
+      const s = settings;
+      if (group === "folders") {
+        const tops = arrangement().output.filter(n => topFolders().notes.has(n));
+        const folders = chosenIn("folders");
+        s.collections.folders = !folders.length ? false : folders.length === tops.length && folders.every(f => tops.includes(f)) ? true : folders;
+      } else if (group.startsWith("tag:")) {
+        const tags = { ...(s.collections.tags || {}) };
+        for (const field of vault.fields) {
+          const picked = chosenIn("tag:" + field.name);
+          if (picked.length) tags[field.name] = picked.length === field.values.length ? "*" : picked;
+          else delete tags[field.name];
+        }
+        s.collections.tags = tags;
+      } else if (group === "inline") {
+        const inline = chosenIn("inline");
+        s.collections.inlineTags = !inline.length ? false : inline.length === vault.inlineTags.length ? true : inline;
+      }
+      syncSelectAll();
     }
 
     function onChange(event) {
@@ -1201,29 +1385,12 @@
         s.publish.require = byField ? ($("#publish-field").value.trim() || null) : null;
         // Not while typing the field name (the redraw would take focus).
         if (event.type === "change") refreshLists = true;
-      } else if (el.name === "folders") {
-        s.collections.folders = el.value === "all" ? true : el.value === "none" ? false : chosenIn("folders");
-        rerender = true;
-      } else if (el.dataset.group === "folders") {
-        s.collections.folders = chosenIn("folders");
-      } else if (el.dataset.fieldOn) {
-        const tags = { ...(s.collections.tags || {}) };
-        if (el.checked) tags[el.dataset.fieldOn] = "*";
-        else delete tags[el.dataset.fieldOn];
-        s.collections.tags = tags;
-        rerender = true;
-      } else if (el.name && el.name.startsWith("tagmode-")) {
-        const field = el.name.slice("tagmode-".length);
-        s.collections.tags = { ...s.collections.tags, [field]: el.value === "all" ? "*" : chosenIn("tag:" + field) };
-        rerender = true;
-      } else if (el.dataset.group && el.dataset.group.startsWith("tag:")) {
-        const field = el.dataset.group.slice(4);
-        s.collections.tags = { ...s.collections.tags, [field]: chosenIn(el.dataset.group) };
-      } else if (el.name === "inline") {
-        s.collections.inlineTags = el.value === "all" ? true : el.value === "off" ? false : chosenIn("inline");
-        rerender = true;
-      } else if (el.dataset.group === "inline") {
-        s.collections.inlineTags = chosenIn("inline");
+      } else if (el.dataset.all !== undefined) {
+        const prefix = el.dataset.all;
+        document.querySelectorAll("input[data-group]").forEach(b => { if (b.dataset.group === prefix || (prefix === "tag:" && b.dataset.group.startsWith("tag:"))) b.checked = el.checked; });
+        commitLists(prefix);
+      } else if (el.dataset.group) {
+        commitLists(el.dataset.group);
       } else if (el.closest && el.closest("#rules")) {
         onRuleChange(el);
       } else {
@@ -1237,6 +1404,47 @@
       }
       scheduleSave(el.type !== "text");
     }
+
+    // Dragging a folder into the pool, Input or Output.
+    let dragging = null;
+    const clearOver = () => document.querySelectorAll(".over").forEach(el => el.classList.remove("over"));
+    document.addEventListener("dragstart", event => {
+      const el = event.target.closest && event.target.closest("[data-folder]");
+      if (!el) return;
+      dragging = el.dataset.folder;
+      event.dataTransfer.setData("text/plain", dragging);
+      event.dataTransfer.effectAllowed = "move";
+      // The picture that follows the pointer: a copy of the chip on its own, so
+      // its rounded ends are not drawn on the background of the box it sits in.
+      const ghost = el.cloneNode(true);
+      ghost.querySelector("button")?.remove();
+      ghost.classList.add("ghost");
+      document.body.appendChild(ghost);
+      event.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, ghost.offsetHeight / 2);
+      setTimeout(() => ghost.remove(), 0);
+      setTimeout(() => el.classList.add("lifted"), 0);
+    });
+    document.addEventListener("dragover", event => {
+      const zone = event.target.closest && event.target.closest("[data-zone]");
+      if (!zone || dragging === null) return;
+      event.preventDefault();
+      clearOver();
+      zone.classList.add("over");
+    });
+    document.addEventListener("drop", event => {
+      const zone = event.target.closest && event.target.closest("[data-zone]");
+      clearOver();
+      if (!zone || dragging === null) return;
+      event.preventDefault();
+      const name = dragging;
+      dragging = null;
+      moveFolder(name, zone.dataset.zone);
+    });
+    document.addEventListener("dragend", () => { dragging = null; clearOver(); document.querySelectorAll(".lifted").forEach(el => el.classList.remove("lifted")); });
+    document.addEventListener("click", event => {
+      const back = event.target.closest && event.target.closest("[data-unplace]");
+      if (back) moveFolder(back.dataset.unplace, "pool");
+    });
 
     document.addEventListener("change", onChange);
     // Text fields save as you type (after a pause).
@@ -1264,8 +1472,8 @@
       // Single notes follow their collections now (no row of their own).
       delete settings.layouts.note;
       vault = data.vault;
-      $("#file").textContent = data.file;
-      $("#notes-dir").textContent = data.notesDir;
+      showPath($("#file"), data.file);
+      showPath($("#notes-dir"), data.notesDir);
       $("#open-site").href = data.homePath || "/";
       render();
     }).catch(error => {
