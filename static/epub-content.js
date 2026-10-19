@@ -96,7 +96,7 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
       body.body { -webkit-line-box-contain:initial !important; }
       body.body * { orphans:1 !important; widows:1 !important;
         line-break:strict; text-spacing-trim:space-all; text-autospace:no-autospace;
-        font-kerning:none; font-variant-ligatures:none; }
+        font-kerning:none; font-variant-ligatures:none; text-rendering:geometricPrecision; font-synthesis:none; hyphens:manual; -webkit-hyphens:manual; }
       body.body :is(sup,sub,.math-super) { line-height:0 !important; }
       body.body { min-height:0 !important; margin:0 !important; padding-top:0 !important; padding-bottom:0 !important; column-count:auto !important;
         font-family:var(--serif) !important; font-size:var(--body-size) !important; line-height:var(--body-leading) !important; }
