@@ -1,5 +1,27 @@
 // Adapt EPUB XHTML inside its own document. Preserve node order for saved CFIs.
 window.createEpubContent = function(book, root, row, fixedLayout) {
+  // Firefox follows an older UAX #14 than Safari and Chrome: it never breaks
+  // beside a curly quote, even between CJK characters, so its lines (and so its
+  // page numbers) drift from theirs. An empty <wbr> restores the break; CFIs
+  // skip it (SOFT_BREAK), so saved positions are the same in every browser.
+  const SOFT_BREAK = "epub-brk", firefox = /Firefox\//.test(navigator.userAgent);
+  const CJK = "\\u3040-\\u30ff\\u3400-\\u9fff\\uf900-\\ufaff";
+  const afterQuote = new RegExp(`(?<=[\u201d\u2019])(?=[${CJK}\u201c\u2018\u300a\u3008\u300c\u300e\uff08\u3010\u3014\uff3b\uff5b])`, "gu");
+  const beforeQuote = new RegExp(`(?<=[${CJK}\uff0c\u3002\u3001\uff1b\uff1a\uff01\uff1f\uff09\u300b\u3009\u300d\u300f\u3011\u3015\uff3d\uff5d\u2026\u2014\u201d\u2019])(?=[\u201c\u2018])`, "gu");
+  function softBreaks(doc, body) {
+    if (!firefox) return;
+    const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT), texts = [];
+    for (let node; (node = walker.nextNode());) if (/[\u2018\u2019\u201c\u201d]/.test(node.data)) texts.push(node);
+    for (const node of texts) {
+      const at = new Set();
+      for (const re of [afterQuote, beforeQuote]) for (const m of node.data.matchAll(re)) if (m.index > 0 && m.index < node.length) at.add(m.index);
+      for (const index of [...at].sort((a, b) => b - a)) {
+        const tail = node.splitText(index), mark = doc.createElementNS("http://www.w3.org/1999/xhtml", "wbr");
+        mark.className = SOFT_BREAK;
+        tail.before(mark);
+      }
+    }
+  }
   const cssURL = document.querySelector('link[href$="static/book.css"]').href;
   const fontURLs = [...document.querySelectorAll('link[rel="stylesheet"]')].filter(link => /fonts/.test(link.href)).map(link => link.href);
   const documents = new Map(), notes = new Map(), snapshotStyles = new WeakMap(), sharedSheets = new Map();
@@ -165,6 +187,7 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
       const target = doc.getElementById(ref.id);
       if (target) (target.matches("a,span,sup") ? target.closest("p,li,aside,div") || target : target).dataset.epubNoteHidden = "";
     }
+    softBreaks(doc, body);
     // Settle fonts and images before reading column counts. No late page drift.
     // Flush the new style before observing FontFaceSet.ready: an idle set can
     // resolve before the browser has discovered this chapter's font subsets.
@@ -246,7 +269,7 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
       }
       if (low < node.length) {
         range.setStart(node, low); range.collapse(true);
-        return contents.cfiFromRange(range);
+        return contents.cfiFromRange(range, SOFT_BREAK);
       }
     }
     return null;
