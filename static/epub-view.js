@@ -515,6 +515,28 @@ window.createEpubView = function createEpubView(book, mount, row) {
         if (owner) window.epubAnnotations.paint(host.shadowRoot, highlightsOf(+owner.dataset.section));
       }
     },
+    // Touch selection (our own): the page text under a finger, as offsets.
+    hostAt(x, y) {
+      for (const host of mount.querySelectorAll(".spread.is-current .epub-page-content")) {
+        const r = host.getBoundingClientRect();
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return host;
+      }
+      return null;
+    },
+    pickWord(x, y) {
+      const host = this.hostAt(x, y);
+      if (!host) return null;
+      const shadow = host.shadowRoot, body = shadow.querySelector("body"), page = host.closest(".page");
+      const hit = body && page && window.epubAnnotations.pointToOffset(shadow, x, y);
+      if (!hit || page.dataset.section === undefined) return null;
+      const [start, end] = window.epubAnnotations.wordAt(window.epubAnnotations.index(body).text, hit.char);
+      return { section: +page.dataset.section, shadow, offsets: [start, end] };
+    },
+    offsetAt(shadow, x, y) { return window.epubAnnotations.pointToOffset(shadow, x, y)?.offset ?? null; },
+    measure(sel) {
+      const body = sel.shadow.querySelector("body");
+      return body ? window.epubAnnotations.measure(body, sel.offsets[0], sel.offsets[1]) : null;
+    },
     // The visible page text the viewer has selected, if any.
     selection() {
       const notes = window.epubAnnotations, selection = document.getSelection();

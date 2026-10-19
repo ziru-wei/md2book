@@ -53,6 +53,7 @@
   // The soft green marker stroke used for highlights in PaperToaster.
   const G = "178 214 121";
   const STYLE = "::selection{background:rgba(110,110,110,.38);color:inherit}" +
+    "@media (pointer:coarse){body,body *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}}" +
     `.epub-hl{display:inline;color:inherit;cursor:pointer;border-radius:.18em;background:linear-gradient(103deg,transparent 1%,rgb(${G} / 84%) 3%,rgb(${G} / 58%) 7%,rgb(${G} / 32%) 91%,rgb(${G} / 62%) 96%,transparent 99%),linear-gradient(181deg,transparent 0%,rgb(${G} / 30%) 8%,transparent 16%);text-shadow:-.35em .3em .45em rgb(${G} / 18%);-webkit-box-decoration-break:clone;box-decoration-break:clone}` +
     `.epub-hl:hover{background:linear-gradient(103deg,transparent 1%,rgb(${G} / 92%) 3%,rgb(${G} / 70%) 7%,rgb(${G} / 44%) 91%,rgb(${G} / 74%) 96%,transparent 99%),linear-gradient(181deg,transparent 0%,rgb(${G} / 38%) 8%,transparent 16%)}` +
     ".epub-hl[data-note]{box-shadow:0 1px 0 rgba(110,150,60,.75)}" +
@@ -79,7 +80,8 @@
     }
     if (!list.length) return;
     for (const h of list) {
-      const idx = index(body), hit = find(idx.text, h, true);
+      if (h.shadow && h.shadow !== shadow) continue;
+      const idx = index(body), hit = h.offsets ? { start: h.offsets[0], end: h.offsets[1] } : find(idx.text, h, true);
       if (!hit) continue;
       const pieces = segments(idx, hit.start, hit.end);
       for (const { node, from, to } of pieces.reverse()) {
@@ -103,7 +105,72 @@
     return { quote, prefix: text.slice(Math.max(0, start - 32), start), suffix: text.slice(start + quote.length, start + quote.length + 32) };
   }
 
-  const api = { find, index, segments, paint, unpaint, describe };
+  // --- Touch selection: our own, by character offsets in a page's text ------
+
+  // The character under (x, y) on a page: its index and the nearest boundary.
+  function pointToOffset(shadow, x, y) {
+    const body = shadow.querySelector("body");
+    if (!body) return null;
+    const idx = index(body), range = body.ownerDocument.createRange();
+    let best = null;
+    for (const part of idx.parts) {
+      const node = part.node;
+      if (!node.data.trim()) continue;
+      range.selectNodeContents(node);
+      const box = range.getBoundingClientRect();
+      if (y < box.top - 6 || y > box.bottom + 6) continue;
+      for (let i = 0; i < node.length; i++) {
+        range.setStart(node, i); range.setEnd(node, i + 1);
+        for (const r of range.getClientRects()) {
+          if (!r.width || !r.height) continue;
+          const dy = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+          const dx = x < r.left ? r.left - x : x > r.right ? x - r.right : 0;
+          const d = dy * 4 + dx;
+          if (!best || d < best.d) best = { d, char: part.start + i, offset: part.start + i + (x > (r.left + r.right) / 2 ? 1 : 0) };
+        }
+      }
+    }
+    return best && best.d < 60 ? best : null;
+  }
+
+  // The word around character `at` (a CJK run is split by the browser's word rules).
+  function wordAt(text, at) {
+    at = Math.max(0, Math.min(text.length - 1, at));
+    if (typeof Intl !== "undefined" && Intl.Segmenter) {
+      for (const seg of new Intl.Segmenter(undefined, { granularity: "word" }).segment(text)) {
+        const end = seg.index + seg.segment.length;
+        if (at >= seg.index && at < end) return seg.isWordLike ? [seg.index, end] : [at, at + 1];
+      }
+    }
+    const word = /[\p{L}\p{N}_'’-]/u;
+    let s = at, e = at + 1;
+    if (!word.test(text[at])) return [at, e];
+    while (s > 0 && word.test(text[s - 1])) s--;
+    while (e < text.length && word.test(text[e])) e++;
+    return [s, e];
+  }
+
+  function rangeAt(body, start, end) {
+    const idx = index(body), segs = segments(idx, start, end);
+    if (!segs.length) return null;
+    const range = body.ownerDocument.createRange();
+    range.setStart(segs[0].node, segs[0].from);
+    const last = segs[segs.length - 1];
+    range.setEnd(last.node, last.to);
+    return range;
+  }
+
+  // What to save for the text at [start, end), and where it is on screen.
+  function measure(body, start, end) {
+    const text = index(body).text, range = rangeAt(body, start, end);
+    if (!range) return null;
+    const rects = [...range.getClientRects()].filter(r => r.width && r.height);
+    const first = rects[0] || range.getBoundingClientRect(), last = rects[rects.length - 1] || first;
+    return { quote: text.slice(start, end), prefix: text.slice(Math.max(0, start - 32), start), suffix: text.slice(end, end + 32),
+      rect: range.getBoundingClientRect(), startPoint: { x: first.left, y: first.bottom }, endPoint: { x: last.right, y: last.bottom } };
+  }
+
+  const api = { find, index, segments, paint, unpaint, describe, pointToOffset, wordAt, rangeAt, measure };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.epubAnnotations = api;
 })(typeof window !== "undefined" ? window : globalThis);

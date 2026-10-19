@@ -10,9 +10,9 @@
   const bookmarkKey = stateKey + ":bookmarks";
   const highlightKey = stateKey + ":highlights";
   const bookmarkUrl = `/api/epub-bookmarks/${id}`;
-  // Touch screens: a finished selection becomes our own grey mark (`pending`) and
-  // the native one is dropped, with its blue overlay, handles and menu.
-  let pending = null, dismissedAt = -Infinity, dismissedStamp = -1;
+  // Touch screens select text by our own long press (no native overlay, handles
+  // or menu): `pending` is that selection, offsets into a page's text.
+  let selecting = false, pending = null, dismissedAt = -Infinity, dismissedStamp = -1;
   const selectionActive = () => Boolean(pending || document.getSelection()?.toString() || rendition?.selection());
   let book, rendition, current, disposed = false, locationsReady = false;
   let bookmarks = [], highlights = [], bookmarksReady = false, bookmarkBusy = false, lastSync = 0;
@@ -162,7 +162,7 @@
     });
     viewer.addEventListener("pointermove", event => {
       if (!drag || event.pointerId !== drag.id) return;
-      if (!drag.active && isZoomed()) { drag = null; return; }
+      if (selecting || (!drag.active && isZoomed())) { drag = null; return; }
       if (!drag.active) {
         const dx = event.clientX - drag.x;
         if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(event.clientY - drag.y)) return;
@@ -409,41 +409,98 @@
   async function createHighlight(picked) {
     const info = await rendition.contextFor(picked).catch(() => picked);
     const h = { id: newId(), section: info.section, quote: info.quote.slice(0, 1000), prefix: info.prefix, suffix: info.suffix, note: "" };
-    pending = null;
+    pending = null; handles.forEach(h => { h.hidden = true; });
     changeHighlight({ type: "highlight", highlight: h });
     document.getSelection()?.removeAllRanges();
     bar.hidden = true; picked = null;
     return h;
   }
+  const handles = [$("epub-handle-start"), $("epub-handle-end")];
   function clearPending() {
     if (!pending) return;
-    pending = null; picked = null; bar.hidden = true;
+    pending = null; picked = null; bar.hidden = true; handles.forEach(h => { h.hidden = true; });
     rendition?.refreshHighlights();
   }
+  // Show the handles and the bar around the painted selection.
+  function showSelection() {
+    const m = pending && rendition.measure(pending);
+    if (!m) { clearPending(); return; }
+    picked = { section: pending.section, quote: m.quote, prefix: m.prefix, suffix: m.suffix, rect: m.rect };
+    handles[0].style.left = m.startPoint.x + "px"; handles[0].style.top = m.startPoint.y + "px";
+    handles[1].style.left = m.endPoint.x + "px"; handles[1].style.top = m.endPoint.y + "px";
+    handles.forEach(h => { h.hidden = false; });
+    place(bar, { left: m.rect.left, width: m.rect.width, top: m.rect.top, bottom: m.endPoint.y + 40 }, true);
+  }
+  function startSelection(x, y) {
+    const found = rendition?.pickWord(x, y);
+    if (!found) return false;
+    pending = { ...found, id: "pending", pending: true, quote: "", prefix: "", suffix: "" };
+    rendition.refreshHighlights();
+    showSelection();
+    return true;
+  }
+  // A long press selects the word under the finger; the handles stretch it.
+  (() => {
+    let press = null;
+    const fingers = new Set();
+    const cancel = () => { if (press) { clearTimeout(press.timer); press = null; } };
+    viewer.addEventListener("pointerdown", event => {
+      if (event.pointerType !== "touch") return;
+      fingers.add(event.pointerId);
+      cancel();
+      if (fingers.size > 1 || !rendition || isZoomed() || menu.open) return;
+      const { clientX: x, clientY: y } = event;
+      press = { id: event.pointerId, x, y, timer: setTimeout(() => {
+        press = null;
+        if (startSelection(x, y)) { selecting = true; dismissedAt = performance.now(); }
+      }, 450) };
+    });
+    viewer.addEventListener("pointermove", event => {
+      if (press && event.pointerId === press.id && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 8) cancel();
+    });
+    const up = event => {
+      fingers.delete(event.pointerId);
+      if (press && event.pointerId === press.id) cancel();
+      if (selecting) { selecting = false; dismissedAt = performance.now(); }
+    };
+    viewer.addEventListener("pointerup", up);
+    viewer.addEventListener("pointercancel", up);
+    viewer.addEventListener("contextmenu", event => { if (coarse()) event.preventDefault(); });
+  })();
+  handles.forEach((handle, which) => {
+    let dragging = false;
+    handle.addEventListener("pointerdown", event => { event.preventDefault(); dragging = true; try { handle.setPointerCapture(event.pointerId); } catch { /* gone */ } });
+    handle.addEventListener("pointermove", event => {
+      if (!dragging || !pending) return;
+      // The finger is under the text it points at: aim a little above it.
+      const at = rendition.offsetAt(pending.shadow, event.clientX, event.clientY - 30);
+      if (at === null) return;
+      const [start, end] = pending.offsets;
+      const next = which === 0 ? [Math.min(at, end - 1), end] : [start, Math.max(at, start + 1)];
+      if (next[0] === start && next[1] === end) return;
+      pending.offsets = next;
+      rendition.refreshHighlights();
+      showSelection();
+    });
+    const stop = () => { dragging = false; };
+    handle.addEventListener("pointerup", stop);
+    handle.addEventListener("pointercancel", stop);
+  });
   document.addEventListener("selectionchange", () => {
     clearTimeout(barTimer);
+    // Touch screens never use the native selection (see above).
+    if (coarse()) return;
     barTimer = setTimeout(() => {
       if (!rendition || menu.open || !editor.hidden) return;
-      const found = rendition.selection();
-      if (coarse()) {
-        if (!found) return;
-        // Keep the selection as our own mark: no native overlay, handles or menu.
-        pending = { ...found, id: "pending", pending: true }; picked = found;
-        document.getSelection()?.removeAllRanges();
-        rendition.refreshHighlights();
-        place(bar, found.rect, true);
-        return;
-      }
-      picked = found;
+      picked = rendition.selection();
       if (picked) place(bar, picked.rect, false); else bar.hidden = true;
-    }, coarse() ? 500 : 250);
+    }, 250);
   });
   document.addEventListener("pointerdown", event => {
-    if (pending && !bar.contains(event.target)) { dismissedAt = performance.now(); dismissedStamp = event.timeStamp; clearPending(); }
+    if (pending && !bar.contains(event.target) && !event.target.closest?.(".epub-handle")) { dismissedAt = performance.now(); dismissedStamp = event.timeStamp; clearPending(); }
   }, true);
-  // Pressing the bar must not drop the selection (mouse or finger).
+  // Pressing the bar must not drop a native selection (mouse).
   bar.addEventListener("mousedown", event => event.preventDefault());
-  bar.addEventListener("touchstart", event => event.preventDefault(), { passive: false });
   bar.addEventListener("click", async event => {
     const act = event.target.closest("button")?.dataset.act;
     if (!act || !picked) return;
@@ -534,6 +591,7 @@
     rendition.on("keydown", keydown);
     document.addEventListener("keydown", keydown);
     rendition.on("relocated", location => {
+      clearPending();
       current = location;
       // Persist synchronously: a refresh immediately after a turn keeps this CFI.
       try { localStorage.setItem(stateKey, JSON.stringify({ cfi: location.start.cfi, href: location.start.href, updated: Date.now() })); }
