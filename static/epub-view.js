@@ -5,6 +5,9 @@ window.createEpubView = function createEpubView(book, mount, row) {
   const fixedLayout = book.package.metadata.layout === "pre-paginated";
   // Paper effects stack extra copies and blended text shadows on every sheet;
   // a touch device (iPad Safari) runs out of memory with them.
+  // Highlights show through to the back only where "show-through" is on and there
+  // is a back to the sheet (never on a phone): same switch, same strength.
+  const bleedAllowed = !!row.showThrough;
   if (geometry.isTouch) {
     row = { ...row, showThrough: false, inkBleed: false, letterpress: false };
     root.classList.remove("show-through", "ink-bleed", "letterpress");
@@ -247,7 +250,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
   async function setBleed(page) {
     page.querySelector(":scope > .epub-bleed")?.remove();
     const section = +page.dataset.section, sheet = +page.dataset.sheet, total = +page.dataset.total;
-    if (!(section >= 0) || disposed) return;
+    if (!(section >= 0) || disposed || !bleedAllowed || root.dataset.layout === "phone") return;
     const target = adjacent({ index: section, sheet, total }, perSpread === 1 || page.classList.contains("page--right"));
     const marks = target ? highlightsOf(target.index).filter(h => !h.pending && h.marker !== false) : [];
     if (!marks.length) return;

@@ -124,7 +124,7 @@ html:not(.is-touch) .epub-face > .epub-ribbon { transform-origin: top center; an
 /* A highlight pressed through to the back: the marks of the page behind, mirrored and faint. */
 /* Over the page, like the show-through copy: the text area has a paper of its own. */
 .epub-bleed { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
-.epub-bleed i { position: absolute; display: block; opacity: .5; filter: blur(.9px);
+.epub-bleed i { position: absolute; display: block; opacity: calc(.15 + .7 * var(--show-through, .5)); filter: blur(.9px);
   background: linear-gradient(90deg, rgb(150 200 80 / 70%), rgb(150 200 80 / 14%) 28%, rgb(150 200 80 / 10%) 72%, rgb(150 200 80 / 70%)); }
 
 /* Menu: bookmark rows carry a tiny ribbon; ribbons also mark the progress line. */
@@ -144,3 +144,6 @@ html:has(body.epub-page), body.epub-page { background: var(--paper); }
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 html.is-touch body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 html.is-touch textarea, html.is-touch input { -webkit-user-select: text; user-select: text; }
+
+/* No focus ring on the page itself (iOS drew a blue line along its bottom edge). */
+#epub-viewer, #epub-viewer:focus, #epub-viewer:focus-visible, .epub-shell, .epub-shell:focus { outline: none; -webkit-tap-highlight-color: transparent; }
