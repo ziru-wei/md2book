@@ -112,19 +112,15 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
 /* The bookmark: a silk ribbon hanging from the head of the sheet on its spine side. */
 .epub-ribbon { position: absolute; top: -3px; z-index: 3; width: 15px; height: 92px; cursor: pointer;
   background: linear-gradient(90deg, #7a2020, #9b2f2f 45%, #b44444 58%, #862525);
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 87%, 0 100%); filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 87%, 0 100%); }
 .epub-ribbon::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, transparent 1px 3px); }
 .epub-ribbon[data-side="left"] { left: 26px; }
 .epub-ribbon[data-side="right"] { right: 26px; }
-.page-back .epub-ribbon { animation: none; }
-html:not(.is-touch) .epub-face > .epub-ribbon { transform-origin: top center; animation: epub-sway 7s ease-in-out infinite; }
-@keyframes epub-sway { 50% { transform: rotate(1.2deg); } }
-@media (prefers-reduced-motion: reduce) { html .epub-face > .epub-ribbon { animation: none; } }
 
 /* A highlight pressed through to the back: the marks of the page behind, mirrored and faint. */
 /* Over the page, like the show-through copy: the text area has a paper of its own. */
 .epub-bleed { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
-.epub-bleed i { position: absolute; display: block; opacity: calc(.04 + .26 * var(--show-through, .5)); filter: blur(1.1px);
+.epub-bleed i { position: absolute; display: block; opacity: calc(.04 + .26 * var(--show-through, .5));
   background: linear-gradient(90deg, rgb(150 200 80 / 60%), rgb(150 200 80 / 12%) 28%, rgb(150 200 80 / 9%) 72%, rgb(150 200 80 / 60%)); }
 
 /* Menu: bookmark rows carry a tiny ribbon; ribbons also mark the progress line. */

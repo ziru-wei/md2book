@@ -33,7 +33,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
   const chapters = book.spine.spineItems.filter(section => section.linear);
   let chapterPages = new Map();
   const pageIndexes = new Map();
-  let layoutKey = "", viewportKey = "", highlightsOf = () => [];
+  let layoutKey = "", viewportKey = "", highlightsOf = () => [], lastActivity = 0;
   let indexTimer, indexEpoch = 0, indexing = false, paginationError = false;
   function pagination(point) {
     let offset = 0;
@@ -197,6 +197,12 @@ window.createEpubView = function createEpubView(book, mount, row) {
             while (total > 1 && !content.hasPage(view.contents, (total - 1) * manager.layout.delta, manager.layout.delta)) total--;
           }
 
+          // Counting pages for the whole-book total needs only the number: no
+          // frozen sheets, no positions (they are for reading this chapter).
+          if (transient) {
+            chapterPages.set(section.index,total); updatePageNumbers();
+            return {pages:[],locations:[],total,notes,anchors:new Map()};
+          }
           const pages = [], locations = [], anchors = new Map();
           for (const el of view.contents.document.querySelectorAll('[id]')) {
             const rect = el.getClientRects()[0];
@@ -257,9 +263,10 @@ window.createEpubView = function createEpubView(book, mount, row) {
     const target = adjacent({ index: section, sheet, total }, perSpread === 1 || page.classList.contains("page--right"));
     const marks = target ? highlightsOf(target.index).filter(h => !h.pending && h.marker !== false) : [];
     if (!marks.length) return;
-    const tsection = book.spine.get(target.index);
-    if (!tsection) return;
-    const tentry = await chapter(tsection);
+    // Only from a chapter already laid out: never start measuring one just for this.
+    const cached = chapterCache.get(`${layoutKey}:${target.index}`);
+    if (!cached) return;
+    const tentry = await cached;
     const tsheet = target.sheet < 0 ? tentry.total - 1 : Math.min(target.sheet, tentry.total - 1);
     const probe = { el: element("spread epub-preparing"), inner: element("spread-inner"), pages: [], renders: [] };
     probe.el.inert = true; probe.el.append(probe.inner); mount.append(probe.el);
@@ -279,6 +286,16 @@ window.createEpubView = function createEpubView(book, mount, row) {
       }
       if (layer.childElementCount && page.isConnected && !page.querySelector(":scope > .epub-bleed")) page.append(layer);
     } finally { destroySpread(probe); }
+  }
+  // The bleed-through is a finishing touch: made when the reader is idle and no page
+  // is turning, never in the way of showing the next sheet.
+  function laterBleed(page) {
+    const run = () => {
+      if (disposed || !page.isConnected) return;
+      if (engine.turn || gesture || foregroundBusy) { setTimeout(run, 600); return; }
+      setBleed(page).catch(() => {});
+    };
+    setTimeout(() => (window.requestIdleCallback ? requestIdleCallback(run, { timeout: 2500 }) : run()), 400);
   }
   async function paper(spread, target, side, measuring = false, effects = true) {
     if (!target) { const {number} = pageShell(spread,side,false); number.hidden = true; return null; }
@@ -330,7 +347,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
     content.placeNotes(page,[{document:host.shadowRoot}],entry.notes);
     pageRange.set(page, { start: entry.locations[sheet].start.cfi, end: entry.locations[sheet + 1]?.start.cfi, base: section.cfiBase });
     setRibbon(page);
-    await setBleed(page).catch(() => {});
+    laterBleed(page);
     if (effects && row.inkBleed) content.addBleed(page);
     return {point,location};
   }
@@ -388,7 +405,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
       entry.el.classList.toggle("is-near", entry !== spread && !!entry.ready);
       entry.el.inert = entry !== spread;
     }
-    current = spread;
+    current = spread; lastActivity = performance.now();
     // Inert/destroyed chapter frames can otherwise leave keyboard focus in a
     // detached document after a turn or a Contents jump.
     if (!document.querySelector("dialog[open]")) mount.focus({ preventScroll: true });
@@ -412,6 +429,8 @@ window.createEpubView = function createEpubView(book, mount, row) {
     indexing = true;
     const epoch = indexEpoch;
     indexTimer = setTimeout(() => {
+      // Counting the rest of the book waits for a pause in reading.
+      if (performance.now() - lastActivity < 2500 || gesture || engine.turn) { indexing = false; indexTimer = setTimeout(schedulePageIndex, 900); return; }
       enqueueBackground(async () => {
         if (epoch !== indexEpoch || gesture) return;
         const probe = { el: element("spread epub-preparing"), inner: element("spread-inner"), pages: [], renders: [] };
@@ -487,6 +506,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
     };
   }
   async function move(forward) {
+    lastActivity = performance.now();
     const pair = await prepareTurn(forward);
     if (!pair) return;
     if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -505,6 +525,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
   // `source` "touch": a finger drags the page by its corner at `clientY`.
   function dragTurn(delta, source = "wheel", clientY = null) {
     if (!delta || disposed || !current) return false;
+    lastActivity = performance.now();
     if (engine.turn?.anim) engine.endTurn(engine.turn.progress > .5 ? engine.turn.to : engine.turn.from);
     if (gesture?.started) return engine.dragTurn(delta, source, clientY);
     if (gesture) { gesture.delta += delta; gesture.y = clientY; return true; }
@@ -575,7 +596,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
         const owner = host.closest("[data-section]");
         if (owner) window.epubAnnotations.paint(host.shadowRoot, highlightsOf(+owner.dataset.section));
       }
-      for (const entry of spreads) for (const page of entry.pages) setBleed(page).catch(() => {});
+      for (const entry of spreads) for (const page of entry.pages) laterBleed(page);
     },
     // `cfis()`: the bookmarks' positions; `remove(cfis)`: a tap on a ribbon.
     setBookmarks(cfis, remove) { bookmarkCfis = cfis; onRibbon = remove; },
