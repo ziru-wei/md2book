@@ -47,6 +47,40 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
   // Load shared reader CSS once, outside the hidden chapter frames. Safari
   // can defer their link load events, blocking the navigation queue per sheet.
   const styles = new Map();
+  // Adobe's kit (the Chinese serif) sends only the glyphs it finds in the
+  // page's own DOM, and never looks inside the shadow roots the pages are
+  // shown in: the rest of a chapter would stay in the system sans for good.
+  // So each chapter's characters are also set, unseen, in the page itself,
+  // and the first chapter waits for the kit to deliver them.
+  const kitGlyphs = new Set();
+  let kitFeed = null, kitWaited = false;
+  async function feedKit(glyphs) {
+    if (!document.querySelector('script[src*="typekit.net"],link[href*="typekit.net"]')) return;
+    const fresh = [...glyphs].filter(char => char.trim() && !kitGlyphs.has(char));
+    if (!fresh.length) return;
+    fresh.forEach(char => kitGlyphs.add(char));
+    if (!kitFeed) {
+      kitFeed = document.createElement("div");
+      kitFeed.setAttribute("aria-hidden", "true");
+      kitFeed.style.cssText = "position:fixed;left:-9999px;top:0;width:1px;height:1px;overflow:hidden;pointer-events:none";
+      for (const family of ["--serif", "--title-serif"]) {
+        const span = document.createElement("span");
+        span.style.fontFamily = `var(${family})`;
+        kitFeed.append(span);
+      }
+      document.body.append(kitFeed);
+    }
+    for (const span of kitFeed.children) span.append(fresh.join(""));
+    if (kitWaited) return;
+    kitWaited = true;
+    const deadline = performance.now() + 8000;
+    let calm = performance.now();
+    while (performance.now() < deadline) {
+      if (document.documentElement.classList.contains("wf-loading") || document.fonts.status === "loading") calm = performance.now();
+      else if (performance.now() - calm > 700) return;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
   function absoluteURLs(text, base) {
     return text.replace(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)/gi, (match, double, single, bare) => {
       const url = (double ?? single ?? bare).trim();
@@ -138,6 +172,7 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
     void body.offsetHeight;
     const glyphs = [...new Set(body.textContent)].join("");
     const bodyStyle = doc.defaultView.getComputedStyle(body);
+    await feedKit(glyphs);
     // Programmatically loaded configured faces (including Adobe kits) share
     // the reader's FontFaceSet. CSS-connected faces come from the styles above.
     for (const face of document.fonts) {
