@@ -108,8 +108,9 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
   background: linear-gradient(90deg, #7a2020, #9b2f2f 45%, #b44444 58%, #862525);
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 87%, 0 100%); filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
 .epub-ribbon::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, transparent 1px 3px); }
-.epub-face.page--right > .epub-ribbon { left: 26px; }
-.epub-face.page--left > .epub-ribbon { right: 26px; }
+.epub-ribbon[data-side="left"] { left: 26px; }
+.epub-ribbon[data-side="right"] { right: 26px; }
+.page-back .epub-ribbon { animation: none; }
 html:not(.is-touch) .epub-face > .epub-ribbon { transform-origin: top center; animation: epub-sway 7s ease-in-out infinite; }
 @keyframes epub-sway { 50% { transform: rotate(1.2deg); } }
 @media (prefers-reduced-motion: reduce) { html .epub-face > .epub-ribbon { animation: none; } }

@@ -413,11 +413,12 @@
     const top = below ? Math.min(innerHeight - h - 8, rect.bottom + 8) : Math.max(8, rect.top - h - 8);
     el.style.left = left + "px"; el.style.top = top + "px";
   }
-  function closeEditor() { editing = null; editor.hidden = true; }
+  let anchor = null;
+  // Closing the note box also lets go of a tapped highlight (its handles).
+  function closeEditor() { editing = null; editor.hidden = true; if (pending?.edit) clearPending(); }
   const coarse = () => matchMedia("(pointer: coarse)").matches;
-  function openEditor(h, rect, focus = true) {
+  function openEditor(h, rect = anchor, focus = !coarse()) {
     editing = h; bar.hidden = true;
-    $("epub-note-quote").textContent = h.quote.trim();
     noteText.value = h.note || "";
     $("epub-note-clear").hidden = !h.note;
     place(editor, rect, true);
@@ -449,7 +450,10 @@
     // A new selection offers Highlight and Note; a tapped highlight, Note and Delete.
     bar.querySelector('[data-act="highlight"]').hidden = !!pending.edit;
     bar.querySelector('[data-act="delete"]').hidden = !pending.edit;
-    place(bar, { left: m.rect.left, width: m.rect.width, top: m.rect.top, bottom: m.endPoint.y + m.endPoint.h + 18 }, true);
+    anchor = { left: m.rect.left, width: m.rect.width, top: m.rect.top, bottom: m.endPoint.y + m.endPoint.h + 18 };
+    // A tapped highlight opens its note box straight away; a new selection, the small bar.
+    if (pending.edit) { bar.hidden = true; if (!editor.hidden) place(editor, anchor, true); }
+    else place(bar, anchor, true);
   }
   function startSelection(x, y) {
     const found = rendition?.pickWord(x, y);
@@ -468,6 +472,7 @@
     pending = { ...found, id: h.id, edit: true, base: h, note: h.note, quote: h.quote, prefix: h.prefix, suffix: h.suffix };
     rendition.refreshHighlights();
     showSelection();
+    if (pending) openEditor(h);
     return true;
   }
   // The stretched range of a tapped highlight is saved when the handle is let go.
@@ -544,7 +549,7 @@
     }, 250);
   });
   document.addEventListener("pointerdown", event => {
-    if (pending && !bar.contains(event.target) && !event.target.closest?.(".epub-handle")) { dismissedAt = performance.now(); dismissedStamp = event.timeStamp; clearPending(); }
+    if (pending && !pending.edit && !bar.contains(event.target) && !event.target.closest?.(".epub-handle")) { dismissedAt = performance.now(); dismissedStamp = event.timeStamp; clearPending(); }
   }, true);
   // Pressing the bar must not drop a native selection (mouse).
   bar.addEventListener("mousedown", event => event.preventDefault());
@@ -568,20 +573,27 @@
     const mark = event.composedPath().find(node => node.matches?.("span.epub-hl"));
     if (mark && mark.dataset.id !== "pending" && !document.getSelection()?.toString()) startEdit(mark);
   });
+  // The highlight as stored now (its range may have been stretched since the box opened).
+  const current_ = () => highlights.find(x => x.id === editing.id) || editing;
   editor.addEventListener("submit", event => {
     event.preventDefault();
-    if (editing) changeHighlight({ type: "highlight", highlight: { ...editing, note: noteText.value.trim() } });
+    if (editing) changeHighlight({ type: "highlight", highlight: { ...current_(), note: noteText.value.trim() } });
     closeEditor();
   });
   $("epub-note-clear").addEventListener("click", () => {
-    if (editing) changeHighlight({ type: "highlight", highlight: { ...editing, note: "" } });
+    if (editing) changeHighlight({ type: "highlight", highlight: { ...current_(), note: "" } });
     closeEditor();
   });
   $("epub-note-delete").addEventListener("click", () => {
     if (editing) changeHighlight({ type: "unhighlight", id: editing.id });
     closeEditor();
   });
-  document.addEventListener("pointerdown", event => { if (!editor.hidden && !editor.contains(event.target)) closeEditor(); }, true);
+  document.addEventListener("pointerdown", event => {
+    if (!editor.hidden && !editor.contains(event.target) && !event.target.closest?.(".epub-handle")) {
+      dismissedAt = performance.now(); dismissedStamp = event.timeStamp;
+      closeEditor();
+    }
+  }, true);
   document.addEventListener("keydown", event => { if (event.key === "Escape") closeEditor(); }, true);
 
   // Without a cloud library the notes live in this browser, which can be

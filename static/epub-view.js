@@ -228,13 +228,16 @@ window.createEpubView = function createEpubView(book, mount, row) {
   const compareCfi = (a, b) => { try { return new ePub.CFI().compare(a, b); } catch { return 0; } };
   const ribbonHits = page => {
     const range = pageRange.get(page);
-    return range ? bookmarkCfis().filter(cfi => compareCfi(cfi, range.start) >= 0 && (!range.end || compareCfi(cfi, range.end) < 0)) : [];
+    // Within this page's chapter, from its first position up to the next page's.
+    return range ? bookmarkCfis().filter(cfi => cfi.startsWith(`epubcfi(${range.base}!`) &&
+      compareCfi(cfi, range.start) >= 0 && (!range.end || compareCfi(cfi, range.end) < 0)) : [];
   };
   function setRibbon(page) {
     const hits = ribbonHits(page), ribbon = page.querySelector(":scope > .epub-ribbon");
     if (hits.length && !ribbon) {
       const el = element("epub-ribbon");
       el.setAttribute("role", "button"); el.setAttribute("aria-label", "Remove bookmark");
+      el.dataset.side = page.classList.contains("page--right") ? "left" : "right";
       el.addEventListener("click", event => { event.stopPropagation(); onRibbon?.(ribbonHits(page)); });
       page.append(el);
     } else if (!hits.length && ribbon) ribbon.remove();
@@ -319,7 +322,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
     page.dataset.section = section.index; page.dataset.sheet = sheet; page.dataset.total = entry.total;
     await waitForPaper();
     content.placeNotes(page,[{document:host.shadowRoot}],entry.notes);
-    pageRange.set(page, { start: entry.locations[sheet].start.cfi, end: entry.locations[sheet + 1]?.start.cfi });
+    pageRange.set(page, { start: entry.locations[sheet].start.cfi, end: entry.locations[sheet + 1]?.start.cfi, base: section.cfiBase });
     setRibbon(page);
     await setBleed(page).catch(() => {});
     if (effects && row.inkBleed) content.addBleed(page);
