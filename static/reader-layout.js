@@ -91,7 +91,10 @@ window.createReaderLayout = function createReaderLayout(root, { tabletAspectRati
 
   function pagesPerSpread(wantsDouble = true, pageCount = 2) {
     if (pageCount <= 1) return 1;
-    if (fixedTablet && isTablet) return viewportWidth() > viewportHeight() ? 2 : 1;
+    // EPUB's fixed tablet paper: two sheets in a landscape window, one in a portrait
+    // one, on an iPad and on a computer alike (a computer may still force the other
+    // with "/": `wantsDouble` is then a boolean instead of null).
+    if (fixedTablet && (isTablet || wantsDouble === null)) return viewportWidth() > viewportHeight() ? 2 : 1;
     if (isTouch) return root.dataset.layout === "tablet" ? 2 : 1;
     if (tabletSingle()) return 1;
     return wantsDouble ? 2 : 1;

@@ -15,7 +15,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
   const content = window.createEpubContent(book, root, row, fixedLayout);
   root.classList.add("reader", "epub-fixed-paper");
   mount.tabIndex = 0;
-  let wantsTablet = Number(row.columns) === 1, wantsDouble = true;
+  let wantsTablet = Number(row.columns) === 1, wantsDouble = null;
   let perSpread, columns, width, height, scale, current, disposed = false;
   let serial = Promise.resolve(), background = Promise.resolve(), foregroundBusy = false, resizeTimer, engine, gesture, lastTheme = {};
   const listeners = new Map(), hooks = [], spreads = new Set(), turnWaiters = [];
@@ -556,7 +556,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
     display: target => enqueue(() => display(target)),
     next: () => enqueue(() => move(true)), prev: () => enqueue(() => move(false)),
     toggleColumns: () => enqueue(() => { if (geometry.isTouch || fixedLayout) return; wantsTablet = !wantsTablet; return relayout(); }),
-    toggleSpread: () => enqueue(() => { if (geometry.isTouch) return; wantsDouble = !wantsDouble; return relayout(); }),
+    toggleSpread: () => enqueue(() => { if (geometry.isTouch) return; wantsDouble = perSpread !== 2; return relayout(); }),
     dragTurn,
     releaseTurn: velocity => settleGesture("release", velocity),
     settleTurn: target => settleGesture(target),
