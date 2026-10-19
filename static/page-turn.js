@@ -333,15 +333,21 @@ window.createPageTurn = function createPageTurn(state) {
     }
     if (!beginTurn(dir)) return;
     const t = turn;
-    t.anim = requestAnimationFrame(t0 => {
+    // The first frame builds the fold and can be slow, and a slow frame must
+    // not eat the animation: the clock starts after it and counts at most
+    // 40ms per frame, so a busy device still shows the page turning.
+    t.anim = requestAnimationFrame(first => {
+      drawTurn(0);
+      let last = first, elapsed = 0;
       const run = now => {
         if (turn !== t) return;
-        const k = Math.min(1, (now - t0) / 380);
+        elapsed += Math.min(now - last, 40); last = now;
+        const k = Math.min(1, elapsed / 380);
         drawTurn(k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
         if (k < 1) t.anim = requestAnimationFrame(run);
         else endTurn(t.to);
       };
-      run(t0);
+      t.anim = requestAnimationFrame(run);
     });
   }
 
