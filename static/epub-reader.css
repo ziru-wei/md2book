@@ -84,12 +84,12 @@ html:not(.is-touch) .epub-face > :is(.page-area,.page-bleed,.page-back) { will-c
 .epub-note-actions button[aria-pressed="true"] { color: #fff; background: rgba(241, 243, 244, .12); }
 .epub-note-actions #epub-note-delete { color: #e08b7e; }
 .epub-note-actions button[type=submit] { color: #fff; }
-.epub-note-actions svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.epub-note-actions svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .epub-backup { display: flex; align-items: center; gap: 4px; margin-top: 1.2em; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .epub-backup span { flex: 1; }
 .epub-backup button { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; color: inherit; background: none; border: 0; border-radius: 2px; cursor: pointer; }
 .epub-backup button:hover { background: rgba(241, 243, 244, .08); color: rgba(241, 243, 244, .92); }
-.epub-backup svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.epub-backup svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .epub-backup[hidden] { display: none; }
 
 /* Dividers sit above the Bookmarks and Notes headings (the progress line is the
@@ -159,3 +159,11 @@ html { -webkit-text-size-adjust: none; text-size-adjust: none; }
 .epub-loupe[hidden] { display: none; }
 .epub-loupe i { display: inline-block; width: 2px; height: 1.15em; margin: 0 1px; vertical-align: -.2em; background: rgb(168 210 96); }
 .epub-loupe span { opacity: .6; }
+
+/* Menu: master switch for the paper effects (touch devices; off by default there). */
+.epub-effects { display: flex; align-items: center; justify-content: space-between; margin-top: 1.1em; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.epub-effects[hidden] { display: none; }
+.epub-effects input { appearance: none; -webkit-appearance: none; width: 30px; height: 17px; margin: 0; border-radius: 9px; background: rgba(241, 243, 244, .2); position: relative; cursor: pointer; transition: background .15s; }
+.epub-effects input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #eceeef; transition: transform .15s; }
+.epub-effects input:checked { background: rgb(150 200 80 / .85); }
+.epub-effects input:checked::after { transform: translateX(13px); }

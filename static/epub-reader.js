@@ -641,6 +641,18 @@
   }, true);
   document.addEventListener("keydown", event => { if (event.key === "Escape") closeEditor(); }, true);
 
+  // Paper effects (show-through, letterpress, ink bleed, highlight bleed-through) are
+  // heavy for a tablet or phone: off there until this switch turns them on.
+  const effectsRow = $("epub-effects-row");
+  if (coarse() && (row.showThrough || row.letterpress || row.inkBleed)) {
+    effectsRow.hidden = false;
+    const box = $("epub-effects");
+    try { box.checked = localStorage.getItem("md2book.epub.effects") === "1"; } catch { /* no storage */ }
+    box.addEventListener("change", () => {
+      try { localStorage.setItem("md2book.epub.effects", box.checked ? "1" : "0"); } catch { /* no storage */ }
+      location.reload();   // the reading position is saved on every turn
+    });
+  }
   // Without a cloud library the notes live in this browser, which can be
   // cleared: a file copy keeps them safe.
   if (!cloud) {

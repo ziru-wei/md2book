@@ -7,8 +7,11 @@ window.createEpubView = function createEpubView(book, mount, row) {
   // a touch device (iPad Safari) runs out of memory with them.
   // Highlights show through to the back only where "show-through" is on and there
   // is a back to the sheet (never on a phone): same switch, same strength.
-  const bleedAllowed = !!row.showThrough;
-  if (geometry.isTouch) {
+  // On a touch device they are off unless the menu's "Paper effects" switch is on.
+  let effectsPref = false;
+  try { effectsPref = localStorage.getItem("md2book.epub.effects") === "1"; } catch { /* no storage */ }
+  const bleedAllowed = !!row.showThrough && (!geometry.isTouch || effectsPref);
+  if (geometry.isTouch && !effectsPref) {
     row = { ...row, showThrough: false, inkBleed: false, letterpress: false };
     root.classList.remove("show-through", "ink-bleed", "letterpress");
   }
