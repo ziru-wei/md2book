@@ -609,7 +609,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
     },
     // Touch selection (our own): the page text under a finger, as offsets.
     hostAt(x, y) {
-      for (const host of mount.querySelectorAll(".spread.is-current .epub-page-content")) {
+      for (const host of mount.querySelectorAll(".spread.is-current .page > .page-area .epub-page-content, .spread.is-current .page > .epub-viewport .epub-page-content")) {
         const r = host.getBoundingClientRect();
         if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return host;
       }
@@ -640,7 +640,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
     // The visible page text the viewer has selected, if any.
     selection() {
       const notes = window.epubAnnotations, selection = document.getSelection();
-      for (const host of mount.querySelectorAll(".spread.is-current .epub-page-content")) {
+      for (const host of mount.querySelectorAll(".spread.is-current .page > .page-area .epub-page-content, .spread.is-current .page > .epub-viewport .epub-page-content")) {
         const shadow = host.shadowRoot;
         let range = null;
         try {
