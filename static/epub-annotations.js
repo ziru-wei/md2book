@@ -55,7 +55,9 @@
   const STYLE = "::selection{background:rgba(110,110,110,.38);color:inherit}" +
     `.epub-hl{display:inline;color:inherit;cursor:pointer;border-radius:.18em;background:linear-gradient(103deg,transparent 1%,rgb(${G} / 84%) 3%,rgb(${G} / 58%) 7%,rgb(${G} / 32%) 91%,rgb(${G} / 62%) 96%,transparent 99%),linear-gradient(181deg,transparent 0%,rgb(${G} / 30%) 8%,transparent 16%);text-shadow:-.35em .3em .45em rgb(${G} / 18%);-webkit-box-decoration-break:clone;box-decoration-break:clone}` +
     `.epub-hl:hover{background:linear-gradient(103deg,transparent 1%,rgb(${G} / 92%) 3%,rgb(${G} / 70%) 7%,rgb(${G} / 44%) 91%,rgb(${G} / 74%) 96%,transparent 99%),linear-gradient(181deg,transparent 0%,rgb(${G} / 38%) 8%,transparent 16%)}` +
-    ".epub-hl[data-note]{box-shadow:0 1px 0 rgba(110,150,60,.75)}\n";
+    ".epub-hl[data-note]{box-shadow:0 1px 0 rgba(110,150,60,.75)}" +
+    // A selection waiting for Highlight/Note on a touch screen: grey, like selected text.
+    ".epub-hl.is-pending,.epub-hl.is-pending:hover{background:rgba(110,110,110,.38);text-shadow:none}\n";
 
   function unpaint(shadow) {
     for (const mark of [...shadow.querySelectorAll("span.epub-hl")]) {
@@ -85,7 +87,7 @@
         const target = to < node.length ? (node.splitText(to), node) : node;
         const middle = from > 0 ? target.splitText(from) : target;
         const mark = body.ownerDocument.createElement("span");
-        mark.className = "epub-hl"; mark.dataset.id = h.id;
+        mark.className = h.pending ? "epub-hl is-pending" : "epub-hl"; mark.dataset.id = h.id;
         if (h.note) mark.dataset.note = "";
         middle.replaceWith(mark); mark.append(middle);
       }

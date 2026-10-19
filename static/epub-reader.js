@@ -10,6 +10,10 @@
   const bookmarkKey = stateKey + ":bookmarks";
   const highlightKey = stateKey + ":highlights";
   const bookmarkUrl = `/api/epub-bookmarks/${id}`;
+  // Touch screens: a finished selection becomes our own grey mark (`pending`) and
+  // the native one is dropped, with its blue overlay, handles and menu.
+  let pending = null, dismissedAt = -Infinity, dismissedStamp = -1;
+  const selectionActive = () => Boolean(pending || document.getSelection()?.toString() || rendition?.selection());
   let book, rendition, current, disposed = false, locationsReady = false;
   let bookmarks = [], highlights = [], bookmarksReady = false, bookmarkBusy = false, lastSync = 0;
   let navigationQueue = Promise.resolve(), queued = 0, lastTouch = -Infinity;
@@ -119,6 +123,8 @@
       width: vv.width, height: vv.height };
   }
   function tapAt(x, y, touch = false) {
+    // The tap that dismissed a selection only dismisses it.
+    if (performance.now() - dismissedAt < 700) return;
     const box = visibleBox();
     const fraction = (x - box.left) / box.width;
     // The menu opens from the upper half of the gutter only.
@@ -151,7 +157,7 @@
       if (event.pointerType !== "touch") return;
       fingers.add(event.pointerId);
       if (fingers.size > 1) { if (drag?.active) rendition?.settleTurn(0); drag = null; return; }
-      if (drag || isZoomed() || !rendition || document.getSelection()?.toString()) return;
+      if (drag || isZoomed() || !rendition || selectionActive() || event.timeStamp === dismissedStamp) return;
       drag = { id: event.pointerId, x: event.clientX, y: event.clientY, lastX: event.clientX, lastT: event.timeStamp, v: 0, active: false };
     });
     viewer.addEventListener("pointermove", event => {
@@ -183,7 +189,7 @@
     documentOrElement.addEventListener("wheel", wheel, { passive: false });
     let start = null;
     const doc = documentOrElement.ownerDocument || documentOrElement;
-    const hasSelection = () => Boolean(doc.getSelection()?.toString());
+    const hasSelection = () => doc === document ? selectionActive() : Boolean(doc.getSelection()?.toString());
     const interactive = target => target.closest?.("a, button, input, select, textarea, audio, video, [contenteditable], span.epub-hl");
     const toViewer = (x, y) => {
       if (doc === document) return [x, y];
@@ -364,7 +370,7 @@
 
   // Highlights and notes. Shown at once, saved in order behind the scenes;
   // a failed save reloads what is actually stored.
-  const highlightsOf = index => highlights.filter(h => h.section === index);
+  const highlightsOf = index => [...highlights.filter(h => h.section === index), ...(pending?.section === index ? [pending] : [])];
   let saving = Promise.resolve();
   function changeHighlight(operation) {
     if (!bookmarksReady) return;
@@ -403,20 +409,38 @@
   async function createHighlight(picked) {
     const info = await rendition.contextFor(picked).catch(() => picked);
     const h = { id: newId(), section: info.section, quote: info.quote.slice(0, 1000), prefix: info.prefix, suffix: info.suffix, note: "" };
+    pending = null;
     changeHighlight({ type: "highlight", highlight: h });
     document.getSelection()?.removeAllRanges();
     bar.hidden = true; picked = null;
     return h;
   }
+  function clearPending() {
+    if (!pending) return;
+    pending = null; picked = null; bar.hidden = true;
+    rendition?.refreshHighlights();
+  }
   document.addEventListener("selectionchange", () => {
     clearTimeout(barTimer);
     barTimer = setTimeout(() => {
       if (!rendition || menu.open || !editor.hidden) return;
-      picked = rendition.selection();
-      // On touch screens the system menu sits above a selection: go below.
-      if (picked) place(bar, picked.rect, coarse()); else bar.hidden = true;
-    }, 250);
+      const found = rendition.selection();
+      if (coarse()) {
+        if (!found) return;
+        // Keep the selection as our own mark: no native overlay, handles or menu.
+        pending = { ...found, id: "pending", pending: true }; picked = found;
+        document.getSelection()?.removeAllRanges();
+        rendition.refreshHighlights();
+        place(bar, found.rect, true);
+        return;
+      }
+      picked = found;
+      if (picked) place(bar, picked.rect, false); else bar.hidden = true;
+    }, coarse() ? 500 : 250);
   });
+  document.addEventListener("pointerdown", event => {
+    if (pending && !bar.contains(event.target)) { dismissedAt = performance.now(); dismissedStamp = event.timeStamp; clearPending(); }
+  }, true);
   // Pressing the bar must not drop the selection (mouse or finger).
   bar.addEventListener("mousedown", event => event.preventDefault());
   bar.addEventListener("touchstart", event => event.preventDefault(), { passive: false });

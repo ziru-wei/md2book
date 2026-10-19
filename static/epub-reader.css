@@ -92,3 +92,4 @@ html:not(.is-touch) .epub-face > :is(.page-area,.page-bleed,.page-back) { will-c
 #epub-menu > .epub-bookmark-heading { margin-top: 1.2em; padding: .9em 0 .6em; border-top: 1px solid var(--rule); border-bottom: 0; }
 #epub-menu .epub-sync-note { margin: .5em 0 0; font-size: 11px; line-height: 1.4; color: var(--muted); }
 #epub-menu .epub-sync-note[hidden] { display: none; }
+html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
