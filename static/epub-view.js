@@ -1,7 +1,7 @@
 // EPUB owns pagination; the shared reader owns sheets and paper folds.
 // Chapters are measured once; ordinary page DOM stays unchanged throughout a fold.
 window.createEpubView = function createEpubView(book, mount, row) {
-  const root = document.documentElement, geometry = window.createReaderLayout(root, { tabletAspectRatio: .76, fixedTablet: true });
+  const root = document.documentElement, geometry = window.createReaderLayout(root, { tabletAspectRatio: .72, fixedTablet: true });
   const fixedLayout = book.package.metadata.layout === "pre-paginated";
   // Paper effects stack extra copies and blended text shadows on every sheet;
   // a touch device (iPad Safari) runs out of memory with them.
