@@ -600,6 +600,14 @@ window.createEpubView = function createEpubView(book, mount, row) {
       const [start, end] = window.epubAnnotations.wordAt(window.epubAnnotations.index(body).text, hit.char);
       return { section: +page.dataset.section, shadow, offsets: [start, end] };
     },
+    // The page text either side of `offset`, for the loupe over a dragged handle.
+    around(shadow, offset, n = 8) {
+      const body = shadow.querySelector("body");
+      if (!body) return { before: "", after: "" };
+      const text = window.epubAnnotations.index(body).text.replace(/\s+/g, " ");
+      // (whitespace folding may shift offsets by a little: close enough for a glance)
+      return { before: text.slice(Math.max(0, offset - n), offset), after: text.slice(offset, offset + n) };
+    },
     offsetAt(shadow, x, y) { return window.epubAnnotations.pointToOffset(shadow, x, y)?.offset ?? null; },
     measure(sel) {
       const body = sel.shadow.querySelector("body");

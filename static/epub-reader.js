@@ -417,7 +417,14 @@
   }
   let anchor = null;
   // Closing the note box also lets go of a tapped highlight (its handles).
-  function closeEditor() { editing = null; editor.hidden = true; if (pending?.edit) clearPending(); }
+  // A note started on a fresh selection: kept here until it has text, then saved as a
+  // note with its underline only (no highlight).
+  let drafting = null;
+  function closeEditor() {
+    const wasDraft = drafting;
+    editing = null; drafting = null; editor.hidden = true;
+    if (pending && (pending.edit || wasDraft)) clearPending();
+  }
   const coarse = () => matchMedia("(pointer: coarse)").matches;
   function openEditor(h, rect = anchor, focus = !coarse()) {
     editing = h; bar.hidden = true;
@@ -452,7 +459,8 @@
     // A new selection offers Highlight and Note; a tapped highlight, Note and Delete.
     anchor = { left: m.rect.left, width: m.rect.width, top: m.rect.top, bottom: m.endPoint.y + m.endPoint.h + 18 };
     // A tapped highlight opens its note box straight away; a new selection, the small bar.
-    if (pending.edit) { bar.hidden = true; if (!editor.hidden) place(editor, anchor, true); }
+    if (drafting) Object.assign(drafting, { quote: m.quote.slice(0, 1000), prefix: m.prefix, suffix: m.suffix });
+    if (pending.edit || drafting) { bar.hidden = true; if (!editor.hidden) place(editor, anchor, true); }
     else place(bar, anchor, true);
   }
   function startSelection(x, y) {
@@ -513,6 +521,22 @@
     viewer.addEventListener("pointercancel", up);
     viewer.addEventListener("contextmenu", event => { if (coarse()) event.preventDefault(); });
   })();
+  // The finger hides the text it moves: a small bubble above it shows the characters
+  // either side of the edge being moved.
+  const loupe = document.createElement("div");
+  loupe.className = "epub-loupe"; loupe.hidden = true; loupe.setAttribute("aria-hidden", "true");
+  document.body.append(loupe);
+  function showLoupe(x, y, offset) {
+    if (offset === null || !pending) return;
+    const { before, after } = rendition.around(pending.shadow, offset);
+    loupe.replaceChildren();
+    const b = document.createElement("span"), a = document.createElement("span"), caret = document.createElement("i");
+    b.textContent = before; a.textContent = after;
+    loupe.append(b, caret, a);
+    loupe.style.left = Math.max(80, Math.min(innerWidth - 80, x)) + "px";
+    loupe.style.top = Math.max(60, y - 56) + "px";
+    loupe.hidden = false;
+  }
   handles.forEach((handle, which) => {
     let dragging = false;
     let grab = 0;
@@ -522,6 +546,7 @@
       const box = handle.getBoundingClientRect();
       grab = box.top + 14 + (box.height - 28) / 2 - event.clientY;
       try { handle.setPointerCapture(event.pointerId); } catch { /* gone */ }
+      if (pending) showLoupe(event.clientX, box.top, pending.offsets[which]);
     });
     handle.addEventListener("pointermove", event => {
       if (!dragging || !pending) return;
@@ -529,12 +554,13 @@
       if (at === null) return;
       const [start, end] = pending.offsets;
       const next = which === 0 ? [Math.min(at, end - 1), end] : [start, Math.max(at, start + 1)];
+      showLoupe(event.clientX, event.clientY, which === 0 ? next[0] : next[1]);
       if (next[0] === start && next[1] === end) return;
       pending.offsets = next;
       rendition.refreshHighlights();
       showSelection();
     });
-    const stop = () => { if (dragging) { dragging = false; commitEdit(); } };
+    const stop = () => { loupe.hidden = true; if (dragging) { dragging = false; commitEdit(); } };
     handle.addEventListener("pointerup", stop);
     handle.addEventListener("pointercancel", stop);
   });
@@ -549,7 +575,7 @@
     }, 250);
   });
   document.addEventListener("pointerdown", event => {
-    if (pending && !pending.edit && !bar.contains(event.target) && !event.target.closest?.(".epub-handle")) { dismissedAt = performance.now(); dismissedStamp = event.timeStamp; clearPending(); }
+    if (pending && !pending.edit && !bar.contains(event.target) && !editor.contains(event.target) && !event.target.closest?.(".epub-handle")) { dismissedAt = performance.now(); dismissedStamp = event.timeStamp; clearPending(); }
   }, true);
   // Pressing the bar must not drop a native selection (mouse).
   bar.addEventListener("mousedown", event => event.preventDefault());
@@ -559,8 +585,15 @@
     // Notes could not be loaded (cloud sign-in missing): the menu says why.
     if (!bookmarksReady) { bar.hidden = true; toggleMenu(); return; }
     const rect = picked.rect;
-    const h = await createHighlight(picked);
-    if (act === "note") openEditor(h, rect);
+    if (act === "note") {
+      // Note, not Highlight: only the underline will show, and only once there is a note.
+      const info = await rendition.contextFor(picked).catch(() => picked);
+      drafting = { id: newId(), section: info.section, quote: info.quote.slice(0, 1000), prefix: info.prefix, suffix: info.suffix, note: "", marker: false };
+      bar.hidden = true;
+      openEditor(drafting, rect);
+      return;
+    }
+    await createHighlight(picked);
   });
   viewer.addEventListener("click", event => {
     const mark = event.composedPath().find(node => node.matches?.("span.epub-hl"));
@@ -586,13 +619,18 @@
     event.preventDefault();
     if (editing) {
       const cur = current_(), note = noteText.value.trim();
-      // Without a note the erased highlight would vanish: it comes back.
-      changeHighlight({ type: "highlight", highlight: { ...cur, note, marker: note ? cur.marker : undefined } });
+      if (editing === drafting) {
+        // A new note-only mark: nothing to keep without text.
+        if (note) changeHighlight({ type: "highlight", highlight: { ...cur, note } });
+      } else {
+        // Without a note the erased highlight would vanish: it comes back.
+        changeHighlight({ type: "highlight", highlight: { ...cur, note, marker: note ? cur.marker : undefined } });
+      }
     }
     closeEditor();
   });
   $("epub-note-delete").addEventListener("click", () => {
-    if (editing) changeHighlight({ type: "unhighlight", id: editing.id });
+    if (editing && editing !== drafting) changeHighlight({ type: "unhighlight", id: editing.id });
     closeEditor();
   });
   document.addEventListener("pointerdown", event => {
