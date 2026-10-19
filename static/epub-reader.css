@@ -134,8 +134,10 @@ html:not(.is-touch) .epub-face > .epub-ribbon { transform-origin: top center; an
 #epub-ticks { position: absolute; left: 0; right: 0; top: -4px; height: 10px; pointer-events: none; }
 #epub-ticks i { position: absolute; top: 0; width: 5px; height: 11px; margin-left: -2.5px; background: #9b2f2f; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%); }
 
-/* Behind the sheets is the dark desk (book.css); only the browser's own bars are tinted
-   paper, by the theme-color meta in the page head. */
+/* Behind the sheets is the dark desk (book.css) on a tablet, with the browser's own bars
+   tinted paper by the theme-color meta. On a phone the sheet is the whole screen, so the
+   page itself is paper too, and the bar under it (new iOS reads the page edge) follows. */
+html[data-layout="phone"]:has(body.epub-page), html[data-layout="phone"] body.epub-page { background: var(--paper); }
 
 /* Nothing but the text itself should ever be selected: not page numbers, margin
    notes, ribbons or menus; on touch screens (where text is selected by our own
