@@ -63,7 +63,8 @@ window.createReaderLayout = function createReaderLayout(root, { tabletAspectRati
       let paperWidth = layout === "tablet" && !tabletSingle() ? w / 2 : w;
       let paperHeight = h;
       if (layout === "tablet" && tabletAspectRatio > 0) {
-        paperWidth = fixedTablet ? 800 : Math.min(paperWidth, h * tabletAspectRatio);
+        // Fixed paper (EPUB): 1000 units tall, as wide as the ratio says.
+        paperWidth = fixedTablet ? Math.round(1000 * tabletAspectRatio) : Math.min(paperWidth, h * tabletAspectRatio);
         paperHeight = paperWidth / tabletAspectRatio;
       }
       root.style.setProperty("--paper-width", Math.floor(paperWidth) + "px");

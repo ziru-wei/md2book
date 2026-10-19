@@ -696,8 +696,6 @@
       }
     }
     addItems(navigation.toc);
-    const metadata = await book.loaded.metadata;
-    if (metadata.title) { $("epub-title").textContent = metadata.title; document.title = metadata.title; }
     try { await rendition.display(saved?.cfi || undefined); }
     catch (error) {
       if (!saved?.cfi) throw error;
