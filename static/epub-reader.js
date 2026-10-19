@@ -521,22 +521,6 @@
     viewer.addEventListener("pointercancel", up);
     viewer.addEventListener("contextmenu", event => { if (coarse()) event.preventDefault(); });
   })();
-  // The finger hides the text it moves: a small bubble above it shows the characters
-  // either side of the edge being moved.
-  const loupe = document.createElement("div");
-  loupe.className = "epub-loupe"; loupe.hidden = true; loupe.setAttribute("aria-hidden", "true");
-  document.body.append(loupe);
-  function showLoupe(x, y, offset) {
-    if (offset === null || !pending) return;
-    const { before, after } = rendition.around(pending.shadow, offset);
-    loupe.replaceChildren();
-    const b = document.createElement("span"), a = document.createElement("span"), caret = document.createElement("i");
-    b.textContent = before; a.textContent = after;
-    loupe.append(b, caret, a);
-    loupe.style.left = Math.max(80, Math.min(innerWidth - 80, x)) + "px";
-    loupe.style.top = Math.max(60, y - 56) + "px";
-    loupe.hidden = false;
-  }
   handles.forEach((handle, which) => {
     let dragging = false;
     let grab = 0;
@@ -546,7 +530,6 @@
       const box = handle.getBoundingClientRect();
       grab = box.top + 14 + (box.height - 28) / 2 - event.clientY;
       try { handle.setPointerCapture(event.pointerId); } catch { /* gone */ }
-      if (pending) showLoupe(event.clientX, box.top, pending.offsets[which]);
     });
     handle.addEventListener("pointermove", event => {
       if (!dragging || !pending) return;
@@ -554,13 +537,12 @@
       if (at === null) return;
       const [start, end] = pending.offsets;
       const next = which === 0 ? [Math.min(at, end - 1), end] : [start, Math.max(at, start + 1)];
-      showLoupe(event.clientX, event.clientY, which === 0 ? next[0] : next[1]);
       if (next[0] === start && next[1] === end) return;
       pending.offsets = next;
       rendition.refreshHighlights();
       showSelection();
     });
-    const stop = () => { loupe.hidden = true; if (dragging) { dragging = false; commitEdit(); } };
+    const stop = () => { if (dragging) { dragging = false; commitEdit(); } };
     handle.addEventListener("pointerup", stop);
     handle.addEventListener("pointercancel", stop);
   });
