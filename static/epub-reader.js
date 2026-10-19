@@ -387,7 +387,9 @@
 
   // Highlights and notes. Shown at once, saved in order behind the scenes;
   // a failed save reloads what is actually stored.
-  const highlightsOf = index => [...highlights.filter(h => h.section === index && h.id !== pending?.id), ...(pending?.section === index ? [pending] : [])];
+  // While a highlight is being stretched, the painted copy follows its saved note and marker.
+  const livePending = () => { const saved = pending?.edit && highlights.find(x => x.id === pending.id); return saved ? { ...pending, note: saved.note, marker: saved.marker } : pending; };
+  const highlightsOf = index => [...highlights.filter(h => h.section === index && h.id !== pending?.id), ...(pending?.section === index ? [livePending()] : [])];
   let saving = Promise.resolve();
   function changeHighlight(operation) {
     if (!bookmarksReady) return;
@@ -420,7 +422,7 @@
   function openEditor(h, rect = anchor, focus = !coarse()) {
     editing = h; bar.hidden = true;
     noteText.value = h.note || "";
-    $("epub-note-clear").hidden = !h.note;
+    syncMarkerButton(h);
     place(editor, rect, true);
     if (focus) noteText.focus({ preventScroll: true });
   }
@@ -448,8 +450,6 @@
       handle.style.left = point.x + "px"; handle.style.top = point.y + "px"; handle.style.height = point.h + "px"; handle.hidden = false;
     }
     // A new selection offers Highlight and Note; a tapped highlight, Note and Delete.
-    bar.querySelector('[data-act="highlight"]').hidden = !!pending.edit;
-    bar.querySelector('[data-act="delete"]').hidden = !pending.edit;
     anchor = { left: m.rect.left, width: m.rect.width, top: m.rect.top, bottom: m.endPoint.y + m.endPoint.h + 18 };
     // A tapped highlight opens its note box straight away; a new selection, the small bar.
     if (pending.edit) { bar.hidden = true; if (!editor.hidden) place(editor, anchor, true); }
@@ -559,13 +559,6 @@
     // Notes could not be loaded (cloud sign-in missing): the menu says why.
     if (!bookmarksReady) { bar.hidden = true; toggleMenu(); return; }
     const rect = picked.rect;
-    if (pending?.edit) {
-      const base = pending.base;
-      clearPending();
-      if (act === "delete") changeHighlight({ type: "unhighlight", id: base.id });
-      else openEditor(highlights.find(x => x.id === base.id) || base, rect);
-      return;
-    }
     const h = await createHighlight(picked);
     if (act === "note") openEditor(h, rect);
   });
@@ -575,13 +568,27 @@
   });
   // The highlight as stored now (its range may have been stretched since the box opened).
   const current_ = () => highlights.find(x => x.id === editing.id) || editing;
+  // The eraser keeps the note and drops the green: only worth pressing with a note.
+  function syncMarkerButton(h = current_()) {
+    const button = $("epub-note-marker");
+    button.disabled = !noteText.value.trim();
+    button.setAttribute("aria-pressed", String(h.marker === false && !button.disabled));
+  }
+  noteText.addEventListener("input", () => { if (editing) syncMarkerButton(); });
+  $("epub-note-marker").addEventListener("click", () => {
+    if (!editing) return;
+    const cur = current_(), note = noteText.value.trim();
+    if (!note) return;
+    changeHighlight({ type: "highlight", highlight: { ...cur, note, marker: cur.marker === false ? undefined : false } });
+    syncMarkerButton({ ...cur, marker: cur.marker === false ? undefined : false });
+  });
   editor.addEventListener("submit", event => {
     event.preventDefault();
-    if (editing) changeHighlight({ type: "highlight", highlight: { ...current_(), note: noteText.value.trim() } });
-    closeEditor();
-  });
-  $("epub-note-clear").addEventListener("click", () => {
-    if (editing) changeHighlight({ type: "highlight", highlight: { ...current_(), note: "" } });
+    if (editing) {
+      const cur = current_(), note = noteText.value.trim();
+      // Without a note the erased highlight would vanish: it comes back.
+      changeHighlight({ type: "highlight", highlight: { ...cur, note, marker: note ? cur.marker : undefined } });
+    }
     closeEditor();
   });
   $("epub-note-delete").addEventListener("click", () => {

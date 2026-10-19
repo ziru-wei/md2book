@@ -249,7 +249,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
     const section = +page.dataset.section, sheet = +page.dataset.sheet, total = +page.dataset.total;
     if (!(section >= 0) || disposed) return;
     const target = adjacent({ index: section, sheet, total }, perSpread === 1 || page.classList.contains("page--right"));
-    const marks = target ? highlightsOf(target.index).filter(h => !h.pending) : [];
+    const marks = target ? highlightsOf(target.index).filter(h => !h.pending && h.marker !== false) : [];
     if (!marks.length) return;
     const tsection = book.spine.get(target.index);
     if (!tsection) return;

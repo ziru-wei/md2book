@@ -71,14 +71,20 @@ html:not(.is-touch) .epub-face > :is(.page-area,.page-bleed,.page-back) { will-c
 #epub-selection-bar { display: flex; padding: 2px; }
 .epub-popup button { font: inherit; color: inherit; background: none; border: 0; border-radius: 2px; padding: 6px 10px; cursor: pointer; }
 .epub-popup button:hover { background: rgba(241, 243, 244, .08); }
-#epub-note-editor { width: min(300px, 88vw); padding: 10px 12px; }
-#epub-note-quote { margin: 0 0 8px; padding-left: 8px; border-left: 2px solid rgb(178 214 121 / .8); color: rgba(241, 243, 244, .6);
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; }
-#epub-note-text { display: block; width: 100%; box-sizing: border-box; resize: vertical; font: inherit; line-height: 1.5; color: inherit;
-  background: rgba(241, 243, 244, .05); border: 1px solid rgba(241, 243, 244, .14); border-radius: 2px; padding: 6px 8px; outline: none; }
-#epub-note-editor div { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 2px; margin-top: 6px; }
-#epub-note-editor [hidden] { display: none; }
-#epub-note-editor button[type=submit] { color: #fff; }
+#epub-note-editor { width: min(264px, 88vw); padding: 0; overflow: hidden; }
+#epub-note-text { display: block; width: 100%; box-sizing: border-box; resize: none; font: inherit; font-size: 13px; line-height: 1.5; color: inherit;
+  background: none; border: 0; border-radius: 0; padding: 9px 12px 8px; margin: 0; outline: none; min-height: 3.2em; }
+#epub-note-text::placeholder { color: rgba(241, 243, 244, .38); }
+/* A line from edge to edge, then the icons. */
+.epub-note-actions { display: flex; align-items: stretch; border-top: 1px solid rgba(241, 243, 244, .14); }
+.epub-note-actions span { flex: 1; }
+.epub-note-actions button { width: 38px; height: 30px; padding: 0; display: grid; place-items: center; border-radius: 0; color: rgba(241, 243, 244, .72); }
+.epub-note-actions button:hover { color: #fff; }
+.epub-note-actions button:disabled { opacity: .3; cursor: default; background: none; }
+.epub-note-actions button[aria-pressed="true"] { color: #fff; background: rgba(241, 243, 244, .12); }
+.epub-note-actions #epub-note-delete { color: #e08b7e; }
+.epub-note-actions button[type=submit] { color: #fff; }
+.epub-note-actions svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .epub-backup { display: flex; align-items: center; gap: 4px; margin-top: 1.2em; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 .epub-backup span { flex: 1; }
 .epub-backup button { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; color: inherit; background: none; border: 0; border-radius: 2px; cursor: pointer; }
@@ -130,3 +136,11 @@ html:not(.is-touch) .epub-face > .epub-ribbon { transform-origin: top center; an
 
 /* The reader and the Safari bars around it are all paper. */
 html:has(body.epub-page), body.epub-page { background: var(--paper); }
+
+/* Nothing but the text itself should ever be selected: not page numbers, margin
+   notes, ribbons or menus; on touch screens (where text is selected by our own
+   long press) not even the page. */
+.epub-face .page-number, .epub-face .page-foot, .epub-face .page-comments, .epub-ribbon, .epub-bleed, .epub-popup, .epub-handle, #epub-menu .toc-title, #epub-menu .toc-tag-label {
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+html.is-touch body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+html.is-touch textarea, html.is-touch input { -webkit-user-select: text; user-select: text; }

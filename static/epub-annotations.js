@@ -59,7 +59,9 @@
     // A note: a plain, thick, straight underline in dark green.
     ".epub-hl[data-note]{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px;text-decoration-skip-ink:none;text-decoration-color:rgb(78 112 40)}" +
     // A selection waiting for Highlight/Note on a touch screen: grey, like selected text.
-    ".epub-hl.is-pending,.epub-hl.is-pending:hover{background:rgba(110,110,110,.38);text-shadow:none}\n";
+    ".epub-hl.is-pending,.epub-hl.is-pending:hover{background:rgba(110,110,110,.38);text-shadow:none}" +
+    // Highlight erased, note kept: only the note's underline remains.
+    ".epub-hl.bare,.epub-hl.bare:hover{background:none;text-shadow:none}\n";
 
   function unpaint(shadow) {
     for (const mark of [...shadow.querySelectorAll("span.epub-hl")]) {
@@ -90,7 +92,7 @@
         const target = to < node.length ? (node.splitText(to), node) : node;
         const middle = from > 0 ? target.splitText(from) : target;
         const mark = body.ownerDocument.createElement("span");
-        mark.className = h.pending ? "epub-hl is-pending" : "epub-hl"; mark.dataset.id = h.id;
+        mark.className = "epub-hl" + (h.pending ? " is-pending" : "") + (h.marker === false ? " bare" : ""); mark.dataset.id = h.id;
         if (h.note) mark.dataset.note = "";
         middle.replaceWith(mark); mark.append(middle);
       }
