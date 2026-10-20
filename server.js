@@ -10,7 +10,7 @@ import { createEntrySource } from "./lib/source.js";
 import { createImageProxy } from "./lib/image-proxy.js";
 import { loadConfig, layerSettings, readSettings, resolveConfig, writeSettings, DEFAULTS } from "./lib/config.js";
 import {
-  setup, clearCache, forgetNote, HOME_PATH, SEARCH_PATH, imageProxyMap, assetIds, resolveVaultLinks, listEntries,
+  setup, clearCache, forgetNote, HOME_PATH, SEARCH_PATH, imageProxyMap, imageProxyHooks, assetIds, resolveVaultLinks, listEntries,
   listEpubs, listLibrary, findBookCover, findPdf, renderPdfPage, renderEpubPage, renderHomePage, renderContentsPage, renderEntryPage, renderUnavailablePage, searchTextOf, scanVault
 } from "./lib/render.js";
 
@@ -252,12 +252,17 @@ function notifyReload() {
 // IMAGE_GITHUB_TOKEN, if the image repo needs auth), keeps a copy on disk, and
 // serves it under this app's own domain. A few downloads run at a time so the
 // first images on a page arrive first, rather than all of them last.
-app.get("/img/:id", createImageProxy({
+const imageProxy = createImageProxy({
   lookup: id => imageProxyMap.get(id),
   token: IMAGE_GITHUB_TOKEN,
   dir: process.env.IMAGE_CACHE_DIR,
   concurrency: Number(process.env.IMAGE_FETCH_CONCURRENCY) || 6
-}));
+});
+app.get("/img/:id", imageProxy);
+// On your own computer, images are fetched as soon as a page that has them is
+// built, so they are on disk by the time the page is opened. A deployed site
+// (Vercel) only fetches what is asked for.
+if (!process.env.VERCEL) imageProxyHooks.onNew = imageProxy.prefetch;
 
 // An attachment referenced by a published note (see resolveVaultLinks).
 // Ids are registered as pages are served; one this instance hasn't seen
