@@ -325,7 +325,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
     // Fonts are settled once in this document before the first visible page.
     const body = host.shadowRoot.querySelector('body');
     const css = readingDocument.defaultView.getComputedStyle(body);
-    await readingDocument.fonts.load(`${css.fontSize} ${css.fontFamily}`,body.textContent || "国A");
+    await readingDocument.fonts.load(`${css.fontSize} ${css.fontFamily}`,body.textContent || "国A").catch(() => {});
     await readingDocument.fonts.ready;
     await Promise.all([...host.shadowRoot.querySelectorAll('img')].map(img => img.decode?.().catch(() => {})));
     host.shadowRoot.addEventListener('click',event => {

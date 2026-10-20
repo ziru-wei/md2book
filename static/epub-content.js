@@ -4,12 +4,31 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
   // beside a curly quote, even between CJK characters, so its lines (and so its
   // page numbers) drift from theirs. An empty <wbr> restores the break; CFIs
   // skip it (SOFT_BREAK), so saved positions are the same in every browser.
-  const SOFT_BREAK = "epub-brk", firefox = /Firefox\//.test(navigator.userAgent);
+  const SOFT_BREAK = "epub-brk";
+  // Not only Firefox: Obsidian's Chromium 130 binds a curly quote to the next
+  // character the same way (a line that fits wrapped a character early and the
+  // book drifted a page). Ask the engine rather than read its name: set 国”国
+  // in a box too narrow for all of it; if it may break after the quote the
+  // quote stays on the first line, otherwise nothing can break and it is one line.
+  let oldQuoteRules = null;
+  function bindsQuotes() {
+    if (oldQuoteRules === null) {
+      if (/Firefox\//.test(navigator.userAgent)) oldQuoteRules = true;
+      else {
+        const box = document.createElement("div");
+        box.style.cssText = "position:absolute;visibility:hidden;left:0;top:0;width:1.8em;font:20px/30px var(--serif),serif;line-break:strict;overflow-wrap:normal";
+        box.textContent = "\u56fd\u201d\u56fd"; document.body.append(box);
+        oldQuoteRules = box.getBoundingClientRect().height < 45;
+        box.remove();
+      }
+    }
+    return oldQuoteRules;
+  }
   const CJK = "\\u3040-\\u30ff\\u3400-\\u9fff\\uf900-\\ufaff";
   const afterQuote = new RegExp(`(?<=[\u201d\u2019])(?=[${CJK}\u201c\u2018\u300a\u3008\u300c\u300e\uff08\u3010\u3014\uff3b\uff5b])`, "gu");
   const beforeQuote = new RegExp(`(?<=[${CJK}\uff0c\u3002\u3001\uff1b\uff1a\uff01\uff1f\uff09\u300b\u3009\u300d\u300f\u3011\u3015\uff3d\uff5d\u2026\u2014\u201d\u2019])(?=[\u201c\u2018])`, "gu");
   function softBreaks(doc, body) {
-    if (!firefox) return;
+    if (!bindsQuotes()) return;
     const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT), texts = [];
     for (let node; (node = walker.nextNode());) if (/[\u2018\u2019\u201c\u201d]/.test(node.data)) texts.push(node);
     for (const node of texts) {
@@ -201,7 +220,8 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
     for (const face of document.fonts) {
       try { doc.fonts.add(face); } catch { /* CSS-connected face. */ }
     }
-    await doc.fonts.load(`${bodyStyle.fontSize} ${bodyStyle.fontFamily}`, glyphs || "国A");
+    // A blocked or offline font (Adobe kit behind a tracker blocker) must fall back, not fail the chapter.
+    await doc.fonts.load(`${bodyStyle.fontSize} ${bodyStyle.fontFamily}`, glyphs || "国A").catch(() => {});
     await doc.fonts.ready;
     if (row.dropCap) {
       const opening = [...body.querySelectorAll("p")].find(p => {

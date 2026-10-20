@@ -240,9 +240,9 @@ app.get("/events", (req, res) => {
   req.on("close", () => clients.delete(res));
 });
 
-function notifyReload() {
+function notifyReload(what = "notes") {
   for (const res of clients) {
-    res.write("event: reload\ndata: changed\n\n");
+    res.write(`event: reload\ndata: ${what}\n\n`);
   }
 }
 
@@ -357,7 +357,9 @@ if (LIVE) {
     if (filePath && filePath.endsWith(".md")) {
       forgetNote(path.relative(entrySource.rootDir, filePath));
     }
-    notifyReload();
+    // The reader's own files vs. anything in the vault (Obsidian saves its
+    // workspace and notes all the time): an open EPUB only cares about the first.
+    notifyReload(filePath && path.resolve(filePath).startsWith(path.join(__dirname, "static") + path.sep) ? "static" : "notes");
   });
 }
 
