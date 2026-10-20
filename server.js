@@ -6,8 +6,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { exec } from "node:child_process";
-import { Readable } from "node:stream";
 import { createEntrySource } from "./lib/source.js";
+import { createImageProxy } from "./lib/image-proxy.js";
 import { loadConfig, layerSettings, readSettings, resolveConfig, writeSettings, DEFAULTS } from "./lib/config.js";
 import {
   setup, clearCache, forgetNote, HOME_PATH, SEARCH_PATH, imageProxyMap, assetIds, resolveVaultLinks, listEntries,
@@ -247,44 +247,17 @@ function notifyReload() {
 }
 
 // Proxies a private-repo image by opaque id — see "Private image
-// proxy" further down for how ids get registered. The real GitHub URL
-// never reaches the client: this fetches it server-side (with
-// IMAGE_GITHUB_TOKEN, if the image repo needs auth) and streams the
-// bytes back under this app's own domain instead — streamed as they
-// arrive, not buffered whole, so the browser learns an image's size
-// from its first bytes (the reader waits on exactly that, see
-// waitForImageSizes in static/reader.js).
-app.get("/img/:id", async (req, res) => {
-  const entry = imageProxyMap.get(req.params.id);
-  if (!entry) {
-    res.status(404).type("text").send("Not found");
-    return;
-  }
-
-  try {
-    const upstream = await fetch(entry.url, {
-      headers: IMAGE_GITHUB_TOKEN ? { Authorization: `token ${IMAGE_GITHUB_TOKEN}` } : {}
-    });
-    if (!upstream.ok) {
-      res.status(upstream.status).type("text").send("Upstream image fetch failed");
-      return;
-    }
-
-    res.set({
-      "Content-Type": upstream.headers.get("content-type") || "application/octet-stream",
-      // Immutable: the id is a hash of the real URL, so the same id
-      // always means the same bytes — safe to cache indefinitely.
-      "Cache-Control": "public, max-age=31536000, immutable"
-    });
-    const length = upstream.headers.get("content-length");
-    if (length) res.set("Content-Length", length);
-    Readable.fromWeb(upstream.body)
-      .on("error", () => res.destroy())
-      .pipe(res);
-  } catch (error) {
-    res.status(502).type("text").send(`Could not fetch image\n\n${error.stack || error}`);
-  }
-});
+// proxy" in lib/render.js for how ids get registered. The real GitHub URL
+// never reaches the client: lib/image-proxy.js fetches it server-side (with
+// IMAGE_GITHUB_TOKEN, if the image repo needs auth), keeps a copy on disk, and
+// serves it under this app's own domain. A few downloads run at a time so the
+// first images on a page arrive first, rather than all of them last.
+app.get("/img/:id", createImageProxy({
+  lookup: id => imageProxyMap.get(id),
+  token: IMAGE_GITHUB_TOKEN,
+  dir: process.env.IMAGE_CACHE_DIR,
+  concurrency: Number(process.env.IMAGE_FETCH_CONCURRENCY) || 6
+}));
 
 // An attachment referenced by a published note (see resolveVaultLinks).
 // Ids are registered as pages are served; one this instance hasn't seen
