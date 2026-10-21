@@ -159,6 +159,50 @@ html:lang(zh-CN) #home .sr .it .d { width: 96px; }
 .h-settings .x:hover { background: #232527; color: #fff; }
 .h-settings .x svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 
+/* ---- opening a book (see openBook in home.js) ---- */
+/* While the reader loads, the book hops on its shelf: a hardcover, it rises and
+   falls whole, with no squash, and lands with a small knock. */
+#home .ss-book.hop { z-index: 100; animation: h-hop .7s linear infinite; }
+#home .ss-book.hop .ss-3d { transform: rotateY(-55deg) rotateX(-8deg); }
+#home .ss-book.taken { visibility: hidden; }
+@keyframes h-hop {
+  0% { transform: translateY(0); animation-timing-function: cubic-bezier(.2, .6, .35, 1); }
+  42% { transform: translateY(-28px); animation-timing-function: cubic-bezier(.65, 0, .8, .4); }
+  78% { transform: translateY(0); animation-timing-function: ease-out; }
+  86% { transform: translateY(-3px); animation-timing-function: ease-in; }
+  92%, 100% { transform: translateY(0); }
+}
+/* The home page blurs behind the cover, then darkens to the reader's background. */
+.h-veil { position: fixed; inset: 0; z-index: 2147482000; background: rgba(236, 239, 241, .35); opacity: 0; transition: opacity .6s ease, backdrop-filter .6s ease, -webkit-backdrop-filter .6s ease, background-color .8s ease; }
+.h-veil.on { opacity: 1; backdrop-filter: blur(14px) saturate(.85); -webkit-backdrop-filter: blur(14px) saturate(.85); }
+.h-veil.dark { background-color: rgb(25, 26, 27); }
+/* The reader, loading unseen above the veil until its first spread is ready. */
+.h-reader { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 2147482100; opacity: 0; pointer-events: none; transition: opacity .35s ease; background: transparent; }
+.h-reader.on { opacity: 1; pointer-events: auto; }
+.h-cover { position: fixed; z-index: 2147482200; transform-origin: 0 0; pointer-events: none; }
+.h-cover .face { position: absolute; inset: 0; background: center / cover no-repeat; border-radius: 1px 3px 3px 1px; backface-visibility: hidden; box-shadow: 0 18px 40px rgba(0, 0, 0, .22), 0 2px 6px rgba(0, 0, 0, .18); }
+/* the spine's edge: a book, not a card */
+.h-cover .face::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 6%; background: linear-gradient(90deg, rgba(0, 0, 0, .18), rgba(255, 255, 255, .08) 55%, transparent); transition: opacity .6s; }
+.h-cover.breathing .face { animation: h-breathe 3.2s ease-in-out infinite; }
+@keyframes h-breathe {
+  0%, 100% { transform: scale(1); box-shadow: 0 18px 40px rgba(0, 0, 0, .22), 0 2px 6px rgba(0, 0, 0, .18); }
+  50% { transform: scale(1.035); box-shadow: 0 26px 56px rgba(0, 0, 0, .28), 0 3px 8px rgba(0, 0, 0, .16); }
+}
+.h-cover.landing .face { border-radius: 0; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); transition: box-shadow .9s ease, border-radius .9s ease; }
+.h-cover.landing .face::before { opacity: 0; }
+/* The toaster: which step the opening is on. */
+.h-toast { position: fixed; left: 50%; bottom: 28px; z-index: 2147482300; min-width: 300px; max-width: calc(100vw - 32px); transform: translate(-50%, 16px); opacity: 0; pointer-events: none; transition: opacity .3s ease, transform .3s ease; background: #232527; color: #eef0f1; border-radius: 10px; padding: 11px 14px 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .25); font: 12px/1.4 "iA Writer Quattro V", "Sarasa Mono HC", "Sarasa Fixed SC", ui-sans-serif, system-ui, sans-serif; }
+.h-toast.on { opacity: 1; transform: translate(-50%, 0); }
+.h-toast .t { display: flex; justify-content: space-between; gap: 18px; font-size: 10px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: #9aa0a4; }
+.h-toast .t span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h-toast .s { margin-top: 3px; display: flex; align-items: center; gap: 8px; }
+.h-toast .spin { width: 10px; height: 10px; flex: none; border: 1.5px solid #6b7175; border-top-color: #eef0f1; border-radius: 50%; animation: h-spin .8s linear infinite; }
+.h-toast.done .spin { animation: none; border-color: #9fd3a9; background: #9fd3a9; }
+@keyframes h-spin { to { transform: rotate(360deg); } }
+.h-toast .bar { display: flex; gap: 3px; margin-top: 9px; }
+.h-toast .bar i { flex: 1; height: 2px; background: #4a4e52; border-radius: 1px; transition: background .3s; }
+.h-toast .bar i.on { background: #eef0f1; }
+
 @media (max-width: 760px) {
   body.page-home { padding: 24px 16px 120px; }
   #home .sbox.open input { width: 150px; }

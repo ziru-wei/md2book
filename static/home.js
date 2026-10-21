@@ -35,6 +35,8 @@
     en: {
       library: "Input", writing: "Output", leaves: "Single notes", allNotes: "All notes", back: "Back", all: "All", unfiled: "unfiled",
       search: "Search notes and books", settings: "Settings", close: "Close", notes: "Notes", books: "Books",
+      opening: "Opening", opened: "Open",
+      steps: { epub: ["Opening the book", "Downloading the file", "Reading the contents", "Laying out the pages"], vol: ["Gathering the notes", "Loading fonts and images", "Laying out the pages"] },
       none: q => `Nothing matches “${q}”.`,
       empty: e => `No published notes yet${e.require ? `. Add ${e.require}: ... to a note's frontmatter to publish it` : ""} (source: ${e.source}).`,
       mon: m => MON[m], date: (m, d, y) => `${MON[m]} ${two(d)}${y ? ", " + y : ""}`, month: (m, y) => `${MON[m]} ${y}`
@@ -42,13 +44,15 @@
     zh: {
       library: "输入", writing: "输出", leaves: "单篇笔记", allNotes: "全部笔记", back: "返回", all: "全部", unfiled: "未归档",
       search: "搜索笔记和书", settings: "设置", close: "关闭", notes: "笔记", books: "书",
+      opening: "正在打开", opened: "已打开",
+      steps: { epub: ["打开书页", "下载文件", "读取目录", "排版"], vol: ["读取笔记", "加载字体和图片", "排版"] },
       none: q => `没有找到“${q}”。`,
       empty: e => `还没有已发布的笔记${e.require ? `。在笔记的 frontmatter 里加上 ${e.require}: ... 即可发布` : ""}（来源：${e.source}）。`,
       mon: m => ZH_MON[m], date: (m, d, y) => `${ZH_MON[m]} ${two(d)}${y ? ", " + y : ""}`, month: (m, y) => `${ZH_MON[m]} ${y}`
     }
   }[lang === "zh" ? "zh" : "en"];
   document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
-  const S = { folded: (() => { try { return localStorage.getItem("md2book-home-singles-folded") === "1"; } catch { return false; } })(), view: "home", tab: "library", open: null, filter: {}, q: "", sopen: false, allf: null, hits: null };
+  const S = { folded: (() => { try { return localStorage.getItem("md2book-home-singles-folded") === "1"; } catch { return false; } })(), view: "home", tab: "library", open: null, filter: {}, q: "", sopen: false, allf: null, hits: null, reading: null };
 
   const esc = s => String(s ?? "").replace(/[&<>"]/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[m]);
   const hash = s => { let h = 7; for (const c of String(s)) h = (h * 31 + c.codePointAt(0)) >>> 0; return h; };
@@ -123,7 +127,7 @@
   // (worked out once the cover has loaded, and remembered), else one by its title.
   let spineOf = {};
   try { spineOf = JSON.parse(localStorage.getItem("md2book-home-spines-2")) || {}; } catch { /* no storage */ }
-  const book = b => ({ kind: "book", id: "b:" + b.id, title: b.title, author: b.author, words: b.words, href: b.href, cover: b.cover, c: PAL[spineOf[b.id] ?? hash(b.title) % PAL.length] });
+  const book = b => ({ kind: "book", id: "b:" + b.id, title: b.title, author: b.author, words: b.words, href: b.href, cover: b.cover, fmt: b.fmt, c: PAL[spineOf[b.id] ?? hash(b.title) % PAL.length] });
   const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
   // Darker by a little: a cover drawn here, not the book's own, sits a touch below its spine.
   const shade = (h, k) => "#" + hex(h).map(v => Math.round(v * k).toString(16).padStart(2, "0")).join("");
@@ -198,6 +202,8 @@
   }
   const cssUrl = u => "url('" + u.replace(/['()]/g, c => "%" + c.charCodeAt(0).toString(16).toUpperCase()) + "')";
 
+  // Every book on the shelves, by id (for opening one).
+  const items = new Map();
   function bookEl(b) {
     const { w, h, room } = size(b), gap = gapOf(b), vol = b.kind === "vol";
     const [bg, fg] = vol ? [spineColor(b), FOIL] : b.c;
@@ -205,7 +211,8 @@
       ? `<span class="ss-title" style="max-height:${room}px">${esc(b.shownTitle)}</span>`
       : `<span class="ss-title" style="max-height:${room}px">${esc(b.shownTitle)}</span>${b.shownAuthor ? `<span class="ss-au" style="max-height:${room}px">${esc(b.shownAuthor)}</span>` : ""}${b.progress > 0 && b.progress < 1 ? '<i class="ss-rib"></i>' : ""}`;
     const cover = cssUrl(b.cover || coverArt(b));
-    return `<a class="ss-book ${S.open === b.id ? "open" : ""}" data-id="${esc(b.id)}" href="${esc(b.href)}" style="width:${w}px;height:${h}px;margin-right:${gap}px">
+    items.set(b.id, b);
+    return `<a class="ss-book ${S.open === b.id ? "open" : ""} ${S.reading === b.id ? "taken" : ""}" data-id="${esc(b.id)}" href="${esc(b.href)}" style="width:${w}px;height:${h}px;margin-right:${gap}px">
       <div class="ss-3d"><div class="ss-spine ${vol ? "out" : ""}" style="background-color:${bg};color:${fg}">${inner}</div><div class="ss-cover" style="background-image:${cover};border-color:${bg}"></div></div></a>`;
   }
 
@@ -415,7 +422,8 @@
   function closeSettings() { panel.classList.remove("on"); location.reload(); }
   document.addEventListener("keydown", e => {
     if (e.key === "Escape") {
-      if (panel && panel.classList.contains("on")) closeSettings();
+      if (opening && !opening.revealed) closeReader();
+      else if (panel && panel.classList.contains("on")) closeSettings();
       else if (e.target.id === "q") { S.q = ""; S.sopen = false; render(); }
     }
   });
@@ -442,7 +450,10 @@
     if (af) { S.allf = af.dataset.allf === "*" ? null : af.dataset.allf; render(); return; }
     // A volume opens its notes first; the second click opens the book itself.
     const bk = t.closest(".ss-book");
-    if (bk && bk.dataset.id.startsWith("v:") && S.open !== bk.dataset.id) { e.preventDefault(); S.open = bk.dataset.id; render(); }
+    if (bk && bk.dataset.id.startsWith("v:") && S.open !== bk.dataset.id) { e.preventDefault(); S.open = bk.dataset.id; render(); return; }
+    // An EPUB's click, and a volume's second, open the book here (see openBook).
+    const item = bk && items.get(bk.dataset.id);
+    if (item && openable(e, item)) { e.preventDefault(); openBook(item); }
   });
   document.addEventListener("click", e => {
     const t = e.target;
@@ -462,6 +473,199 @@
   window.addEventListener("scroll", spy, { passive: true });
   let resizeTimer;
   window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); });
+
+  // ---- opening a book ----
+  // The reader loads unseen in a frame over the page. Meanwhile the book hops
+  // on its shelf; once the reader has its file, the book's cover rises over
+  // the blurred page and breathes; when the first spread is ready the cover
+  // settles on it if that page is the cover, else fades as the reader shows. A
+  // toaster says which step it is on (static/reader-opening.js tells it).
+  // Each step a reader reports, as the number of the step now under way; the
+  // cover shows from step `cover` on.
+  const OPENING = {
+    epub: { at: { arrived: 1, download: 1, open: 2, layout: 3 }, cover: 2 },
+    vol: { at: { arrived: 1, prepare: 1, layout: 2 }, cover: 2 }
+  };
+  const COVER_RATIO = 170 / 240;
+  const homeTitle = document.title;
+  let opening = null;
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const px = r => ({ left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" });
+  // Moves (and sizes) `el` to rectangle `r`.
+  function moveTo(el, r, options) {
+    const from = px(el.getBoundingClientRect());
+    Object.assign(el.style, px(r));
+    return el.animate([from, px(r)], options).finished;
+  }
+  // The double click on the reader's background finds the way back from here.
+  if (/^https?:$/.test(location.protocol)) {
+    try { localStorage.setItem("md2book-home-path", location.pathname); } catch { /* storage unavailable */ }
+  }
+
+  function openable(e, b) {
+    if (opening || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
+    if (b.kind !== "vol" && b.fmt !== "epub") return false;
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return false;
+    // The browser version shows each page in a frame of its own, and follows links itself.
+    try { if (window.parent !== window && window.parent.md2book) return false; } catch { /* another site's frame */ }
+    return true;
+  }
+
+  async function openBook(b) {
+    const kind = b.kind === "vol" ? "vol" : "epub", plan = OPENING[kind];
+    const o = opening = { b, kind, step: 0, ready: null, wake: null, float: null, revealed: false, pushed: false };
+    // Waits until `test()` holds (forever, if the opening is called off).
+    const until = test => new Promise(resolve => {
+      const check = () => { if (opening === o) { if (test()) resolve(); else o.wake = check; } };
+      check();
+    });
+    window.md2bookHoldReload = true;
+    if (S.open) { S.open = null; render(); }
+    const el = root.querySelector(`.ss-book[data-id="${CSS.escape(b.id)}"]`);
+    el.classList.add("hop");
+    // The cover's shape, for when it rises.
+    o.src = b.cover || coverArt(b);
+    o.ratio = Promise.race([wait(1500).then(() => COVER_RATIO), new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => resolve(img.naturalWidth / img.naturalHeight || COVER_RATIO);
+      img.onerror = () => resolve(COVER_RATIO);
+      img.src = o.src;
+    })]);
+    o.veil = document.createElement("div");
+    o.veil.className = "h-veil";
+    o.frame = document.createElement("iframe");
+    Object.assign(o.frame, { className: "h-reader", name: "md2book-reader", title: b.title, src: b.href });
+    o.frame.addEventListener("load", () => frameLoaded(o));
+    o.toast = document.createElement("div");
+    o.toast.className = "h-toast";
+    o.toast.setAttribute("role", "status");
+    o.toast.innerHTML = `<div class="t"><span>${esc(TEXT.opening)} · ${esc(b.title)}</span><span class="n"></span></div><div class="s"><span class="spin"></span><span class="l"></span></div><div class="bar">${TEXT.steps[kind].map(() => "<i></i>").join("")}</div>`;
+    document.body.append(o.veil, o.frame, o.toast);
+    showStep(o);
+    requestAnimationFrame(() => o.toast.classList.add("on"));
+
+    // The cover rises on the reader's word (see reader-opening.js), never on a
+    // timer: the reader may hold the thread just after.
+    await until(() => o.step >= plan.cover || o.ready);
+    o.float = await lift(o, el);
+    await until(() => o.ready);
+    await land(o);
+  }
+
+  function showStep(o) {
+    // Ready, the last step is done; "Open" once the reader is on screen.
+    const steps = TEXT.steps[o.kind], done = o.revealed, step = o.ready ? steps.length - 1 : o.step;
+    o.toast.querySelector(".n").textContent = `${Math.min(step + 1, steps.length)} / ${steps.length}`;
+    o.toast.querySelector(".l").textContent = done ? TEXT.opened : steps[step] + "…";
+    o.toast.querySelectorAll(".bar i").forEach((bar, k) => bar.classList.toggle("on", Boolean(o.ready) || k < step));
+    o.toast.classList.toggle("done", done);
+  }
+
+  window.addEventListener("message", e => {
+    const o = opening, d = e.data;
+    if (!o || e.origin !== location.origin || e.source !== o.frame.contentWindow || !d || d.md2book !== "opening") return;
+    if (d.step === "close") { leaveReader(); return; }
+    if (d.step === "ready" || d.step === "failed") o.ready = o.ready || { rect: d.rect || null, cover: Boolean(d.cover) };
+    else o.step = Math.max(o.step, OPENING[o.kind].at[d.step] ?? 0);
+    showStep(o);
+    if (o.wake) o.wake();
+  });
+
+  function frameLoaded(o) {
+    if (opening !== o) return;
+    // A link followed inside the reader: the address and title follow it.
+    if (o.revealed) {
+      try {
+        const w = o.frame.contentWindow;
+        history.replaceState(history.state, "", w.location.pathname + w.location.search + w.location.hash);
+        document.title = w.document.title;
+      } catch { /* left this site */ }
+      return;
+    }
+    // A page with no reader in it says nothing: show it as it is.
+    setTimeout(() => {
+      if (opening !== o || o.step || o.ready) return;
+      o.ready = { rect: null, cover: false };
+      showStep(o);
+      if (o.wake) o.wake();
+    }, 300);
+  }
+
+  // From the book on its shelf to its cover, small, over the blurred page.
+  async function lift(o, el) {
+    const b = o.b, src = o.src, r = el.getBoundingClientRect();
+    const ratio = await o.ratio;
+    const float = document.createElement("div");
+    float.className = "h-cover";
+    float.innerHTML = `<div class="face" style="background-image:${cssUrl(src)}"></div>`;
+    const h = Math.min(innerHeight * .42, 340), w = h * ratio;
+    const to = { left: (innerWidth - w) / 2, top: (innerHeight - h) / 2 - 14, width: w, height: h };
+    Object.assign(float.style, px(to));
+    document.body.append(float);
+    el.classList.remove("hop");
+    el.classList.add("taken");
+    S.reading = b.id;
+    o.veil.classList.add("on");
+    // By transform alone, so it keeps moving while the reader holds the thread.
+    const from = `translate(${r.left - to.left}px, ${r.top - to.top}px) scale(${r.height * COVER_RATIO / w}, ${r.height / h})`;
+    float.classList.add("breathing");
+    await float.animate([{ transform: from, opacity: 0 }, { opacity: 1, offset: .25 }, { transform: "none", opacity: 1 }], { duration: 750, easing: "cubic-bezier(.2, .75, .25, 1)" }).finished;
+    return float;
+  }
+
+  // A book opening on its cover (an EPUB not read yet): the cover settles on
+  // the reader's page, which is that cover. Anything else (a book with a
+  // reading position, a collection) shows its page straight away, the cover
+  // fading as it does.
+  async function land(o) {
+    const { rect, cover } = o.ready, float = o.float;
+    o.veil.classList.add("on", "dark");
+    if (rect && cover) {
+      float.classList.remove("breathing");
+      float.classList.add("landing");
+      await moveTo(float, rect, { duration: 950, easing: "cubic-bezier(.45, 0, .2, 1)" });
+      if (opening !== o) return;
+      o.frame.classList.add("on");
+      await wait(350);
+    } else {
+      o.frame.classList.add("on");
+      await float.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 450, easing: "ease-out", fill: "forwards" }).finished;
+    }
+    if (opening !== o) return;
+    float.remove();
+    o.float = null;
+    o.revealed = true;
+    showStep(o);
+    setTimeout(() => o.toast.classList.remove("on"), 700);
+    history.pushState({ md2bookReader: true }, "", o.b.href);
+    o.pushed = true;
+    try { document.title = o.frame.contentDocument.title; } catch { /* left this site */ }
+    o.frame.contentWindow.focus();
+  }
+
+  // Back to the shelves: Back, a double click on the reader's background, or
+  // Escape while the book is still opening.
+  function leaveReader() { if (opening && opening.pushed) history.back(); else closeReader(); }
+  function closeReader() {
+    const o = opening;
+    if (!o) return;
+    opening = null;
+    S.reading = null;
+    window.md2bookHoldReload = false;
+    o.frame.classList.remove("on");
+    o.veil.classList.remove("on", "dark");
+    o.toast.classList.remove("on");
+    if (o.float) o.float.remove();
+    root.querySelectorAll(".ss-book.taken, .ss-book.hop").forEach(el => el.classList.remove("taken", "hop"));
+    document.title = homeTitle;
+    window.focus();
+    setTimeout(() => { o.frame.remove(); o.veil.remove(); o.toast.remove(); }, 650);
+  }
+  window.addEventListener("popstate", () => {
+    if (opening && opening.pushed) closeReader();
+    // Forward again, to a book closed here: open it as a page of its own.
+    else if (history.state && history.state.md2bookReader) location.reload();
+  });
 
   render();
   spy();

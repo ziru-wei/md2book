@@ -35,6 +35,11 @@ window.createEpubView = function createEpubView(book, mount, row) {
   const pageIndexes = new Map();
   let layoutKey = "", viewportKey = "", highlightsOf = () => [], lastActivity = 0;
   let indexTimer, indexEpoch = 0, indexing = false, paginationError = false;
+  // Whether the first page is the book's cover (only a picture): in a printed
+  // book the blank inside of the cover comes next, so every later page sits one
+  // place further on, and page 2 is on the right.
+  let hasCover = false;
+  const slot = folio => folio + (hasCover && folio > 1 ? 1 : 0);
   function pagination(point) {
     let offset = 0;
     for (const section of chapters) {
@@ -221,6 +226,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
             // Yield between fragments, never carry chapter measurement into a fold.
             await new Promise(resolve => setTimeout(resolve,0));
           }
+          if (section === chapters[0] && !fixedLayout) hasCover = Boolean(coverPicture(pages[0].shadowRoot));
           chapterPages.set(section.index,total); updatePageNumbers();
           return {pages,locations,total,notes,anchors};
         } finally { rendition?.destroy(); spread.el.remove(); }
@@ -260,6 +266,8 @@ window.createEpubView = function createEpubView(book, mount, row) {
     page.querySelector(":scope > .epub-bleed")?.remove();
     const section = +page.dataset.section, sheet = +page.dataset.sheet, total = +page.dataset.total;
     if (!(section >= 0) || disposed || !bleedAllowed || root.dataset.layout === "phone") return;
+    // The back of the cover is its blank inside.
+    if (hasCover && pagination({ index: section, sheet }).page === 1) return;
     const target = adjacent({ index: section, sheet, total }, perSpread === 1 || page.classList.contains("page--right"));
     const marks = target ? highlightsOf(target.index).filter(h => !h.pending && h.marker !== false) : [];
     if (!marks.length) return;
@@ -297,6 +305,13 @@ window.createEpubView = function createEpubView(book, mount, row) {
     };
     setTimeout(() => (window.requestIdleCallback ? requestIdleCallback(run, { timeout: 2500 }) : run()), 400);
   }
+  // The picture on a page that holds nothing else: its address, or null.
+  function coverPicture(shadow) {
+    const body = shadow.querySelector("body"), pictures = body ? body.querySelectorAll("img, image") : [];
+    if (pictures.length !== 1 || body.textContent.trim().length > 40) return null;
+    const p = pictures[0];
+    return p.localName === "img" ? p.currentSrc || p.src : p.getAttribute("href") || p.getAttributeNS("http://www.w3.org/1999/xlink", "href");
+  }
   async function paper(spread, target, side, measuring = false, effects = true) {
     if (!target) { const {number} = pageShell(spread,side,false); number.hidden = true; return null; }
     const section = book.spine.get(target.index ?? target);
@@ -328,6 +343,14 @@ window.createEpubView = function createEpubView(book, mount, row) {
     await readingDocument.fonts.load(`${css.fontSize} ${css.fontFamily}`,body.textContent || "国A").catch(() => {});
     await readingDocument.fonts.ready;
     await Promise.all([...host.shadowRoot.querySelectorAll('img')].map(img => img.decode?.().catch(() => {})));
+    // The book's first page, when it is only a picture (its cover): the picture
+    // fills the sheet edge to edge, as on a printed book.
+    const picture = !fixedLayout && folio === 1 && coverPicture(host.shadowRoot);
+    if (picture) {
+      const art = element("epub-cover-art");
+      art.style.backgroundImage = `url(${JSON.stringify(picture)})`;
+      page.classList.add("epub-cover"); page.append(art);
+    }
     host.shadowRoot.addEventListener('click',event => {
       const a = event.target.closest?.('a[href]');
       if (!a || a.hasAttribute('data-epub-noteref')) return;
@@ -351,24 +374,28 @@ window.createEpubView = function createEpubView(book, mount, row) {
     if (effects && row.inkBleed) content.addBleed(page);
     return {point,location};
   }
-  async function createSpread(target, backwards = false, align = false) {
+  // In a two-page spread odd places (see slot) are on the right, as in a printed
+  // book. A page there starts a spread only after a `lead`: "absent", nothing at
+  // all (facing the first page), or "blank", the inside of the cover.
+  async function createSpread(target, backwards = false, align = false, lead = null) {
     const spread = { el: element("spread epub-preparing"), inner: element("spread-inner" + (perSpread === 2 ? " is-double" : "")), pages: [], renders: [] };
     spread.el.inert = true;
     spread.el.append(spread.inner); mount.append(spread.el); spreads.add(spread);
     // Invisible sheets must still be laid out; their contents never flash onscreen.
     // Opacity hides the preparing spread without suspending iframe layout.
     try {
-      let first = await paper(spread, target, 0);
+      if (lead) { await paper(spread, null, 0); if (lead === "absent") spread.pages[0].classList.add("page--absent"); }
+      let first = await paper(spread, target, lead ? 1 : 0);
       const folio = pagination(first.point).page;
-      if (perSpread === 2 && (backwards || (align && folio !== null && folio % 2 === 0))) {
+      if (perSpread === 2 && !lead && (folio === null ? backwards : slot(folio) % 2 === 1)) {
         const previous = adjacent(first.point, false);
-        if (previous) {
-          destroySpread(spread);
-          return createSpread(previous);
-        }
+        destroySpread(spread);
+        if (!previous) return createSpread(first.point, false, false, "absent");
+        if (hasCover && folio === 2) return createSpread(first.point, false, false, "blank");
+        return createSpread(previous);
       }
       let last = first;
-      for (let i = 1; i < perSpread; i++) {
+      for (let i = lead ? 2 : 1; i < perSpread; i++) {
         const next = await paper(spread, adjacent(last.point, true), i);
         if (next) last = next;
       }
@@ -381,6 +408,7 @@ window.createEpubView = function createEpubView(book, mount, row) {
         for (const page of spread.pages) {
           if (page.dataset.section === undefined) continue;
           const point = { index: +page.dataset.section, sheet: +page.dataset.sheet, total: +page.dataset.total };
+          if (hasCover && pagination(point).page === 1) continue;
           const target = adjacent(point, perSpread === 1 || page.classList.contains("page--right"));
           if (!target) continue;
           const probe = { el: element("spread epub-preparing"), inner: element("spread-inner"), pages: [], renders: [] };

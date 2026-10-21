@@ -4,6 +4,14 @@
 .epub-face .page-area { overflow: hidden; clip-path: none; }
 .epub-viewport { position: absolute; top: 0; }
 .epub-face .page-area iframe { border: 0; }
+/* The first page of a two-page spread faces nothing: no sheet on the left,
+   only the reader's background (hiding the next spread's page under it). */
+.epub-face.page--absent { background: var(--entry-bg); border: 0; box-shadow: none; }
+.epub-face.page--absent > * { display: none; }
+.epub-face.page--absent::after { content: none; }
+/* The cover: its picture fills the sheet, as on a printed book (see epub-view.js). */
+.epub-cover > :is(.page-area, .page-number) { visibility: hidden; }
+.epub-cover-art { position: absolute; inset: 0; background: center / cover no-repeat; }
 /* Shown only when the book cannot be read; loading uses the shared #reader-loader. */
 #epub-status { position: fixed; z-index: 20; top: 1rem; left: 50%; transform: translateX(-50%); max-width: 90vw; background: var(--paper); padding: .8rem 1rem; }
 .epub-access-menu { position: fixed; top: 8px; left: 8px; z-index: 30; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; }

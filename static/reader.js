@@ -1235,8 +1235,10 @@
   async function cutPages(staging, stale) {
     const prep = newPage();
     staging.appendChild(prep);
+    await window.md2bookOpening?.step("prepare");
     const running = await prepareFlow(prep.firstChild);
     if (stale()) return null;
+    await window.md2bookOpening?.step("layout");
 
     const next = paginate(prep.firstChild, running, staging);
     prep.remove();
@@ -1447,7 +1449,10 @@
     buildSpreads();
     if (navigated) show(Math.floor(Math.round(progress * pages.length) / perSpread));
     else openingPosition();
-    requestAnimationFrame(() => root.classList.remove("reader-loading"));
+    requestAnimationFrame(() => {
+      root.classList.remove("reader-loading");
+      window.md2bookOpening?.ready();
+    });
   }
 
   // Regroups (keeping the same page in view) when the pages-per-spread

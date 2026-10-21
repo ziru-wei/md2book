@@ -63,6 +63,7 @@
     return legacy;
   }
   const fail = error => {
+    window.md2bookOpening?.failed();
     status.hidden = false;
     document.documentElement.classList.remove("reader-loading");
     status.textContent = `Could not read EPUB: ${error.message || error}`;
@@ -665,6 +666,7 @@
   try {
     // In ranges where the server honours them: a serverless response is capped.
     const CHUNK = 3 * 1024 * 1024;
+    await window.md2bookOpening?.step("download");
     const first = await fetch(url, { headers: { Range: `bytes=0-${CHUNK - 1}` } });
     if (!first.ok) throw new Error(`File request failed (${first.status})`);
     let bytes = await first.arrayBuffer();
@@ -681,6 +683,7 @@
       for (const part of parts) { whole.set(new Uint8Array(part), offset); offset += part.byteLength; }
       bytes = whole.buffer;
     }
+    await window.md2bookOpening?.step("open");
     book = ePub();
     await book.open(bytes, "binary");
     rendition = window.createEpubView(book, viewer, row);
@@ -728,6 +731,7 @@
       }
     }
     addItems(navigation.toc);
+    await window.md2bookOpening?.step("layout");
     try { await rendition.display(saved?.cfi || undefined); }
     catch (error) {
       if (!saved?.cfi) throw error;
@@ -735,6 +739,7 @@
       try { await rendition.display(saved.href); } catch { await rendition.display(); }
     }
     status.hidden = true;
+    window.md2bookOpening?.ready();
     idle(() => prepareLocations(bytes));
   } catch (error) { fail(error); }
   window.addEventListener("pagehide", event => {
