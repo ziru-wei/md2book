@@ -48,13 +48,20 @@ class ReaderView extends ItemView {
     this.contentEl.empty();
     this.contentEl.style.padding = "0";
     this.contentEl.style.overflow = "hidden";
+    // In the tab's own bar: reload the page shown (it reloads itself when
+    // asked: the frame is another site's), and back to the home page.
+    if (!this.actionsAdded) {
+      this.actionsAdded = true;
+      this.addAction("rotate-cw", "Reload", () => this.frame?.contentWindow?.postMessage({ md2book: "reload" }, "*"));
+      this.addAction("home", "Home page", () => { if (this.frame) this.frame.src = this.home; });
+    }
     const status = this.contentEl.createDiv({ text: "Starting MD to Book…" });
     status.style.padding = "1em";
     try {
       const port = await this.plugin.ensureServer();
       status.remove();
-      const frame = this.contentEl.createEl("iframe");
-      frame.src = `http://localhost:${port}/`;
+      const frame = this.frame = this.contentEl.createEl("iframe");
+      frame.src = this.home = `http://localhost:${port}/`;
       frame.style.cssText = "width:100%;height:100%;border:0;";
     } catch (error) {
       status.setText(String(error.message || error));

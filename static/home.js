@@ -448,7 +448,13 @@
     if (t.closest("[data-back]")) { e.preventDefault(); S.view = "home"; render(); return; }
     const af = t.closest("[data-allf]");
     if (af) { S.allf = af.dataset.allf === "*" ? null : af.dataset.allf; render(); return; }
-    // A volume opens its notes first; the second click opens the book itself.
+    // A volume opens its notes first; the second click, or the link at the
+    // top of its notes, opens the book itself.
+    if (t.closest(".dh")) {
+      const item = items.get(S.open);
+      if (item && openable(e, item)) { e.preventDefault(); openBook(item); }
+      return;
+    }
     const bk = t.closest(".ss-book");
     if (bk && bk.dataset.id.startsWith("v:") && S.open !== bk.dataset.id) { e.preventDefault(); S.open = bk.dataset.id; render(); return; }
     // An EPUB's click, and a volume's second, open the book here (see openBook).
@@ -661,6 +667,10 @@
     window.focus();
     setTimeout(() => { o.frame.remove(); o.veil.remove(); o.toast.remove(); }, 650);
   }
+  // The page holding this one (the Obsidian plugin) asks for a reload.
+  window.addEventListener("message", e => {
+    if (e.source === window.parent && window.parent !== window && e.data && e.data.md2book === "reload") location.reload();
+  });
   window.addEventListener("popstate", () => {
     if (opening && opening.pushed) closeReader();
     // Forward again, to a book closed here: open it as a page of its own.

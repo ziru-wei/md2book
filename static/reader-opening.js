@@ -52,6 +52,10 @@
     if (event.target.closest && event.target.closest(".page, dialog, a, button, input, textarea, select, label, .epub-popup, .epub-handle, [role='button']")) return;
     goHome();
   });
+  // The page holding this one (the Obsidian plugin) asks for a reload.
+  if (!framed) window.addEventListener("message", event => {
+    if (event.source === window.parent && window.parent !== window && event.data && event.data.md2book === "reload") location.reload();
+  });
   // And from the contents menu: "<-- Back" at its top left.
   for (const menu of document.querySelectorAll("dialog.toc-dialog")) {
     const back = document.createElement("button");
