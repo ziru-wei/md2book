@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyBookmarkOperation, createGitHubBookmarkStore, validateBookmarkOperation } from "../lib/epub-bookmarks.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { applyBookmarkOperation, createFileBookmarkStore, createGitHubBookmarkStore, validateBookmarkOperation } from "../lib/epub-bookmarks.js";
 const id = "a".repeat(64);
 const a = { type: "add", cfi: "epubcfi(/6/2!/4/2:0)", label: "First" };
 const b = { type: "add", cfi: "epubcfi(/6/4!/4/2:0)", label: "Second" };
@@ -50,4 +53,17 @@ test("a new cloud bookmark file is created without SHA; write failures propagate
   const unavailable = createGitHubBookmarkStore(config, async () => { throw Object.assign(new Error("Denied"), { status: 403 }); });
   await assert.rejects(unavailable.update(id, a), /Denied/);
   await assert.rejects(store.read("../bad"), /Invalid book id/);
+});
+
+test("a local vault keeps each book's notes in its own file, one write at a time", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "md2book-notes-"));
+  const store = createFileBookmarkStore(root);
+  assert.deepEqual(await store.read(id, "Book.json"), { bookmarks: [], highlights: [] });
+  await Promise.all([store.update(id, a, "Book.json"), store.update(id, b, "Book.json")]);
+  await store.update(id, { type: "highlight", highlight: { id: "h1", section: 2, quote: "words" } }, "Book.json");
+  const saved = JSON.parse(fs.readFileSync(path.join(root, "Book", "EPUB Notes", "Book.json"), "utf8"));
+  assert.deepEqual(saved.bookmarks.map(x => x.label), ["First", "Second"]);
+  assert.equal(saved.highlights[0].quote, "words");
+  assert.deepEqual(fs.readdirSync(path.join(root, "Book", "EPUB Notes")), ["Book.json"]);
+  assert.deepEqual(await store.read(id, "Book.json"), { bookmarks: saved.bookmarks, highlights: saved.highlights });
 });

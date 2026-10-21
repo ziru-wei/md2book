@@ -349,11 +349,31 @@
     return data;
   }
   const arrayOf = value => Array.isArray(value) ? value : [];
+  // Notes this browser kept before the book's notes were saved elsewhere (a
+  // local server before it used the vault's files): added to them, once.
+  async function moveLocalNotes() {
+    const movedKey = stateKey + ":moved";
+    try { if (localStorage.getItem(movedKey)) return; } catch { return; }
+    const local = await loadLocal();
+    const operations = [
+      ...arrayOf(local.bookmarks).filter(b => b?.cfi && !bookmarks.some(x => x.cfi === b.cfi)).map(b => ({ type: "add", cfi: b.cfi, label: String(b.label || "").slice(0, 300) })),
+      ...arrayOf(local.highlights).filter(h => h?.id && !highlights.some(x => x.id === h.id)).map(h => ({ type: "highlight", highlight: h }))
+    ];
+    let failed = false;
+    for (const operation of operations) {
+      try { const data = await cloudRequest(operation); bookmarks = arrayOf(data.bookmarks); highlights = arrayOf(data.highlights); }
+      catch { failed = true; }   // tried again next time
+    }
+    if (!failed) try { localStorage.setItem(movedKey, "1"); } catch { /* storage unavailable */ }
+  }
   async function loadBookmarks() {
     if (bookmarkBusy) return;
     bookmarkBusy = true;
     try {
-      if (cloud) { const data = await cloudRequest(); bookmarks = arrayOf(data.bookmarks); highlights = arrayOf(data.highlights); }
+      if (cloud) {
+        const data = await cloudRequest(); bookmarks = arrayOf(data.bookmarks); highlights = arrayOf(data.highlights);
+        await moveLocalNotes();
+      }
       else { const data = await loadLocal(); bookmarks = arrayOf(data.bookmarks); highlights = arrayOf(data.highlights); }
       bookmarksReady = true;
       lastSync = Date.now();

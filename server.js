@@ -46,6 +46,9 @@ const config = loadConfig();
 // (from /settings on any instance of the site, or pushed) applies on
 // the next page served.
 const REPO_SETTINGS = typeof entrySource.writeSettings === "function";
+// A local vault keeps EPUB bookmarks in its own files (Book/EPUB Notes), the
+// ones a deployed site saves to the repo.
+const LOCAL_BOOKMARKS = !REPO_SETTINGS && Boolean(entrySource.bookmarks);
 const deployedSettings = readSettings();
 let repoSettingsVersion;
 // What the site runs on: the deployed file's settings, or the repo's.
@@ -107,7 +110,7 @@ setup({
   live: LIVE,
   // Linked from the home page.
   settingsPath: SETTINGS_PATH,
-  epubCloud: Boolean(REPO_SETTINGS || process.env.VERCEL),
+  epubCloud: Boolean(REPO_SETTINGS || process.env.VERCEL || LOCAL_BOOKMARKS),
   imageToken: IMAGE_GITHUB_TOKEN,
   temmlVersion: createRequire(import.meta.url)("temml/package.json").version
 });
@@ -204,10 +207,16 @@ function hasBookmarkSession(req) {
   if (!/^\d+$/.test(expires || "") || Number(expires) < Date.now() || !/^[a-f0-9]{64}$/.test(signature || "")) return false;
   return crypto.timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(bookmarkSignature(expires), "hex"));
 }
+// A local vault's own files need no sign-in, from this computer.
+const isLoopback = req => ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress);
 function bookmarkGuard(req, res, next) {
   res.set("Cache-Control", "no-store");
-  if (SETTINGS_MODE !== "repo" || !entrySource.bookmarks) return res.status(503).json({ error: "Cloud bookmarks need GITHUB_OWNER, GITHUB_REPO, GITHUB_TOKEN (Contents: Read and write), and a private HOME_PATH." });
-  if (!hasBookmarkSession(req)) return res.status(403).json({ error: "Open your private library URL first to enable cloud bookmarks on this device." });
+  if (LOCAL_BOOKMARKS) {
+    if (!isLoopback(req)) return res.status(403).json({ error: "Bookmarks are saved from this computer only." });
+  } else {
+    if (SETTINGS_MODE !== "repo" || !entrySource.bookmarks) return res.status(503).json({ error: "Cloud bookmarks need GITHUB_OWNER, GITHUB_REPO, GITHUB_TOKEN (Contents: Read and write), and a private HOME_PATH." });
+    if (!hasBookmarkSession(req)) return res.status(403).json({ error: "Open your private library URL first to enable cloud bookmarks on this device." });
+  }
   if (!/^[a-f0-9]{64}$/.test(req.params.id)) return res.status(400).json({ error: "Invalid book id" });
   listEpubs().then(books => {
     const book = books.find(b => b.id === req.params.id);
@@ -218,11 +227,11 @@ function bookmarkGuard(req, res, next) {
 }
 app.get("/api/epub-bookmarks/:id", bookmarkGuard, async (req, res) => {
   try { res.json(await entrySource.bookmarks.read(req.params.id, req.notesName)); }
-  catch { res.status(502).json({ error: "Could not load cloud bookmarks. Check GitHub access and try again." }); }
+  catch { res.status(502).json({ error: LOCAL_BOOKMARKS ? "Could not read this book's notes file." : "Could not load cloud bookmarks. Check GitHub access and try again." }); }
 });
 app.post("/api/epub-bookmarks/:id", bookmarkGuard, express.json({ limit: "32kb" }), async (req, res) => {
   try { res.json(await entrySource.bookmarks.update(req.params.id, req.body, req.notesName)); }
-  catch { res.status(400).json({ error: "Bookmark was not saved. Check GitHub write access and retry." }); }
+  catch { res.status(400).json({ error: LOCAL_BOOKMARKS ? "Bookmark was not saved to this book's notes file." : "Bookmark was not saved. Check GitHub write access and retry." }); }
 });
 
 const clients = new Set();
