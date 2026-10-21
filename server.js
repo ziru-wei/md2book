@@ -1,4 +1,5 @@
-import { notesFileName } from "./lib/epub-bookmarks.js";
+import { DEFAULT_NOTES_DIR, notesFileName } from "./lib/epub-bookmarks.js";
+import { IGNORED_DIR_RE } from "./lib/vault-files.js";
 import express from "express";
 import chokidar from "chokidar";
 import { createRequire } from "node:module";
@@ -249,10 +250,20 @@ app.get("/events", (req, res) => {
   req.on("close", () => clients.delete(res));
 });
 
+// A burst of changes (a Git pull writes many files at once) is one reload,
+// sent once the files have been quiet for a moment (or after a few seconds
+// of steady change): every open page reloads on it.
+let pendingReload = null, reloadTimer = null, reloadDeadline = 0;
 function notifyReload(what = "notes") {
-  for (const res of clients) {
-    res.write(`event: reload\ndata: ${what}\n\n`);
-  }
+  // "static" (the reader's own files) reloads more pages than "notes" does.
+  if (pendingReload !== "static") pendingReload = what;
+  if (!reloadTimer) reloadDeadline = Date.now() + 3000;
+  clearTimeout(reloadTimer);
+  reloadTimer = setTimeout(() => {
+    const message = pendingReload;
+    pendingReload = reloadTimer = null;
+    for (const res of clients) res.write(`event: reload\ndata: ${message}\n\n`);
+  }, Math.max(0, Math.min(500, reloadDeadline - Date.now())));
 }
 
 // Proxies a private-repo image by opaque id — see "Private image
@@ -358,7 +369,17 @@ if (LIVE) {
     path.join(__dirname, "static")
   ];
 
+  // Not the vault's own data (.git, .obsidian: a Git pull or Obsidian saving
+  // its workspace changes nothing to show), nor the EPUB notes files (the
+  // reader saves those itself).
+  const notesDir = path.resolve(entrySource.rootDir, process.env.EPUB_NOTES_DIR || DEFAULT_NOTES_DIR);
+  const ignored = filePath => {
+    const rel = path.relative(entrySource.rootDir, filePath);
+    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return false;
+    return IGNORED_DIR_RE.test(rel.split(path.sep).join("/")) || filePath.startsWith(notesDir + path.sep);
+  };
   liveWatcher = chokidar.watch(watchTargets, {
+    ignored,
     ignoreInitial: true,
     usePolling: process.env.WATCH_POLLING === "1",
     interval: 1000
