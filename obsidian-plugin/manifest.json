@@ -1,0 +1,9 @@
+{
+  "id": "md2book",
+  "name": "MD to Book",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Read your vault as a paginated book, in a main tab. Starts the local md2book server for you.",
+  "author": "Ziru Wei",
+  "isDesktopOnly": true
+}
