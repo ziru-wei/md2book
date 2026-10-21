@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Open-book prototype — md2book</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Libertinus+Serif:ital,wght@0,400;0,600;1,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,300..700;1,8..60,300..700&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --ink: #232527; --muted: #72777b; --line: #232527; --bg: #eceff1; --panel: #f6f8f9;
+  --entry-bg: rgb(25, 26, 27); --paper: #f1f3f4;
+  --ui: "iA Writer Quattro V", "Sarasa Mono HC", "Sarasa Fixed SC", ui-sans-serif, system-ui, sans-serif;
+  --book: "Source Serif 4", "Huiwen Fangsong", "Songti SC", "STSong", "Noto Serif CJK SC", Georgia, serif;
+  --serif: "Libertinus Serif", "Songti SC", "STSong", Georgia, serif;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); }
+body { margin: 0; color: var(--ink); font-family: var(--ui); padding: 0 24px 130px; overflow-x: hidden; }
+button { font: inherit; color: inherit; cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+
+/* ---- prototype chrome ---- */
+.proto-bar { position: sticky; top: 0; z-index: 60; margin: 0 -24px 34px; padding: 9px 24px; background: #232527; color: #cfd3d6; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
+.proto-bar b { font-weight: 600; margin: 0 4px 0 0; letter-spacing: .06em; font-size: 11px; text-transform: uppercase; color: #9aa0a4; }
+.proto-bar button { background: none; border: 1px solid #4a4e52; border-radius: 999px; padding: 3px 12px; color: #cfd3d6; }
+.proto-bar button[aria-pressed=true] { background: #f1f3f4; color: #232527; border-color: #f1f3f4; }
+.proto-bar .gap { width: 14px; }
+.note { max-width: 920px; margin: 0 auto 30px; font-size: 12.5px; line-height: 1.6; color: var(--muted); }
+.note ol { margin: 6px 0 0; padding-left: 20px; }
+
+/* ---- the home page's shelves (copied from static/home.css) ---- */
+#home { max-width: 920px; margin: 0 auto; position: relative; }
+.zone { font: 500 11px var(--ui); letter-spacing: .14em; text-transform: uppercase; margin: 0 0 6px; }
+.shelf { position: relative; padding-top: 26px; padding-bottom: 46px; }
+.row { display: flex; align-items: flex-end; padding-left: 10px; }
+.board { height: 1px; background: var(--line); position: relative; }
+.ss-book { flex: none; position: relative; cursor: pointer; perspective: 800px; z-index: 1; display: block; transition: transform .2s ease; margin-right: 3px; }
+.ss-book:hover, .ss-book.open { z-index: 100; }
+.ss-book.open { transform: translateY(-18px); }
+.ss-3d { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform .3s ease; transform: rotateY(-25deg); transform-origin: center bottom; }
+.ss-book:hover .ss-3d, .ss-book.open .ss-3d { transform: rotateY(-55deg) rotateX(-8deg); }
+.ss-spine { position: absolute; inset: 0; border-radius: 2px; display: flex; justify-content: center; align-items: flex-start; gap: 4px; padding: 11px 2px 10px; backface-visibility: hidden; overflow: hidden; }
+.ss-title, .ss-au { writing-mode: vertical-rl; overflow-wrap: anywhere; }
+.ss-title { font: 600 11.5px/1.25 var(--book); letter-spacing: .02em; }
+.ss-au { font: 400 9.5px/1.25 var(--book); opacity: .68; letter-spacing: .03em; }
+.ss-spine.out { align-items: center; color: #e4d8b8; }
+.ss-spine.out::before, .ss-spine.out::after { content: ""; position: absolute; left: 3px; right: 3px; height: 3px; border-top: 1px solid #e4d8b8; border-bottom: 1px solid #e4d8b8; opacity: .45; }
+.ss-spine.out::before { top: 9px; } .ss-spine.out::after { bottom: 9px; }
+.ss-spine.out .ss-title { font-weight: 500; letter-spacing: .06em; }
+.ss-cover { position: absolute; top: 0; left: 100%; height: 100%; aspect-ratio: 170 / 240; background-size: cover; background-position: center; border: 1px solid; transform-origin: left center; transform: rotateY(90deg); backface-visibility: hidden; }
+.hint { position: absolute; left: 0; top: calc(100% + 8px); font: 500 10px var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+
+/* ---- 1. loading: the book hops on its shelf ---- */
+.ss-book.hop { z-index: 100; }
+.ss-book.hop .ss-3d { transform: rotateY(-55deg) rotateX(-8deg); }
+/* a hardcover: it rises and falls whole, with no squash, and lands with a small knock */
+.ss-book.hop { animation: hop .7s linear infinite; }
+@keyframes hop {
+  0%   { transform: translateY(0); animation-timing-function: cubic-bezier(.2,.6,.35,1); }
+  42%  { transform: translateY(-28px); animation-timing-function: cubic-bezier(.65,0,.8,.4); }
+  78%  { transform: translateY(0); animation-timing-function: ease-out; }
+  86%  { transform: translateY(-3px); animation-timing-function: ease-in; }
+  92%, 100% { transform: translateY(0); }
+}
+.ss-book.taken { visibility: hidden; }
+
+/* ---- 2. the cover over a blurred page, breathing ---- */
+#veil { position: fixed; inset: 0; z-index: 200; pointer-events: none; opacity: 0; background: rgba(236,239,241,.35); backdrop-filter: blur(0); -webkit-backdrop-filter: blur(0); transition: opacity .6s ease, backdrop-filter .6s ease, -webkit-backdrop-filter .6s ease, background-color .8s ease; }
+#veil.on { opacity: 1; pointer-events: auto; backdrop-filter: blur(14px) saturate(.85); -webkit-backdrop-filter: blur(14px) saturate(.85); }
+#veil.desk { background-color: var(--entry-bg); }
+.float-cover { position: fixed; z-index: 300; transform-origin: 0 0; will-change: transform; }
+.float-cover .face { width: 100%; height: 100%; background-size: cover; background-position: center; border-radius: 1px 3px 3px 1px; box-shadow: 0 18px 40px rgba(0,0,0,.22), 0 2px 6px rgba(0,0,0,.18); }
+/* the spine's edge: a book, not a card */
+.float-cover .face::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 6%; background: linear-gradient(90deg, rgba(0,0,0,.18), rgba(255,255,255,.08) 55%, transparent); }
+.float-cover.breathing .face { animation: breathe 3.2s ease-in-out infinite; }
+@keyframes breathe {
+  0%, 100% { transform: scale(1); box-shadow: 0 18px 40px rgba(0,0,0,.22), 0 2px 6px rgba(0,0,0,.18); }
+  50%      { transform: scale(1.035); box-shadow: 0 26px 56px rgba(0,0,0,.28), 0 3px 8px rgba(0,0,0,.16); }
+}
+.float-cover.landing .face { box-shadow: 0 1px 3px rgba(0,0,0,.25); border-radius: 0; transition: box-shadow .9s ease, border-radius .9s ease; }
+.float-cover.landing .face::before { opacity: 0; transition: opacity .6s; }
+
+/* ---- 3. the open book: cover on the right, the left page blank ---- */
+#stage { position: fixed; inset: 0; z-index: 250; pointer-events: none; }
+#stage.on { pointer-events: auto; }
+.spread { position: absolute; perspective: 2400px; }
+.page { position: absolute; top: 0; background: var(--paper); box-shadow: 0 1px 3px rgba(0,0,0,.25); overflow: hidden; }
+.page.left { left: 0; transform-origin: right center; }
+.page.right { transform-origin: left center; }
+/* the gutter: a soft shadow along the fold */
+.page.left::after, .page.right::after { content: ""; position: absolute; top: 0; bottom: 0; width: 7%; pointer-events: none; }
+.page.left::after { right: 0; background: linear-gradient(270deg, rgba(0,0,0,.10), transparent); }
+.page.right::after { left: 0; background: linear-gradient(90deg, rgba(0,0,0,.10), transparent); }
+.cover-img { position: absolute; inset: 0; background-size: cover; background-position: center; }
+.fit-margin .cover-img { inset: 4.5% 6%; background-size: contain; background-repeat: no-repeat; filter: drop-shadow(0 1px 2px rgba(0,0,0,.2)); }
+.leaf { position: absolute; top: 0; transform-style: preserve-3d; transform-origin: left center; cursor: pointer; }
+.leaf > .page { left: 0; backface-visibility: hidden; }
+.leaf > .back { transform: rotateY(180deg); transform-origin: center; }
+.leaf > .back::after { left: auto; right: 0; background: linear-gradient(270deg, rgba(0,0,0,.10), transparent); }
+.text { position: absolute; inset: 7.6% 17.6% 14.5%; font: 400 calc(var(--u) * 10.5) / 1.45 var(--serif); text-align: justify; hyphens: auto; color: var(--ink); }
+.text h1 { font: 600 calc(var(--u) * 19) / 1.2 var(--book); margin: 22% 0 8%; text-align: left; }
+.text p { margin: 0; text-indent: 2em; }
+.text p:first-of-type { text-indent: 0; }
+.folio { position: absolute; bottom: 6%; left: 0; right: 0; text-align: center; font-family: var(--serif); color: var(--muted); }
+
+/* ---- the toaster: which step the opening is on ---- */
+#toast { position: fixed; left: 50%; bottom: 28px; z-index: 500; min-width: 300px; max-width: calc(100vw - 32px); transform: translate(-50%, 16px); opacity: 0; pointer-events: none; transition: opacity .3s ease, transform .3s ease; background: var(--ink); color: #eef0f1; border-radius: 10px; padding: 11px 14px 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25); font: 12px/1.4 var(--ui); }
+#toast.on { opacity: 1; transform: translate(-50%, 0); }
+#toast .t { font: 500 10px var(--ui); letter-spacing: .12em; text-transform: uppercase; color: #9aa0a4; display: flex; justify-content: space-between; gap: 18px; }
+#toast .t span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#toast .s { margin-top: 3px; display: flex; align-items: center; gap: 8px; }
+#toast .spin { width: 10px; height: 10px; border: 1.5px solid #6b7175; border-top-color: #eef0f1; border-radius: 50%; animation: spin .8s linear infinite; flex: none; }
+#toast.done .spin { animation: none; border-color: #9fd3a9; background: #9fd3a9; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#toast .bar { display: flex; gap: 3px; margin-top: 9px; }
+#toast .bar i { flex: 1; height: 2px; background: #4a4e52; border-radius: 1px; transition: background .3s; }
+#toast .bar i.on { background: #eef0f1; }
+#toast .bar i.mark { position: relative; }
+#toast .bar i.mark::after { content: ""; position: absolute; right: -2.5px; top: -3px; width: 1px; height: 8px; background: #9aa0a4; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ss-book.hop { animation-duration: 1.6s; }
+  .float-cover.breathing .face { animation: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="proto-bar">
+  <b>Prototype</b>
+  <span>网速</span>
+  <button data-speed="1" aria-pressed="true">正常</button>
+  <button data-speed="2.5" aria-pressed="false">慢</button>
+  <span class="gap"></span>
+  <span>封面</span>
+  <button data-fit="bleed" aria-pressed="true">铺满整页</button>
+  <button data-fit="margin" aria-pressed="false">留白边</button>
+  <span class="gap"></span>
+  <button id="replay">重放上一本</button>
+  <button id="jump">直接看封面页</button>
+</div>
+
+<div class="note">
+  EPUB：<b>点一下</b>就开始打开。合集：点一下抽出（现有行为），<b>再点一下</b>开始打开。流程：
+  <ol>
+    <li>书在书架上整本弹跳（硬壳，不变形），底部 toaster 显示步骤（竖线之前的步骤 = 拿到封面之前）。</li>
+    <li>拿到封面后：页面模糊，封面从书架位置浮到中间（不大），缓慢 breathing，toaster 继续走剩下的步骤。</li>
+    <li>加载完：封面移到右边、放大成右页，左边空着（没有纸），背景变成阅读器的深色。点封面或按 → 翻到正文（第 2–3 页），Esc 回书架。</li>
+  </ol>
+</div>
+
+<div id="home">
+  <section>
+    <h2 class="zone">Input</h2>
+    <div class="shelf"><div class="row" id="row-in"></div><div class="board"></div></div>
+  </section>
+  <section>
+    <h2 class="zone">Output</h2>
+    <div class="shelf"><div class="row" id="row-out"></div><div class="board"></div></div>
+  </section>
+</div>
+
+<div id="veil"></div>
+<div id="stage"></div>
+<div id="toast" role="status" aria-live="polite"><div class="t"><span id="tt"></span><span id="tn"></span></div><div class="s"><span class="spin"></span><span id="ts"></span></div><div class="bar" id="tb"></div></div>
+
+<script>
+// ---- made-up covers (no images of real books) ----
+const svg = s => "data:image/svg+xml;charset=utf-8," + encodeURIComponent(s);
+function novelCover(title, author, bg, sun, sea) {
+  return svg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 480">
+    <rect width="340" height="480" fill="${bg}"/>
+    <circle cx="232" cy="190" r="62" fill="${sun}"/>
+    <rect y="250" width="340" height="230" fill="${sea}"/>
+    ${[0,1,2,3,4,5].map(i => `<path d="M0 ${272 + i * 26} q42 -10 85 0 t85 0 t85 0 t85 0" fill="none" stroke="${bg}" stroke-opacity=".35" stroke-width="2"/>`).join("")}
+    <text x="30" y="70" font-family="Georgia, serif" font-size="30" fill="#f6f1e6">${title}</text>
+    <text x="30" y="100" font-family="Georgia, serif" font-size="15" fill="#f6f1e6" fill-opacity=".8">${author}</text>
+  </svg>`);
+}
+function typeCover(title, author, bg, fg) {
+  return svg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 480">
+    <rect width="340" height="480" fill="${bg}"/>
+    <rect x="22" y="22" width="296" height="436" fill="none" stroke="${fg}" stroke-opacity=".5"/>
+    <text x="170" y="210" text-anchor="middle" font-family="Georgia, serif" font-size="34" fill="${fg}">${title}</text>
+    <line x1="140" x2="200" y1="236" y2="236" stroke="${fg}" stroke-opacity=".6"/>
+    <text x="170" y="268" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="${fg}" fill-opacity=".8">${author}</text>
+  </svg>`);
+}
+function clothCover(title) {
+  return svg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 480">
+    <defs><pattern id="w" width="4" height="4" patternUnits="userSpaceOnUse"><path d="M0 0h4M0 2h4" stroke="#2a2b2e" stroke-width=".6"/></pattern></defs>
+    <rect width="340" height="480" fill="#1c1d1f"/><rect width="340" height="480" fill="url(#w)"/>
+    <rect x="34" y="40" width="272" height="400" fill="none" stroke="#e4d8b8" stroke-opacity=".55"/>
+    <rect x="40" y="46" width="260" height="388" fill="none" stroke="#e4d8b8" stroke-opacity=".3"/>
+    <text x="170" y="226" text-anchor="middle" font-family="Georgia, serif" font-size="40" letter-spacing="4" fill="#e4d8b8">${title}</text>
+    <text x="170" y="262" text-anchor="middle" font-family="Georgia, serif" font-size="12" letter-spacing="3" fill="#e4d8b8" fill-opacity=".7">ZIRU WEI · 2026</text>
+  </svg>`);
+}
+
+const BOOKS = [
+  { id: "e1", kind: "epub", shelf: "in", title: "The Quiet Harbour", author: "Mara Lind", w: 34, h: 184, c: "#2f4b5c", fg: "#eef2f3", cover: novelCover("The Quiet Harbour", "Mara Lind", "#2f4b5c", "#e8b86a", "#203845") },
+  { id: "e2", kind: "epub", shelf: "in", title: "Field Notes on Glass", author: "T. Okafor", w: 26, h: 166, c: "#b9a07a", fg: "#232527", cover: typeCover("Field Notes", "T. Okafor", "#b9a07a", "#232527") },
+  { id: "e3", kind: "epub", shelf: "in", title: "Small Engines", author: "Ines Varga", w: 40, h: 192, c: "#7d2e2e", fg: "#f4e8e0", cover: typeCover("Small Engines", "Ines Varga", "#7d2e2e", "#f4e8e0") },
+  { id: "e4", kind: "epub", shelf: "in", title: "Winter Light", author: "J. Halvorsen", w: 30, h: 176, c: "#5f6f52", fg: "#eef0e8", cover: novelCover("Winter Light", "J. Halvorsen", "#5f6f52", "#f1e6c8", "#4b5a40") },
+  { id: "v1", kind: "vol", shelf: "out", title: "PhD", w: 36, h: 188, c: "#1c1d1f", fg: "#e4d8b8", cover: clothCover("PhD") },
+  { id: "v2", kind: "vol", shelf: "out", title: "Journal", w: 44, h: 188, c: "#1c1d1f", fg: "#e4d8b8", cover: clothCover("Journal") },
+  { id: "v3", kind: "vol", shelf: "out", title: "Ideas", w: 28, h: 188, c: "#1c1d1f", fg: "#e4d8b8", cover: clothCover("Ideas") },
+];
+const byId = Object.fromEntries(BOOKS.map(b => [b.id, b]));
+
+// The steps each kind of book goes through; `cover` is how many must be
+// done before its cover can be shown (the line in the toaster's bar).
+const STEPS = {
+  epub: { cover: 2, list: [["下载 EPUB", 900], ["读取封面与目录", 650], ["加载字体", 1100], ["排版第一页", 1300], ["准备翻页", 500]] },
+  vol:  { cover: 2, list: [["读取笔记", 700], ["生成封面", 500], ["渲染 Markdown", 1200], ["加载图片", 1000], ["分页", 1100]] },
+};
+
+const $ = s => document.querySelector(s);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let speed = 1, fit = "bleed", selected = null, busy = false, last = null, reader = null;
+
+function bookEl(b) {
+  return `<a class="ss-book" href="#" data-id="${b.id}" style="width:${b.w}px;height:${b.h}px">
+    <div class="ss-3d"><div class="ss-spine ${b.kind === "vol" ? "out" : ""}" style="background-color:${b.c};color:${b.fg}"><span class="ss-title">${b.title}</span>${b.author ? `<span class="ss-au">${b.author}</span>` : ""}</div>
+    <div class="ss-cover" style="background-image:url('${b.cover}');border-color:${b.c}"></div></div></a>`;
+}
+$("#row-in").innerHTML = BOOKS.filter(b => b.shelf === "in").map(bookEl).join("");
+$("#row-out").innerHTML = BOOKS.filter(b => b.shelf === "out").map(bookEl).join("");
+
+function select(id) {
+  document.querySelectorAll(".ss-book").forEach(el => {
+    el.classList.toggle("open", el.dataset.id === id);
+    el.querySelector(".hint")?.remove();
+  });
+  selected = id;
+  if (id) document.querySelector(`.ss-book[data-id="${id}"]`).insertAdjacentHTML("beforeend", `<span class="hint">再点一下打开</span>`);
+}
+
+document.addEventListener("click", e => {
+  const el = e.target.closest(".ss-book");
+  if (el) { e.preventDefault(); if (busy) return; if (byId[el.dataset.id].kind === "vol" && selected !== el.dataset.id) select(el.dataset.id); else openBook(el); return; }
+  if (!busy && !reader && !e.target.closest(".proto-bar")) select(null);
+});
+
+// ---- toaster ----
+function toastShow(b, steps) {
+  $("#tt").textContent = `正在打开 · ${b.title}`;
+  $("#tb").innerHTML = steps.list.map((_, i) => `<i class="${i === steps.cover - 1 ? "mark" : ""}"></i>`).join("");
+  $("#toast").classList.remove("done");
+  $("#toast").classList.add("on");
+}
+function toastStep(i, steps) {
+  $("#tn").textContent = `${Math.min(i + 1, steps.list.length)} / ${steps.list.length}`;
+  $("#ts").textContent = i < steps.list.length ? steps.list[i][0] + "…" : "";
+  [...$("#tb").children].forEach((bar, k) => bar.classList.toggle("on", k < i));
+}
+function toastDone() {
+  [...$("#tb").children].forEach(bar => bar.classList.add("on"));
+  $("#ts").textContent = "已打开";
+  $("#toast").classList.add("done");
+  setTimeout(() => $("#toast").classList.remove("on"), 700);
+}
+
+// ---- geometry ----
+// The reader's page is 850 × 1100; two of them side by side, fitted to the window.
+function spreadRect() {
+  const two = innerWidth >= 760;
+  const maxH = innerHeight * 0.88, maxW = innerWidth * (two ? 0.9 : 0.86);
+  const pageH = Math.min(maxH, (maxW / (two ? 2 : 1)) * 1100 / 850), pageW = pageH * 850 / 1100;
+  const width = pageW * (two ? 2 : 1);
+  return { two, pageW, pageH, left: (innerWidth - width) / 2, top: (innerHeight - pageH) / 2 };
+}
+function coverRectOnPage(g) {
+  const x = g.left + (g.two ? g.pageW : 0), y = g.top;
+  if (fit === "bleed") return { left: x, top: y, width: g.pageW, height: g.pageH };
+  // contain inside the page's margins, as the .fit-margin rule draws it
+  const bw = g.pageW * 0.88, bh = g.pageH * 0.91, ar = 340 / 480;
+  const w = Math.min(bw, bh * ar), h = w / ar;
+  return { left: x + (g.pageW - w) / 2, top: y + (g.pageH - h) / 2, width: w, height: h };
+}
+function place(el, r) { Object.assign(el.style, { left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" }); }
+// FLIP: draw `el` at `to`, then animate from where `from` was.
+function flip(el, from, to, options) {
+  place(el, to);
+  const t = `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width}, ${from.height / to.height})`;
+  return el.animate([{ transform: t }, { transform: "none" }], { fill: "both", ...options }).finished;
+}
+
+// ---- the opening ----
+async function openBook(el) {
+  const b = byId[el.dataset.id], steps = STEPS[b.kind];
+  busy = true; last = b.id;
+  el.querySelector(".hint")?.remove();
+  el.classList.remove("open");
+  el.classList.add("hop");
+  toastShow(b, steps);
+
+  let float = null;
+  for (let i = 0; i < steps.list.length; i++) {
+    if (i === steps.cover) float = await liftCover(el, b);
+    toastStep(i, steps);
+    await sleep(steps.list[i][1] * speed);
+  }
+  toastStep(steps.list.length, steps);
+  await land(b, float);
+  toastDone();
+  busy = false;
+}
+
+// From the book on its shelf to a small cover in the middle of a blurred page.
+async function liftCover(el, b) {
+  const r = el.getBoundingClientRect();
+  el.classList.remove("hop");
+  const ar = 340 / 480;
+  const from = { left: r.left, top: r.top, width: r.height * ar, height: r.height };
+  const h = Math.min(innerHeight * 0.42, 340), w = h * ar;
+  const to = { left: (innerWidth - w) / 2, top: (innerHeight - h) / 2 - 14, width: w, height: h };
+  const float = document.createElement("div");
+  float.className = "float-cover";
+  float.innerHTML = `<div class="face" style="background-image:url('${b.cover}')"></div>`;
+  document.body.append(float);
+  el.classList.add("taken");
+  $("#veil").classList.add("on");
+  float.animate([{ opacity: 0 }, { opacity: 1, offset: .25 }, { opacity: 1 }], { duration: 750 });
+  await flip(float, from, to, { duration: 750, easing: "cubic-bezier(.2,.75,.25,1)" });
+  float.classList.add("breathing");
+  return float;
+}
+
+function buildSpread(b, g) {
+  const page = (cls, inner = "", x = 0) => `<div class="page ${cls}" style="left:${x}px;width:${g.pageW}px;height:${g.pageH}px">${inner}</div>`;
+  const u = g.pageH / 1100 * 1.6;
+  const text = (inner, n) => `<div class="text" style="--u:${u}px">${inner}</div><div class="folio" style="font-size:${g.pageH / 1100 * 14}px">${n}</div>`;
+  const p2 = text(`<h1>${b.kind === "vol" ? "Week 1" : "Chapter One"}</h1>
+    <p>The harbour was quiet in the way that only a working harbour can be at dawn: not silent, but holding its noise in reserve. Ropes creaked against bollards, a gull worked at something on the slipway, and somewhere behind the fish market an engine coughed twice and thought better of it.</p>
+    <p>She had come down before the light to watch the boats go out, though none of them did.</p>`, 2);
+  const p3 = text(`<p>The forecast had been wrong again, or right in a way nobody wanted, and the men stood in twos and threes by the harbour wall, smoking, saying little. Nobody looked at the sea for long; it was enough to know it was there, grey and unhurried, doing what it had always done.</p>
+    <p>It was the kind of morning that made a person want to write things down.</p>`, 3);
+  const stage = $("#stage");
+  stage.className = "on " + (fit === "margin" ? "fit-margin" : "");
+  stage.innerHTML = `<div class="spread" style="left:${g.left}px;top:${g.top}px;width:${g.pageW * (g.two ? 2 : 1)}px;height:${g.pageH}px">
+    ${page("right under", p3, g.two ? g.pageW : 0)}
+    <div class="leaf" style="left:${g.two ? g.pageW : 0}px;width:${g.pageW}px;height:${g.pageH}px">
+      ${page("right front", `<div class="cover-img" style="background-image:url('${b.cover}')"></div>`)}
+      ${page("left back", p2)}
+    </div></div>`;
+  return stage;
+}
+
+// The cover settles as the right-hand page, alone: the left is empty.
+async function land(b, float) {
+  const g = spreadRect();
+  const stage = buildSpread(b, g);
+  const spread = stage.querySelector(".spread"), leaf = stage.querySelector(".leaf");
+  spread.style.visibility = "hidden";
+  $("#veil").classList.add("desk");
+
+  const face = float.querySelector(".face");
+  const now = face.getBoundingClientRect();
+  float.classList.remove("breathing");
+  float.classList.add("landing");
+  const target = coverRectOnPage(g);
+  await flip(float, now, target, { duration: 950, easing: "cubic-bezier(.45,0,.2,1)" });
+
+  // The cover is now the right-hand page; nothing on the left.
+  spread.style.visibility = "";
+  float.remove();
+  reader = { b, leaf, turned: false };
+}
+
+// Only the first turn, enough to see the cover give way to the text.
+async function turn(forward) {
+  if (!reader || reader.busy || reader.turned === forward) return;
+  reader.busy = true;
+  const a = forward ? [0, -180] : [-180, 0];
+  await reader.leaf.animate([{ transform: `rotateY(${a[0]}deg)` }, { transform: `rotateY(${a[1]}deg)` }], { duration: 700, easing: "cubic-bezier(.35,.1,.25,1)", fill: "forwards" }).finished;
+  reader.turned = forward; reader.busy = false;
+}
+function closeReader() {
+  if (!reader || busy) return;
+  const stage = $("#stage");
+  stage.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300 }).finished.then(() => { stage.innerHTML = ""; stage.className = ""; });
+  $("#veil").classList.remove("on", "desk");
+  document.querySelectorAll(".ss-book.taken").forEach(el => el.classList.remove("taken"));
+  reader = null; select(null);
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") closeReader();
+  if (e.key === "ArrowRight") turn(true);
+  if (e.key === "ArrowLeft") turn(false);
+});
+$("#stage").addEventListener("click", e => {
+  if (!reader) return;
+  if (e.target.closest(".leaf")) turn(!reader.turned);
+  else if (!e.target.closest(".page")) closeReader();
+});
+
+// ---- prototype controls ----
+document.querySelectorAll("[data-speed]").forEach(btn => btn.addEventListener("click", () => {
+  speed = Number(btn.dataset.speed);
+  document.querySelectorAll("[data-speed]").forEach(x => x.setAttribute("aria-pressed", x === btn));
+}));
+document.querySelectorAll("[data-fit]").forEach(btn => btn.addEventListener("click", () => {
+  fit = btn.dataset.fit;
+  document.querySelectorAll("[data-fit]").forEach(x => x.setAttribute("aria-pressed", x === btn));
+  if (reader && !busy) $("#stage").classList.toggle("fit-margin", fit === "margin");
+}));
+$("#replay").addEventListener("click", async () => {
+  if (busy) return;
+  if (reader) { closeReader(); await sleep(350); }
+  const el = document.querySelector(`.ss-book[data-id="${last || "e1"}"]`);
+  select(el.dataset.id); await sleep(250); openBook(el);
+});
+$("#jump").addEventListener("click", async () => {
+  if (busy) return;
+  if (reader) { closeReader(); await sleep(350); }
+  const b = byId[last || "e1"];
+  document.querySelector(`.ss-book[data-id="${b.id}"]`).classList.add("taken");
+  $("#veil").classList.add("on", "desk");
+  const g = spreadRect(); buildSpread(b, g);
+  reader = { b, leaf: $("#stage .leaf"), turned: false };
+});
+</script>
+</body>
+</html>
