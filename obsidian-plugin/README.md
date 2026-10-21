@@ -1,6 +1,6 @@
 # MD to Book for Obsidian
 
-A button at the right end of the status bar (and the command "Open MD to Book") that opens the reader in a main tab. The plugin starts the local md2book server on this vault and stops it when the plugin unloads; while the server runs, a stop button next to it stops it (and closes the reader).
+A button at the right end of the status bar (and the command "Open MD to Book") that opens the reader in a main tab. The plugin starts the local md2book server on this vault and stops it when the plugin unloads; while the server runs, a stop button next to it stops it (and closes the reader). When md2book's server code changes (a pull, an edit), the plugin starts its server again the next time the reader is opened, reloaded or sent home, so it never serves the old code.
 
 Desktop only. Needs Node 20.12+ and `npm install` done once in the repository.
 

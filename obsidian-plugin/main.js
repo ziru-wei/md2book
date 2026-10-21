@@ -2,7 +2,7 @@
 // tab. It starts `bin/md2book.js` (from the repository this plugin lives in)
 // on the vault folder, and stops it when Obsidian closes the plugin — or when
 // the stop button next to it is clicked.
-const { Plugin, ItemView, PluginSettingTab, Setting, setIcon } = require("obsidian");
+const { Plugin, ItemView, PluginSettingTab, Setting, Notice, setIcon } = require("obsidian");
 const { spawn, execFile } = require("child_process");
 const fs = require("fs");
 const http = require("http");
@@ -30,6 +30,17 @@ const serverPid = port => new Promise(resolve => {
   });
 });
 
+// When md2book's server code last changed (a pull, an edit): a server started
+// before that runs the old code.
+function serverCodeTime(repo) {
+  const lib = path.join(repo, "lib");
+  let files = [];
+  try { files = fs.readdirSync(lib).filter(f => f.endsWith(".js")).map(f => path.join(lib, f)); } catch { /* no lib */ }
+  return Math.max(0, ...[path.join(repo, "server.js"), path.join(repo, "bin", "md2book.js"), ...files].map(f => {
+    try { return fs.statSync(f).mtimeMs; } catch { return 0; }
+  }));
+}
+
 // Obsidian started from the Dock has a bare PATH: ask a login shell for node.
 const findNode = () => new Promise(resolve => {
   if (process.platform === "win32") return resolve("node");
@@ -49,16 +60,28 @@ class ReaderView extends ItemView {
     this.contentEl.style.padding = "0";
     this.contentEl.style.overflow = "hidden";
     // In the tab's own bar: reload the page shown (it reloads itself when
-    // asked: the frame is another site's), and back to the home page.
+    // asked: the frame is another site's), and back to the home page. Both
+    // start the server again first if it stopped or its code changed (then
+    // the page shown is the home page: the old one can't be asked).
     if (!this.actionsAdded) {
       this.actionsAdded = true;
-      this.addAction("rotate-cw", "Reload", () => this.frame?.contentWindow?.postMessage({ md2book: "reload" }, "*"));
-      this.addAction("home", "Home page", () => { if (this.frame) this.frame.src = this.home; });
+      const act = run => async () => {
+        try {
+          const { port, started } = await this.plugin.ensureServer();
+          this.home = `http://localhost:${port}/`;
+          if (this.frame) run(started);
+        } catch (error) { new Notice(String(error.message || error)); }
+      };
+      this.addAction("rotate-cw", "Reload", act(started => {
+        if (started) this.frame.src = this.home;
+        else this.frame.contentWindow?.postMessage({ md2book: "reload" }, "*");
+      }));
+      this.addAction("home", "Home page", act(() => { this.frame.src = this.home; }));
     }
     const status = this.contentEl.createDiv({ text: "Starting MD to Book…" });
     status.style.padding = "1em";
     try {
-      const port = await this.plugin.ensureServer();
+      const { port } = await this.plugin.ensureServer();
       status.remove();
       const frame = this.frame = this.contentEl.createEl("iframe");
       frame.src = this.home = `http://localhost:${port}/`;
@@ -115,7 +138,16 @@ module.exports = class Md2BookPlugin extends Plugin {
 
   async openReader() {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE)[0];
-    if (existing) return this.app.workspace.revealLeaf(existing);
+    if (existing) {
+      this.app.workspace.revealLeaf(existing);
+      // A server whose code changed meanwhile starts again: show the new one.
+      const view = existing.view;
+      try {
+        const { port, started } = await this.ensureServer();
+        if (started && view.frame) view.frame.src = view.home = `http://localhost:${port}/`;
+      } catch (error) { new Notice(String(error.message || error)); }
+      return;
+    }
     const leaf = this.app.workspace.getLeaf("tab");
     await leaf.setViewState({ type: VIEW_TYPE, active: true });
     this.app.workspace.revealLeaf(leaf);
@@ -131,10 +163,15 @@ module.exports = class Md2BookPlugin extends Plugin {
     try { return path.dirname(fs.realpathSync(dir)); } catch { return ""; }
   }
 
+  // The server's port, and whether it was started just now.
   async ensureServer() {
-    const port = this.port();
-    if (this.child || await ping(port)) { this.stopItem.show(); return port; }
-    const repo = this.repoPath();
+    const port = this.port(), repo = this.repoPath();
+    // Ours, but started before the md2book code last changed: start it again.
+    if (this.child && repo && serverCodeTime(repo) > this.childCode) {
+      this.stopServer();
+      for (let i = 0; i < 20 && await ping(port); i++) await new Promise(r => setTimeout(r, 150));
+    }
+    if (this.child || await ping(port)) { this.stopItem.show(); return { port, started: false }; }
     const script = repo && path.join(repo, "bin", "md2book.js");
     if (!script || !fs.existsSync(script)) {
       throw new Error("MD to Book: set the md2book folder in the plugin's settings (or symlink this plugin from the repository).");
@@ -144,12 +181,13 @@ module.exports = class Md2BookPlugin extends Plugin {
     let log = "";
     const child = spawn(node, [script, notes, "--port", String(port), "--no-open"], { cwd: repo });
     this.child = child;
+    this.childCode = serverCodeTime(repo);
     child.stdout.on("data", d => { log += d; });
     child.stderr.on("data", d => { log += d; });
     child.on("exit", () => { if (this.child === child) { this.child = null; this.refreshStop(); } });
     child.on("error", e => { log += e.message; });
     for (let i = 0; i < 60; i++) {
-      if (await ping(port)) { this.stopItem.show(); return port; }
+      if (await ping(port)) { this.stopItem.show(); return { port, started: true }; }
       if (!this.child) throw new Error(`MD to Book did not start:\n${log.trim() || "(no output)"}`);
       await new Promise(r => setTimeout(r, 250));
     }
