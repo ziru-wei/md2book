@@ -10,3 +10,6 @@ md2book.settings.json
 # Browser reader build (scripts/build-web.mjs)
 dist/
 .env*
+
+# The Obsidian plugin's settings (per computer)
+obsidian-plugin/data.json
