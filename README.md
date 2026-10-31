@@ -16,6 +16,7 @@ Markdown has become a good medium for talking with agents. I made this tool to s
 | Have your own copy of that website | [Host the website yourself](#host-your-own-copy-of-the-website) | A GitHub or Vercel account |
 | Preview your notes while you write | [Run it on your computer](#run-it-on-your-computer) | Node.js 20.12 or later |
 | Share your notes with friends online | [Publish your notes](#publish-your-notes-online) | Node.js and a Vercel account |
+| Read them offline on an iPad or phone | [Add the published site to the home screen](#read-offline-on-an-ipad-or-phone) | A published site |
 
 > The website reads notes from the computer of whoever opens it. To let friends read *your* notes, publish them (the last row).
 
@@ -206,6 +207,16 @@ Make your changes on the settings page that opens, press `Ctrl+C`, then:
 ```bash
 vercel deploy --prod
 ```
+
+### Read offline on an iPad or phone
+
+A published site is also an app you can keep on an iPad or phone's home screen and read without a connection.
+
+1. Open your home page (its private address, if you set one) in Safari, tap **Share → Add to Home Screen**, and open md2book from the home screen. (The home-screen app keeps its own copy, apart from Safari's, so do the next step inside it.)
+2. Tap the download button at the top right (next to Settings), then **Download to this device**. Every page (the home page, each collection, each note, each EPUB's reader) and every EPUB are kept on the device, with the fonts and images they use. PDFs are read online only.
+3. From then on the app opens offline too. Each time the home page opens online (at most every 30 minutes), it updates the copy: pages are fetched afresh, an EPUB only when it has changed, and notes or books no longer published are removed. The button's dot is green when a copy is kept.
+
+EPUB bookmarks, highlights and notes made offline are kept on the device and sent, in order, to the book's file in your repository as soon as the site can be reached again (the reader's menu says how many are waiting). They are merged with changes made on other devices meanwhile. Search, settings and the Adobe Fonts kit's fonts for text you haven't opened online need a connection; without them, the page uses the next font in line.
 
 ## Writing and reading
 ### Your notes

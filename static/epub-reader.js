@@ -346,7 +346,15 @@
     } : { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Cloud bookmarks are unavailable.");
+    // Saved on this device while offline (static/sw.js), not yet sent.
+    waiting = Number(response.headers.get("X-Md2book-Pending")) || 0;
+    showWaiting();
     return data;
+  }
+  let waiting = 0;
+  function showWaiting() {
+    syncNote.textContent = waiting ? `Offline: ${waiting} change${waiting === 1 ? "" : "s"} saved on this device, sent when you're back online.` : "";
+    syncNote.hidden = !waiting;
   }
   const arrayOf = value => Array.isArray(value) ? value : [];
   // Notes this browser kept before the book's notes were saved elsewhere (a
@@ -377,7 +385,7 @@
       else { const data = await loadLocal(); bookmarks = arrayOf(data.bookmarks); highlights = arrayOf(data.highlights); }
       bookmarksReady = true;
       lastSync = Date.now();
-      syncNote.hidden = true;
+      showWaiting();
     } catch (error) {
       // Retried the next time the menu opens; say why nothing is shown.
       syncNote.textContent = error.message || "Could not load notes."; syncNote.hidden = false;

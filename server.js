@@ -9,10 +9,12 @@ import { fileURLToPath } from "node:url";
 import { exec } from "node:child_process";
 import { createEntrySource } from "./lib/source.js";
 import { createImageProxy } from "./lib/image-proxy.js";
+import { buildHomeModel } from "./lib/home-model.js";
+import fs from "node:fs";
 import { loadConfig, layerSettings, readSettings, resolveConfig, writeSettings, DEFAULTS } from "./lib/config.js";
 import {
   setup, clearCache, forgetNote, HOME_PATH, SEARCH_PATH, imageProxyMap, imageProxyHooks, assetIds, resolveVaultLinks, listEntries,
-  listEpubs, listLibrary, findBookCover, findPdf, renderPdfPage, renderEpubPage, renderHomePage, renderContentsPage, renderEntryPage, renderUnavailablePage, searchTextOf, scanVault
+  listEpubs, epubsFromAssets, listLibrary, findBookCover, findPdf, renderPdfPage, renderEpubPage, renderHomePage, renderContentsPage, renderEntryPage, renderUnavailablePage, searchTextOf, scanVault
 } from "./lib/render.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -102,6 +104,16 @@ const SETTINGS_MODE = LIVE ? "local" : REPO_SETTINGS && config.site.homePath !==
 const SETTINGS_BASE = SETTINGS_MODE === "repo" ? config.site.homePath.replace(/\/$/, "") : "";
 const SETTINGS_PATH = SETTINGS_MODE && SETTINGS_BASE + "/settings";
 
+// A deployed site is also an app for a phone or tablet's home screen that
+// keeps everything for reading offline (static/offline.js, static/sw.js). Its
+// manifest and the list of what to keep live under the home page's own
+// address, like the settings: they name the private home path and every note.
+// (MD2BOOK_PWA=1 or 0 turns it on or off anywhere.)
+const PWA = process.env.MD2BOOK_PWA ? process.env.MD2BOOK_PWA === "1" : !LIVE;
+const HOME_BASE = config.site.homePath.replace(/\/$/, "");
+const MANIFEST_PATH = HOME_BASE + "/manifest.webmanifest";
+const OFFLINE_PATH = HOME_BASE + "/offline.json";
+
 // Notes become pages in lib/render.js (HOME_PATH and SEARCH_PATH come
 // from it, set from config.site.homePath).
 setup({
@@ -112,6 +124,7 @@ setup({
   // Linked from the home page.
   settingsPath: SETTINGS_PATH,
   epubCloud: Boolean(REPO_SETTINGS || process.env.VERCEL || LOCAL_BOOKMARKS),
+  pwa: PWA ? { manifest: MANIFEST_PATH, list: OFFLINE_PATH } : null,
   imageToken: IMAGE_GITHUB_TOKEN,
   temmlVersion: createRequire(import.meta.url)("temml/package.json").version
 });
@@ -233,6 +246,79 @@ app.get("/api/epub-bookmarks/:id", bookmarkGuard, async (req, res) => {
 app.post("/api/epub-bookmarks/:id", bookmarkGuard, express.json({ limit: "32kb" }), async (req, res) => {
   try { res.json(await entrySource.bookmarks.update(req.params.id, req.body, req.notesName)); }
   catch { res.status(400).json({ error: LOCAL_BOOKMARKS ? "Bookmark was not saved to this book's notes file." : "Bookmark was not saved. Check GitHub write access and retry." }); }
+});
+
+// --- Offline (the home-screen app) -----------------------------------------
+
+// The service worker, from the top of the site so that it looks after every page.
+app.get("/sw.js", (_req, res) => {
+  if (!PWA) return res.status(404).type("text").send("Not found");
+  res.set("Cache-Control", "no-cache").type("application/javascript").sendFile(path.join(__dirname, "static", "sw.js"));
+});
+
+app.get(MANIFEST_PATH, (_req, res) => {
+  if (!PWA) return res.status(404).type("text").send("Not found");
+  const icon = size => ({ src: `/static/icons/icon-${size}.png`, sizes: `${size}x${size}`, type: "image/png", purpose: "any" });
+  res.set("Cache-Control", "no-cache").type("application/manifest+json").send(JSON.stringify({
+    name: config.site.title,
+    short_name: config.site.title,
+    start_url: HOME_PATH,
+    scope: "/",
+    display: "standalone",
+    background_color: "#eceff1",
+    theme_color: "#eceff1",
+    icons: [icon(192), icon(512)]
+  }));
+});
+
+// The reader's own files every page may need offline: the fonts are split by
+// character range, and the browser only fetches the slices a page uses.
+function filesUnder(dir, url, keep = () => true) {
+  const out = [];
+  if (!fs.existsSync(dir)) return out;
+  for (const dirent of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, dirent.name);
+    if (dirent.isDirectory()) out.push(...filesUnder(full, `${url}${dirent.name}/`, keep));
+    else if (keep(`${url}${dirent.name}`)) out.push(`${url}${dirent.name}`);
+  }
+  return out;
+}
+const OFFLINE_FILES = [
+  ...filesUnder(path.join(__dirname, "static"), "/static/", url => !/\/(sw\.js|settings\.html)$/.test(url)),
+  // Justif: its modules (and their chunks) and the English hyphenation.
+  ...filesUnder(path.join(JUSTIF_DIR, "dist"), "/vendor/justif/", url => /^\/vendor\/justif\/([^/]+\.js|hyphenate\/en-us\.js)$/.test(url)),
+  "/vendor/epubjs/epub.min.js",
+  "/vendor/jszip/jszip.min.js"
+];
+
+// Everything to keep for reading offline: every page (the home page, each
+// collection on the shelves, each note, each EPUB's reader), each EPUB file
+// with its version (re-downloaded only when it changes) and the reader's own
+// files. PDFs are read online only.
+app.get(OFFLINE_PATH, async (_req, res) => {
+  if (!PWA) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store");
+  // Downloading is the moment to (re)gain the right to save EPUB notes, too.
+  if (SETTINGS_MODE === "repo") grantBookmarkSession(res);
+  try {
+    const entries = await listEntries();
+    const listing = await entrySource.listAll();
+    const versions = listing.assetVersions || {};
+    const { collections } = buildHomeModel({
+      entries, books: [], config,
+      paths: { entry: slug => `/entry/${slug}`, contents: name => `/contents/${encodeURIComponent(name)}`, book: () => "", cover: () => null }
+    });
+    const epubs = epubsFromAssets(listing.assets);
+    res.json({
+      home: HOME_PATH,
+      pages: [HOME_PATH, ...collections.map(c => c.href), ...entries.map(e => `/entry/${e.slug}`), ...epubs.map(b => `/epub/${b.id}`)],
+      epubs: epubs.map(b => ({ id: b.id, title: b.title, version: versions[b.path] || null })),
+      cloud: SETTINGS_MODE === "repo" || LOCAL_BOOKMARKS,
+      files: OFFLINE_FILES
+    });
+  } catch (error) {
+    res.status(500).json({ error: String(error.message || error) });
+  }
 });
 
 const clients = new Set();

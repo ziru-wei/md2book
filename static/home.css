@@ -40,6 +40,13 @@ body.page-home {
   .ib { width: 30px; height: 30px; border: 0; background: none; color: var(--ink); display: grid; place-items: center; border-radius: 50%; }
   .ib:hover { background: var(--ink); color: #fff; }
   .gearb { width: 32px; height: 32px; border: 1px solid var(--ink); }
+  /* Offline reading (static/offline.js): a dot says kept (green), downloading
+     (pulsing) or notes waiting to be sent (amber). */
+  .offb { width: 32px; height: 32px; border: 1px solid var(--ink); position: relative; }
+  .offb::after { content: ""; position: absolute; right: -1px; top: -1px; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--bg); display: none; }
+  :root[data-offline-state="kept"] & .offb::after { display: block; background: #4f9a5d; }
+  :root[data-offline-state="busy"] & .offb::after { display: block; background: var(--ink); animation: h-pulse 1s ease-in-out infinite alternate; }
+  :root[data-offline-waiting] & .offb::after { display: block; background: #c98a1b; }
   .back { display: inline-flex; align-items: center; gap: 8px; font: 500 11px var(--ui); letter-spacing: .1em; text-transform: uppercase; padding: 6px 8px 6px 0; }
   .back:hover { text-decoration: underline; text-underline-offset: 4px; }
 
@@ -199,6 +206,21 @@ html:lang(zh-CN) #home .sr .it .d { width: 96px; }
 .h-toast .spin { width: 10px; height: 10px; flex: none; border: 1.5px solid #6b7175; border-top-color: #eef0f1; border-radius: 50%; animation: h-spin .8s linear infinite; }
 .h-toast.done .spin { animation: none; border-color: #9fd3a9; background: #9fd3a9; }
 @keyframes h-spin { to { transform: rotate(360deg); } }
+@keyframes h-pulse { from { opacity: .25; } to { opacity: 1; } }
+
+/* Offline reading: its panel, under the header's button (static/offline.js). */
+.h-offline { position: fixed; z-index: 2147482200; top: 96px; right: max(16px, calc(50vw - 460px)); width: min(340px, calc(100vw - 32px)); box-sizing: border-box; background: #f6f8f9; color: #232527; border: 1px solid #232527; border-radius: 12px; padding: 16px 16px 14px; box-shadow: 0 14px 40px rgba(0, 0, 0, .16); font: 13px/1.55 "iA Writer Quattro V", "Sarasa Mono HC", "Sarasa Fixed SC", ui-sans-serif, system-ui, sans-serif; }
+.h-offline[hidden] { display: none; }
+.h-offline h3 { margin: 0 0 8px; font-size: 11px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; }
+.h-offline p { margin: 0 0 8px; }
+.h-offline .muted { color: #72777b; font-size: 12px; }
+.h-offline .warn { color: #9a6410; font-size: 12px; }
+.h-offline .bar { height: 3px; background: #d5dadd; border-radius: 2px; overflow: hidden; margin: 10px 0 6px; }
+.h-offline .bar i { display: block; height: 100%; width: 0; background: #232527; transition: width .25s; }
+.h-offline .acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.h-offline button { font: inherit; font-size: 12px; cursor: pointer; border: 1px solid #232527; border-radius: 999px; padding: 5px 12px; background: none; color: #232527; }
+.h-offline button.main { background: #232527; color: #f6f8f9; }
+.h-offline button:disabled { opacity: .45; cursor: default; }
 .h-toast .bar { display: flex; gap: 3px; margin-top: 9px; }
 .h-toast .bar i { flex: 1; height: 2px; background: #4a4e52; border-radius: 1px; transition: background .3s; }
 .h-toast .bar i.on { background: #eef0f1; }

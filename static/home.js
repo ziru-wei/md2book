@@ -34,7 +34,7 @@
   const TEXT = {
     en: {
       library: "Input", writing: "Output", leaves: "Single notes", allNotes: "All notes", back: "Back", all: "All", unfiled: "unfiled",
-      search: "Search notes and books", settings: "Settings", close: "Close", notes: "Notes", books: "Books",
+      search: "Search notes and books", settings: "Settings", offline: "Offline reading", close: "Close", notes: "Notes", books: "Books",
       opening: "Opening", opened: "Open",
       steps: { epub: ["Opening the book", "Downloading the file", "Reading the contents", "Laying out the pages"], vol: ["Gathering the notes", "Loading fonts and images", "Laying out the pages"] },
       none: q => `Nothing matches “${q}”.`,
@@ -43,7 +43,7 @@
     },
     zh: {
       library: "输入", writing: "输出", leaves: "单篇笔记", allNotes: "全部笔记", back: "返回", all: "全部", unfiled: "未归档",
-      search: "搜索笔记和书", settings: "设置", close: "关闭", notes: "笔记", books: "书",
+      search: "搜索笔记和书", settings: "设置", offline: "离线阅读", close: "关闭", notes: "笔记", books: "书",
       opening: "正在打开", opened: "已打开",
       steps: { epub: ["打开书页", "下载文件", "读取目录", "排版"], vol: ["读取笔记", "加载字体和图片", "排版"] },
       none: q => `没有找到“${q}”。`,
@@ -60,7 +60,8 @@
   const ICON = {
     search: '<svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>',
     gear: '<svg class="ic" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>',
-    back: '<svg class="ic" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>'
+    back: '<svg class="ic" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>',
+    offline: '<svg class="ic" viewBox="0 0 24 24"><path d="M12 13v8l-4-4"/><path d="m12 21 4-4"/><path d="M4.393 15.269A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.436 8.284"/></svg>'
   };
 
   // ---- dates: "Oct 18", with the year when it isn't this one ----
@@ -370,6 +371,7 @@
     const avail = Math.min(920, root.clientWidth || window.innerWidth - 48) - 58;
     const links = (D.links || []).map(l => `<a class="alllink" href="${esc(l.href)}" title="${esc(l.title || "")}">${esc(l.text)}</a>`).join("");
     const tools = `<div class="tools">${links}<div class="sbox ${S.q || S.sopen ? "open" : ""}"><input id="q" type="text" placeholder="${TEXT.search}" autocomplete="off" value="${esc(S.q)}" /><button class="ib" data-search aria-label="${TEXT.search}">${ICON.search}</button></div>
+      ${D.offline ? `<button class="ib offb" data-offline aria-label="${TEXT.offline}" title="${TEXT.offline}">${ICON.offline}</button>` : ""}
       ${D.settingsPath ? (D.floatingSettings ? `<button class="ib gearb" data-settings aria-label="${TEXT.settings}">${ICON.gear}</button>` : `<a class="ib gearb" href="${esc(D.settingsPath)}" aria-label="${TEXT.settings}">${ICON.gear}</a>`) : ""}
       <div class="sr" id="sr"></div></div>`;
     if (S.view === "all") {
@@ -434,6 +436,8 @@
     const t = e.target;
     if (t.closest("[data-search]")) { const open = t.closest(".sbox").classList.contains("open") && !S.q; S.sopen = !open; if (open) S.q = ""; render(); if (S.sopen) document.getElementById("q").focus(); return; }
     if (t.closest("[data-settings]")) { openSettings(); return; }
+    // Offline reading: static/offline.js opens its panel.
+    if (t.closest("[data-offline]")) { window.md2bookOffline?.open(); return; }
     if (t.closest("[data-fold]")) {
       S.folded = !S.folded;
       try { localStorage.setItem("md2book-home-singles-folded", S.folded ? "1" : "0"); } catch { /* no storage */ }
