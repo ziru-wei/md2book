@@ -42,23 +42,33 @@
   --note-width: 120px;
   --note-inset: 20px;
 
-  /* CUSTOMIZABLE STYLE: typography — Libertinus Serif (Google Fonts)
-     for Latin text, titles aside: those are in Source Serif 4 (Google
-     Fonts, variable weight/optical-size). Source Han Serif SC (the
-     Adobe Fonts kit, if set) covers the Chinese glyphs neither has, so
-     the browser falls through to it per character in mixed 中文/English
-     text. Titles set their Chinese in Huiwen Fangsong (汇文仿宋, sliced
-     into static/fonts by scripts/slice-font.py, so a page loads only the
-     slices its titles use). Georgia etc. stay as the pre-webfont-load
-     fallback. */
-  --serif: "Libertinus Serif", "source-han-serif-sc", "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, "Times New Roman", Times, serif;
-  --title-serif: "Source Serif 4", "Huiwen Fangsong", "source-han-serif-sc", "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, "Times New Roman", Times, serif;
+  /* CUSTOMIZABLE STYLE: typography — Libertinus Serif for Latin text,
+     titles aside: those are in Source Serif 4 (variable weight/optical
+     size). Source Han Serif (source-han-serif-sc: Noto Serif SC) covers
+     the Chinese glyphs neither has, so the browser falls through to it
+     per character in mixed 中文/English text. Titles set their Chinese in
+     Huiwen Fangsong (汇文仿宋, sliced by scripts/slice-font.py).
+     Every one is the site's own (static/fonts/site-fonts.css,
+     source-han-serif-sc.css, huiwen-fangsong.css), never a device's or
+     a font service's, so each device sets the same glyphs at the same
+     widths and a page holds the same words everywhere. */
+  --serif: "Libertinus Serif", "source-han-serif-sc", serif;
+  --title-serif: "Source Serif 4", "Huiwen Fangsong", "source-han-serif-sc", serif;
   --body-size: 10.5px;
   --body-leading: 1.2;
 
   /* CUSTOMIZABLE STYLE: per-page-type background colors */
   --index-bg: rgb(245, 245, 245);
   --entry-bg: rgb(25, 26, 27);
+}
+
+/* CJK spacing the same in every browser: browsers that know these properties
+   default to squeezing adjacent punctuation and to spacing CJK from Latin,
+   each by its own version's rules; these values are what browsers that
+   don't know them do anyway. */
+html {
+  text-spacing-trim: space-all;
+  text-autospace: no-autospace;
 }
 
 /* =========================================================
@@ -1133,7 +1143,7 @@ html:not(.no-drop-cap) .body p.drop-cap::first-letter {
    ========================================================= */
 
 .body .embed .embed-cjk {
-  font-family: "source-han-serif-sc", "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", serif;
+  font-family: "source-han-serif-sc", serif;
 }
 
 .body .embed .embed-source {

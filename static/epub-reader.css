@@ -168,3 +168,14 @@ html { -webkit-text-size-adjust: none; text-size-adjust: none; }
 .epub-effects input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #eceeef; transition: transform .15s; }
 .epub-effects input:checked { background: rgb(150 200 80 / .85); }
 .epub-effects input:checked::after { transform: translateX(13px); }
+
+/* The layout report (static/epub-report.js): a quiet link at the menu's foot,
+   and the report itself in a dialog of its own. */
+.epub-report-open { display: block; margin: 1.2em 0 0; padding: 0; border: 0; background: none; font: inherit; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); cursor: pointer; }
+.epub-report-open:hover { text-decoration: underline; }
+.epub-report { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 48px); box-sizing: border-box; padding: 14px; border: 0; border-radius: 10px; background: #f6f8f9; color: #232527; font: 12px/1.45 ui-monospace, Menlo, monospace; }
+.epub-report::backdrop { background: rgba(0, 0, 0, .35); }
+.epub-report textarea { width: 100%; height: min(60vh, 520px); box-sizing: border-box; font: inherit; resize: vertical; border: 1px solid #c9ced1; border-radius: 6px; padding: 8px; background: #fff; color: inherit; }
+.epub-report .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.epub-report button { font: 12px system-ui, sans-serif; padding: 5px 12px; border: 1px solid #232527; border-radius: 999px; background: none; color: #232527; cursor: pointer; }
+.epub-report button.main { background: #232527; color: #f6f8f9; }

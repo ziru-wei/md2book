@@ -712,6 +712,37 @@
   }
   loadBookmarks();
 
+  // The layout report (static/epub-report.js): for comparing where pages
+  // begin and end on two devices.
+  let keep = {};
+  $("epub-report-open")?.addEventListener("click", async () => {
+    if (!rendition || !window.md2bookLayoutReport) return;
+    menu.close();
+    const dialog = document.createElement("dialog");
+    dialog.className = "epub-report";
+    dialog.innerHTML = '<textarea readonly aria-label="Layout report">Making the report…</textarea><div class="acts"><button type="button" data-act="save">Save as file</button><button type="button" class="main" data-act="copy">Copy</button><button type="button" data-act="close">Close</button></div>';
+    document.body.append(dialog);
+    dialog.showModal();
+    const area = dialog.querySelector("textarea");
+    let text = "";
+    try { text = await window.md2bookLayoutReport({ title: document.title, row, rendition, keep }); }
+    catch (error) { text = `Could not make the report: ${error.message || error}`; }
+    area.value = text;
+    dialog.addEventListener("click", async event => {
+      const act = event.target.closest("button")?.dataset.act;
+      if (act === "close") { dialog.close(); dialog.remove(); }
+      else if (act === "copy") {
+        try { await navigator.clipboard.writeText(text); event.target.textContent = "Copied"; }
+        catch { area.focus(); area.select(); }
+      } else if (act === "save") {
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+        link.download = `${document.title || "book"} layout ${/iPad|iPhone/.test(navigator.userAgent) || navigator.maxTouchPoints > 1 ? "iPad" : "computer"}.txt`;
+        link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      }
+    });
+  });
+
   try {
     // In ranges where the server honours them: a serverless response is capped.
     const CHUNK = 3 * 1024 * 1024;
@@ -738,7 +769,8 @@
     await window.md2bookOpening?.step("open");
     book = ePub();
     await book.open(bytes, "binary");
-    rendition = window.createEpubView(book, viewer, row, await keptLayoutKey(bytes));
+    keep = await keptLayoutKey(bytes);
+    rendition = window.createEpubView(book, viewer, row, keep);
     rendition.setHighlights(highlightsOf);
     rendition.setBookmarks(() => bookmarks.map(b => b.cfi), async cfis => { for (const cfi of cfis) await changeBookmark({ type: "remove", cfi }); });
     rendition.hooks.content.register(contents => bindInput(contents.document));

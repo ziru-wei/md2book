@@ -1,0 +1,131 @@
+/* EPUB layout report: what decides where each page of a book begins and ends
+   on this device, for comparing two devices that cut the same book into
+   different pages (the reader's menu → "Layout report").
+
+   - The device and browser, and the page geometry the reader uses.
+   - The fonts: which of the body font's families this browser has, and how
+     wide a few test strings come out in it (a different font or different
+     glyph widths moves every line after it).
+   - Line breaking: where a narrow box breaks a set of CJK and punctuation
+     pairs (rules that differ between browser and system versions).
+   - The pages themselves, from the chapters laid out and kept on this device
+     (static/epub-view.js): each page's first and last characters. */
+window.md2bookLayoutReport = async function (ctx) {
+  const { title, row, rendition, keep } = ctx;
+  const root = document.documentElement, css = getComputedStyle(root);
+  const lines = [];
+  const out = (...parts) => lines.push(parts.join(" "));
+  const clean = text => text.replace(/\s+/g, "");
+  const fnv = text => { let h = 0x811c9dc5; for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619); return (h >>> 0).toString(16).padStart(8, "0"); };
+
+  out("md2book layout report", new Date().toISOString());
+  out("book:", title);
+  out("\n[device]");
+  out("ua:", navigator.userAgent);
+  out("platform:", navigator.platform, "| touch points:", navigator.maxTouchPoints, "| dpr:", devicePixelRatio);
+  out("screen:", `${screen.width}x${screen.height}`, "| viewport:", `${root.clientWidth}x${root.clientHeight}`, "| standalone:", matchMedia("(display-mode: standalone)").matches || navigator.standalone === true);
+  out("layout:", root.dataset.layout, "| columns:", rendition?.columns, "| pages per spread:", rendition?.perSpread,
+    "| paper:", css.getPropertyValue("--paper-width").trim() || "(book)", "x", css.getPropertyValue("--page-height").trim() || "(book)");
+  out("row:", JSON.stringify(row));
+  out("paper effects on:", ["show-through", "letterpress", "ink-bleed"].filter(name => root.classList.contains(name)).join(", ") || "none");
+
+  // --- Fonts -------------------------------------------------------------
+  out("\n[fonts]");
+  const serif = css.getPropertyValue("--serif").trim(), bodySize = css.getPropertyValue("--body-size").trim() || "16px";
+  out("--serif:", serif);
+  out("--body-size:", bodySize, "| --body-leading:", css.getPropertyValue("--body-leading").trim());
+  out("stylesheets:", [...document.querySelectorAll('link[rel="stylesheet"]')].map(link => link.getAttribute("href")).filter(href => /font/.test(href)).join(" "));
+  await document.fonts.ready;
+  const probe = document.createElement("span");
+  probe.style.cssText = "position:absolute;left:-9999px;top:0;white-space:pre;visibility:hidden;font-kerning:none;font-variant-ligatures:none;text-rendering:geometricPrecision;font-synthesis:none";
+  document.body.append(probe);
+  const width = (family, text, size = "40px") => { probe.style.font = `${size} ${family}`; probe.textContent = text; return probe.getBoundingClientRect().width; };
+  const sample = "国京都，。“”Ag";
+  for (const family of serif.split(",").map(f => f.trim()).filter(Boolean)) {
+    if (/^(serif|sans-serif|monospace)$/.test(family)) continue;
+    // Present when it changes the width against both generic fallbacks.
+    const present = width(`${family}, monospace`, sample) !== width("monospace", sample) && width(`${family}, sans-serif`, sample) !== width("sans-serif", sample);
+    let loaded = "";
+    try { loaded = document.fonts.check(`16px ${family}`, sample) ? "" : " (not all loaded)"; } catch { /* a system name */ }
+    out(`  ${family}:`, present ? "yes" + loaded : "no");
+  }
+  const tests = ["京都的春天，哲学之道两旁的樱花开得正好。", "“国”国‘国’国", "国……国——国·国", "（国）《国》「国」【国】", "Lorem ipsum dolor sit amet, consectetur.", "2024年10月31日 iPad Safari"];
+  for (const text of tests) {
+    // Load the glyphs first, as the reader does before measuring.
+    await document.fonts.load(`${bodySize} ${serif}`, text).catch(() => {});
+    out(`  width(${text}):`, width(serif, text, bodySize).toFixed(3));
+  }
+
+  // --- Line breaking -------------------------------------------------------
+  out("\n[line breaking]  (lines in a box two characters wide)");
+  const supports = ["text-spacing-trim: space-all", "text-autospace: no-autospace", "line-break: strict", "word-break: auto-phrase", "hanging-punctuation: allow-end", "text-wrap: pretty"];
+  out("supports:", supports.map(rule => `${rule.split(":")[0]}=${CSS.supports(rule) ? "y" : "n"}`).join(" "));
+  const box = document.createElement("div");
+  box.style.cssText = `position:absolute;left:-9999px;top:0;visibility:hidden;font:${bodySize}/${bodySize} ${serif};width:2.05em;line-break:strict;overflow-wrap:normal;word-break:normal;font-kerning:none;font-variant-ligatures:none;text-spacing-trim:space-all;text-autospace:no-autospace`;
+  document.body.append(box);
+  const pairs = ["国”国", "国“国", "国，国", "国。”国", "国……国", "国——国", "国·国", "国（国", "国）国", "国《国", "国》国", "国：“国", "a国", "国a", "国1", "1国", "国、国", "国！国", "国？”国"];
+  const results = [];
+  for (const text of pairs) {
+    box.textContent = text;
+    const range = document.createRange();
+    // Which characters start a new line: the break points.
+    const starts = [];
+    let lastTop = null;
+    for (let i = 0; i < box.firstChild.length; i++) { range.setStart(box.firstChild, i); range.setEnd(box.firstChild, i + 1); const top = Math.round(range.getBoundingClientRect().top); if (lastTop !== null && top > lastTop) starts.push(i); lastTop = top; }
+    results.push(`${text}→${starts.length ? text.slice(0, starts[0]) + "|" + text.slice(starts[0]) : "(one line)"}`);
+  }
+  out(results.join("  "));
+  box.remove(); probe.remove();
+
+  // --- Pages -------------------------------------------------------------
+  out("\n[pages]  (chapter: pages | each page: first 10 … last 6 characters)");
+  const current = rendition?.currentLocation?.();
+  if (current) out("now at:", current.start?.cfi, "| page", current.pagination?.page ?? "?", "of", current.pagination?.total ?? "?");
+  const spreadText = [...document.querySelectorAll(".spread.is-current .page[data-section]")].map(page => {
+    // The page's own text (not its show-through or ink copies, nor stylesheets).
+    const hosts = [...page.querySelectorAll(":scope > .page-area .epub-page-content")];
+    const text = clean(hosts.map(host => [...(host.shadowRoot?.children || [])].find(el => el.localName === "html")?.textContent || "").join(""));
+    return `ch${page.dataset.section} p${+page.dataset.sheet + 1}: ${text.slice(0, 10)} … ${text.slice(-6)}`;
+  });
+  if (spreadText.length) out("on screen:", spreadText.join("  |  "));
+  if (!keep?.bookKey || !window.indexedDB) {
+    out("(this device keeps no laid-out chapters, so only the pages on screen are listed)");
+    return lines.join("\n");
+  }
+  const records = await new Promise(resolve => {
+    const opening = indexedDB.open("md2book-epub-layout", 1);
+    opening.onupgradeneeded = () => { opening.result.createObjectStore("chapters"); opening.result.createObjectStore("totals"); };
+    opening.onerror = () => resolve([]);
+    opening.onsuccess = () => {
+      const db = opening.result, found = [];
+      let tx;
+      try { tx = db.transaction("chapters"); } catch { db.close(); return resolve([]); }
+      const cursor = tx.objectStore("chapters").openCursor(IDBKeyRange.bound(keep.bookKey + "|", keep.bookKey + "|￿"));
+      cursor.onsuccess = () => { const at = cursor.result; if (!at) return; found.push([String(at.key), at.value]); at.continue(); };
+      tx.oncomplete = () => { db.close(); resolve(found); };
+      tx.onerror = () => { db.close(); resolve(found); };
+    };
+  });
+  // One layout per screen shape and settings: each listed on its own.
+  const layouts = new Map();
+  for (const [key, value] of records) {
+    const [, sig, index] = key.split("|");
+    if (!layouts.has(sig)) layouts.set(sig, []);
+    layouts.get(sig).push([Number(index), value]);
+  }
+  if (!layouts.size) out("(no chapters kept yet: leave the book open for a while, then make the report again)");
+  const scratch = document.createElement("div");
+  for (const [sig, chapters] of layouts) {
+    chapters.sort((a, b) => a[0] - b[0]);
+    out(`layout ${sig}: ${chapters.length} chapters kept, ${chapters.reduce((sum, [, c]) => sum + c.total, 0)} pages`);
+    for (const [index, chapter] of chapters) {
+      const pages = chapter.sheets.map(sheet => {
+        scratch.innerHTML = sheet.parts.map(part => part.html).join("");
+        return clean(scratch.textContent);
+      });
+      out(`ch${index}: ${chapter.total} pages, ${fnv(pages.join("\u0000"))}`);
+      pages.forEach((text, i) => out(`  p${i + 1}: ${text.slice(0, 10)} … ${text.slice(-6)}`));
+    }
+  }
+  return lines.join("\n");
+};
