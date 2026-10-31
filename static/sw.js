@@ -1,17 +1,18 @@
 /* md2book offline: the service worker behind the home-screen app (served at
    /sw.js; see static/offline.js for the page side).
 
-   - Pages (the home page, collections, notes, EPUB readers) come from the
-     network when it answers within a few seconds, and are kept; offline, the
-     copy kept last is shown.
-   - The reader's own files, fonts, images and attachments are kept as they
-     are fetched; "Download for offline" (a message from the home page) fetches
-     all of them at once, with every EPUB file.
+   - Only EPUBs are kept for offline reading. The home page and each EPUB's
+     reader come from the network when it answers within a few seconds, and
+     are kept; offline, the copy kept last is shown. Notes, collections and
+     PDFs are online only: offline they say so.
+   - The reader's own files, fonts and covers are kept as they are fetched;
+     "Download for offline" (a message from the home page) fetches all of
+     them at once, with every EPUB file.
    - An EPUB file kept here is read from here, in the ranges the reader asks for.
    - EPUB bookmarks and highlights saved while offline wait in a queue (in
      order) and are sent when the server can be reached again; meanwhile the
      reader sees them applied to the copy of the book's notes kept here.
-   PDFs are not kept: they are read online only. */
+*/
 "use strict";
 
 const CACHE = "md2book-offline-v1";
@@ -49,7 +50,11 @@ self.addEventListener("fetch", event => {
     if (p.startsWith("/epub-file/")) return event.respondWith(epubFile(req, url));
     if (KEEP_FIRST.test(p)) return event.respondWith(cacheFirst(req, p, event));
     if (p.startsWith("/static/")) return event.respondWith(networkFirst(req, p, event, PAGE_WAIT));
-    if (req.mode === "navigate" || req.destination === "document" || req.destination === "iframe") return event.respondWith(page(req, url, event));
+    if (req.mode === "navigate" || req.destination === "document" || req.destination === "iframe") {
+      // Notes and collections: online only (nothing of them is kept).
+      if (/^\/(entry|contents)\//.test(p)) return event.respondWith(fetch(req).catch(() => notKeptPage()));
+      return event.respondWith(page(req, url, event));
+    }
     return;   // search and the like: online only
   }
   if (req.method !== "GET") return;
@@ -98,7 +103,7 @@ function page(req, url, event) {
 function notKeptPage() {
   const html = `<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Offline</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#eceff1;color:#232527;font:15px/1.6 ui-sans-serif,system-ui,sans-serif;text-align:center;padding:24px;box-sizing:border-box}a{color:inherit}</style></head>
-<body><div><p><b>Offline</b> · 离线</p><p>This page hasn't been downloaded to this device yet.<br />这一页还没有下载到这台设备。</p>
+<body><div><p><b>Offline</b> · 离线</p><p>Only EPUBs are kept for offline reading; this page needs a connection.<br />离线只保存 EPUB，这一页需要联网才能打开。</p>
 <p><a href="javascript:history.back()">Back · 返回</a></p></div></body></html>`;
   return new Response(html, { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } });
 }

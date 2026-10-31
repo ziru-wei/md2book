@@ -2,7 +2,7 @@
 
    Every page registers the service worker and, when the network is back,
    asks it to send the EPUB notes changes made offline. The home page adds
-   the panel behind its offline button: download everything to this device,
+   the panel behind its offline button: download every EPUB to this device,
    update it, or remove it. Once downloaded, the home page brings the copy up
    to date by itself when it opens online (at most every 30 minutes).
 
@@ -34,30 +34,30 @@
   const T = {
     en: {
       title: "Offline reading",
-      intro: "Keep every note, collection and EPUB on this device, to read without a connection. PDFs are read online only.",
+      intro: "Keep every EPUB on this device, with its bookmarks and highlights, to read without a connection. Notes and PDFs are read online only.",
       ios: "On an iPad or iPhone, first add this page to the Home Screen (Share → Add to Home Screen), then download from inside that app: Safari and the app keep separate copies.",
       download: "Download to this device", update: "Update now", remove: "Remove", close: "Close",
-      kept: (s, when) => `${s.pages} pages and ${s.books} EPUB${s.books === 1 ? "" : "s"} kept on this device, updated ${when}.`,
+      kept: (s, when) => `${s.books} EPUB${s.books === 1 ? "" : "s"} kept on this device, updated ${when}.`,
       failed: n => `${n} item${n === 1 ? "" : "s"} could not be downloaded; they'll be tried again next time.`,
       size: mb => `Space used: about ${mb} MB.`,
       waiting: n => `${n} EPUB note change${n === 1 ? "" : "s"} saved here, to be sent when online.`,
-      phase: { list: "Getting the list", pages: "Pages", files: "Fonts, images and files", books: "EPUBs" },
-      offlineNow: "You're offline: showing the copy kept on this device.",
+      phase: { list: "Getting the list", pages: "Pages", files: "Fonts and reader files", books: "EPUBs" },
+      offlineNow: "You're offline: EPUBs open from this device; notes need a connection.",
       error: m => `Download failed (${m}). Check the connection and try again.`,
       confirmRemove: "Remove the offline copy from this device?",
       auto: "It updates by itself when this page opens online."
     },
     zh: {
       title: "离线阅读",
-      intro: "把所有笔记、合集和 EPUB 保存到这台设备，没有网络也能读。PDF 只能在线阅读。",
+      intro: "把所有 EPUB 连同书签和批注保存到这台设备，没有网络也能读。笔记和 PDF 只能在线阅读。",
       ios: "在 iPad 或 iPhone 上，请先把本页添加到主屏幕（分享 → 添加到主屏幕），再从主屏幕打开的 app 里下载：Safari 和主屏幕 app 各存各的。",
       download: "下载到这台设备", update: "立即更新", remove: "移除", close: "关闭",
-      kept: (s, when) => `已在这台设备保存 ${s.pages} 个页面、${s.books} 本 EPUB，更新于 ${when}。`,
+      kept: (s, when) => `已在这台设备保存 ${s.books} 本 EPUB，更新于 ${when}。`,
       failed: n => `有 ${n} 项没能下载，下次更新时会再试。`,
       size: mb => `占用空间约 ${mb} MB。`,
       waiting: n => `有 ${n} 条 EPUB 书签或批注改动存在本机，联网后会自动同步。`,
-      phase: { list: "获取清单", pages: "页面", files: "字体、图片和文件", books: "EPUB" },
-      offlineNow: "当前离线：显示的是保存在这台设备上的版本。",
+      phase: { list: "获取清单", pages: "页面", files: "字体和阅读器文件", books: "EPUB" },
+      offlineNow: "当前离线：EPUB 从本机打开，笔记需要联网。",
       error: m => `下载失败（${m}）。请检查网络后重试。`,
       confirmRemove: "从这台设备移除离线内容？",
       auto: "之后每次联网打开首页时会自动更新。"

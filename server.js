@@ -9,7 +9,6 @@ import { fileURLToPath } from "node:url";
 import { exec } from "node:child_process";
 import { createEntrySource } from "./lib/source.js";
 import { createImageProxy } from "./lib/image-proxy.js";
-import { buildHomeModel } from "./lib/home-model.js";
 import fs from "node:fs";
 import { loadConfig, layerSettings, readSettings, resolveConfig, writeSettings, DEFAULTS } from "./lib/config.js";
 import {
@@ -105,9 +104,9 @@ const SETTINGS_BASE = SETTINGS_MODE === "repo" ? config.site.homePath.replace(/\
 const SETTINGS_PATH = SETTINGS_MODE && SETTINGS_BASE + "/settings";
 
 // A deployed site is also an app for a phone or tablet's home screen that
-// keeps everything for reading offline (static/offline.js, static/sw.js). Its
+// keeps its EPUBs for reading offline (static/offline.js, static/sw.js). Its
 // manifest and the list of what to keep live under the home page's own
-// address, like the settings: they name the private home path and every note.
+// address, like the settings: they name the private home path and every book.
 // (MD2BOOK_PWA=1 or 0 turns it on or off anywhere.)
 const PWA = process.env.MD2BOOK_PWA ? process.env.MD2BOOK_PWA === "1" : !LIVE;
 const HOME_BASE = config.site.homePath.replace(/\/$/, "");
@@ -291,27 +290,22 @@ const OFFLINE_FILES = [
   "/vendor/jszip/jszip.min.js"
 ];
 
-// Everything to keep for reading offline: every page (the home page, each
-// collection on the shelves, each note, each EPUB's reader), each EPUB file
-// with its version (re-downloaded only when it changes) and the reader's own
-// files. PDFs are read online only.
+// Everything to keep for reading offline: EPUBs only. The home page (the way
+// in to the books), each EPUB's reader and file, with its version
+// (re-downloaded only when it changes), and the reader's own files. Notes,
+// collections and PDFs are read online only.
 app.get(OFFLINE_PATH, async (_req, res) => {
   if (!PWA) return res.status(404).json({ error: "Not found" });
   res.set("Cache-Control", "no-store");
   // Downloading is the moment to (re)gain the right to save EPUB notes, too.
   if (SETTINGS_MODE === "repo") grantBookmarkSession(res);
   try {
-    const entries = await listEntries();
     const listing = await entrySource.listAll();
     const versions = listing.assetVersions || {};
-    const { collections } = buildHomeModel({
-      entries, books: [], config,
-      paths: { entry: slug => `/entry/${slug}`, contents: name => `/contents/${encodeURIComponent(name)}`, book: () => "", cover: () => null }
-    });
     const epubs = epubsFromAssets(listing.assets);
     res.json({
       home: HOME_PATH,
-      pages: [HOME_PATH, ...collections.map(c => c.href), ...entries.map(e => `/entry/${e.slug}`), ...epubs.map(b => `/epub/${b.id}`)],
+      pages: [HOME_PATH, ...epubs.map(b => `/epub/${b.id}`)],
       epubs: epubs.map(b => ({ id: b.id, title: b.title, version: versions[b.path] || null })),
       cloud: SETTINGS_MODE === "repo" || LOCAL_BOOKMARKS,
       files: OFFLINE_FILES
