@@ -147,23 +147,6 @@ app.get("/vendor/justif/LICENSE", (req, res) => res.type("text/plain").sendFile(
 
 app.use("/vendor/epubjs", express.static(path.join(__dirname, "node_modules/epubjs/dist")));
 
-// Source Han Serif for EPUBs in the home-screen app (see pageShell in
-// lib/render.js): Noto Serif SC from Fontsource (OFL), regular and bold, in
-// the slices Google Fonts cuts it into, under the Adobe kit's family name.
-const NOTO_SERIF_DIR = path.join(__dirname, "node_modules/@fontsource/noto-serif-sc");
-app.use("/vendor/fonts/noto-serif-sc", express.static(path.join(NOTO_SERIF_DIR, "files"), { maxAge: "30d" }));
-let localSerifCss = null;
-app.get("/vendor/fonts/source-han-serif-sc.css", (_req, res) => {
-  try {
-    localSerifCss ||= ["400", "700"].map(weight => fs.readFileSync(path.join(NOTO_SERIF_DIR, `${weight}.css`), "utf8")).join("\n")
-      .replace(/font-family: 'Noto Serif SC';/g, "font-family: 'source-han-serif-sc';")
-      .replace(/url\(\.\/files\/([^)]+\.woff2)\) format\('woff2'\), url\([^)]+\) format\('woff'\)/g, "url(noto-serif-sc/$1) format('woff2')");
-    res.type("text/css").set("Cache-Control", "public, max-age=86400").send(localSerifCss);
-  } catch {
-    res.status(404).type("text").send("Not found");
-  }
-});
-app.get("/vendor/fonts/LICENSE-noto-serif-sc", (_req, res) => res.type("text/plain").sendFile(path.join(NOTO_SERIF_DIR, "LICENSE")));
 app.use("/vendor/jszip", express.static(path.join(__dirname, "node_modules/jszip/dist")));
 
 app.get(["/epub/:id", "/epub-file/:id"], async (req, res) => {
