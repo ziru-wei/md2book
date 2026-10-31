@@ -21,6 +21,7 @@
   const send = message => ready.then(reg => reg?.active?.postMessage(message));
   const flush = () => { if (navigator.onLine !== false) send({ type: "flush" }); };
   window.addEventListener("online", flush);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) flush(); });
   flush();
 
   const dataEl = document.getElementById("home-data");

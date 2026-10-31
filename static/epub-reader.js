@@ -352,6 +352,10 @@
     return data;
   }
   let waiting = 0;
+  // Changes saved offline were just sent (static/sw.js): show what is stored now.
+  navigator.serviceWorker?.addEventListener("message", event => {
+    if (cloud && event.data?.type === "notes" && event.data.sent && !bookmarkBusy) loadBookmarks();
+  });
   function showWaiting() {
     syncNote.textContent = waiting ? `Offline: ${waiting} change${waiting === 1 ? "" : "s"} saved on this device, sent when you're back online.` : "";
     syncNote.hidden = !waiting;
@@ -711,6 +715,9 @@
       for (const part of parts) { whole.set(new Uint8Array(part), offset); offset += part.byteLength; }
       bytes = whole.buffer;
     }
+    // Keep this book for reading offline (or bring the kept copy up to date):
+    // static/sw.js, when the site is an app (static/offline.js).
+    if (navigator.onLine !== false) navigator.serviceWorker?.ready.then(reg => reg.active?.postMessage({ type: "keep", id })).catch(() => {});
     await window.md2bookOpening?.step("open");
     book = ePub();
     await book.open(bytes, "binary");

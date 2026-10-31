@@ -216,6 +216,8 @@ A published site is also an app you can keep on an iPad or phone's home screen, 
 2. Tap the download button at the top right (next to Settings), then **Download to this device**. Every EPUB is kept on the device, with its reader, the fonts it uses and the home page that leads to it. Notes, collections and PDFs are read online only.
 3. From then on the app opens offline too, and its EPUBs with it. Each time the home page opens online (at most every 30 minutes), it updates the copy: an EPUB is downloaded again only when it has changed, and books no longer there are removed. The button's dot is green when a copy is kept.
 
+A single book can have its own icon too: open the book, then **Share → Add to Home Screen**; the app is named after the book. Once it has been opened online, the book is kept and opens offline (each home-screen app keeps its own copy, so a book's own app doesn't need the download above).
+
 EPUB bookmarks, highlights and notes made offline are kept on the device and sent, in order, to the book's file in your repository as soon as the site can be reached again (the reader's menu says how many are waiting). They are merged with changes made on other devices meanwhile. Search, settings and the Adobe Fonts kit's fonts for text you haven't opened online need a connection; without them, the page uses the next font in line.
 
 ## Writing and reading

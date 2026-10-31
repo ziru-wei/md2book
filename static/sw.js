@@ -8,7 +8,9 @@
    - The reader's own files, fonts and covers are kept as they are fetched;
      "Download for offline" (a message from the home page) fetches all of
      them at once, with every EPUB file.
-   - An EPUB file kept here is read from here, in the ranges the reader asks for.
+   - An EPUB file kept here is read from here, in the ranges the reader asks
+     for. A book read online is kept too (each book's own page asks for it), so
+     a single book added to the home screen on its own reads offline as well.
    - EPUB bookmarks and highlights saved while offline wait in a queue (in
      order) and are sent when the server can be reached again; meanwhile the
      reader sees them applied to the copy of the book's notes kept here.
@@ -47,7 +49,7 @@ self.addEventListener("fetch", event => {
     if (req.method !== "GET") return;
     // Live reload, the settings, the offline list itself, PDFs: always online.
     if (p === "/events" || p === "/sw.js" || /\/settings$|\/api\/settings$|\/offline\.json$|\/manifest\.webmanifest$/.test(p) || p.startsWith("/pdf")) return;
-    if (p.startsWith("/epub-file/")) return event.respondWith(epubFile(req, url));
+    if (p.startsWith("/epub-file/")) return event.respondWith(epubFile(req, url, event));
     if (KEEP_FIRST.test(p)) return event.respondWith(cacheFirst(req, p, event));
     if (p.startsWith("/static/")) return event.respondWith(networkFirst(req, p, event, PAGE_WAIT));
     if (req.mode === "navigate" || req.destination === "document" || req.destination === "iframe") {
@@ -109,10 +111,18 @@ function notKeptPage() {
 }
 
 // An EPUB kept here, in the ranges the reader asks for (static/epub-reader.js).
-async function epubFile(req, url) {
+async function epubFile(req, url, event) {
   const cache = await caches.open(CACHE);
   const kept = await match(cache, url.pathname);
-  if (!kept) return fetch(req);
+  if (!kept) {
+    const res = await fetch(req);
+    if (res.ok) {
+      const gathered = gather(url.pathname, res.clone()).catch(() => {});
+      gathering = gathering.then(() => gathered);
+      event.waitUntil(gathered);
+    }
+    return res;
+  }
   const blob = await kept.blob();
   const type = "application/epub+zip";
   const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.get("range") || "");
@@ -203,7 +213,7 @@ async function bookmarks(req, url, event) {
         await res.clone().json().then(data => keepNotes(key, data)).catch(() => {});
         if (!(await queued().catch(() => [])).some(item => item.url === key)) return res;
       }
-      // Not signed in (yet) here, or changes still waiting: what is kept here.
+      // Not reachable as it should be, or changes still waiting: what is kept here.
       const cache = await caches.open(CACHE);
       if (res.ok || await match(cache, key)) return notesHere(key);
       return res;
@@ -229,7 +239,7 @@ async function bookmarks(req, url, event) {
 }
 
 // Sends the waiting changes, oldest first; stops at the first that can't go
-// (offline, or not signed in) and keeps it for next time.
+// (offline, or the server failing) and keeps it for next time.
 let flushing = null;
 function flush() {
   flushing ||= (async () => {
@@ -283,16 +293,28 @@ function refsIn(text, base, out) {
   }
 }
 
-// The whole EPUB, in ranges, as one kept response that remembers its version.
+// The whole EPUB, in ranges, as one kept response that remembers its version
+// (X-Md2book-Version, the file's blob sha, from the server). A book whose
+// version is unknown is looked up with a one-byte request; without any version
+// to go by, the same size is taken as the same book.
 async function keepEpub(cache, book) {
   const key = `/epub-file/${book.id}`;
   const kept = await match(cache, key);
-  if (kept && book.version && kept.headers.get("X-Md2book-Version") === book.version) return false;
+  const keptVersion = kept?.headers.get("X-Md2book-Version") || "";
+  let version = book.version || "";
+  const total0 = res => res.status === 206 ? Number(/\/(\d+)$/.exec(res.headers.get("content-range") || "")?.[1]) || 0 : 0;
+  const same = (v, total) => v ? keptVersion === v : Boolean(total) && Number(kept.headers.get("Content-Length")) === total;
+  if (kept && !version) {
+    const probe = await fetch(key, { headers: { Range: "bytes=0-0" }, cache: "no-store" });
+    if (!probe.ok) throw new Error(`${book.title}: ${probe.status}`);
+    await probe.arrayBuffer();
+    version = probe.headers.get("X-Md2book-Version") || "";
+    if (same(version, total0(probe))) return false;
+  } else if (kept && keptVersion === version) return false;
   const first = await fetch(key, { headers: { Range: `bytes=0-${CHUNK - 1}` }, cache: "no-store" });
   if (!first.ok) throw new Error(`${book.title}: ${first.status}`);
-  const total = first.status === 206 ? Number(/\/(\d+)$/.exec(first.headers.get("content-range") || "")?.[1]) : 0;
-  // Without a version to go by: the same size is taken as the same book.
-  if (kept && !book.version && total && Number(kept.headers.get("Content-Length")) === total) return false;
+  version ||= first.headers.get("X-Md2book-Version") || "";
+  const total = total0(first);
   const parts = [await first.arrayBuffer()];
   let have = parts[0].byteLength;
   while (total && have < total) {
@@ -303,11 +325,103 @@ async function keepEpub(cache, book) {
     parts.push(bytes);
     have += bytes.byteLength;
   }
-  const blob = new Blob(parts, { type: "application/epub+zip" });
-  await cache.put(key, new Response(blob, { headers: {
-    "Content-Type": "application/epub+zip", "Content-Length": String(blob.size), "X-Md2book-Version": book.version || ""
-  } }));
+  await putEpub(cache, key, parts, version);
   return true;
+}
+
+function putEpub(cache, key, parts, version) {
+  const blob = new Blob(parts, { type: "application/epub+zip" });
+  return cache.put(key, new Response(blob, { headers: {
+    "Content-Type": "application/epub+zip", "Content-Length": String(blob.size), "X-Md2book-Version": version || ""
+  } }));
+}
+
+// One download per book at a time (the home page's download, a book's own
+// page asking for it, both at once).
+const keeping = new Map();
+function keepBook(cache, book) {
+  if (!keeping.has(book.id)) keeping.set(book.id, keepEpub(cache, book).finally(() => keeping.delete(book.id)));
+  return keeping.get(book.id);
+}
+
+// A book read online is kept as it arrives: the ranges the reader fetches are
+// gathered here, and once they cover the whole file it is kept, so it opens
+// offline next time without being downloaded twice.
+const arriving = new Map();
+let gathering = Promise.resolve();   // the ranges still being gathered
+async function gather(key, res) {
+  if (res.status === 200) {
+    await putEpub(await caches.open(CACHE), key, [await res.arrayBuffer()], res.headers.get("X-Md2book-Version"));
+    return;
+  }
+  const range = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(res.headers.get("content-range") || "");
+  if (res.status !== 206 || !range) return;
+  const version = res.headers.get("X-Md2book-Version") || "";
+  const total = Number(range[3]);
+  let book = arriving.get(key);
+  if (!book || book.version !== version || book.total !== total) arriving.set(key, book = { version, total, parts: new Map() });
+  book.parts.set(Number(range[1]), await res.arrayBuffer());
+  const starts = [...book.parts.keys()].sort((a, b) => a - b);
+  const ordered = [];
+  let at = 0;
+  for (const start of starts) {
+    if (start !== at) return;   // a gap (or an overlap): not whole yet
+    ordered.push(book.parts.get(start));
+    at += book.parts.get(start).byteLength;
+  }
+  if (at !== total) return;
+  arriving.delete(key);
+  await putEpub(await caches.open(CACHE), key, ordered, version);
+}
+
+// Files a page refers to, kept: same-origin ones fetched afresh when `fresh`
+// (except those that never change), the rest only when missing; the
+// stylesheets among them bring their fonts.
+async function keepFiles(cache, refs, { fresh = false, wanted = new Set(), failed = [], progress = () => {} } = {}) {
+  const seen = new Set();
+  const queue = [...refs];
+  const fetchFile = async href => {
+    if (seen.has(href)) return;
+    seen.add(href);
+    const url = new URL(href);
+    const key = keyOf(url);
+    if (sameOrigin(url)) wanted.add(url.pathname);
+    const once = !fresh || !sameOrigin(url) || KEEP_FIRST.test(url.pathname);
+    if (once && await match(cache, key)) return;
+    let file;
+    try { file = await fetch(url, sameOrigin(url) ? { cache: "no-store" } : { mode: "cors", credentials: "omit" }); }
+    catch { try { file = await fetch(url, { mode: "no-cors" }); } catch { file = null; } }
+    if (!keepable(file)) { if (sameOrigin(url)) failed.push(url.pathname); return; }
+    if (file.type !== "opaque" && /css/.test(file.headers.get("content-type") || "")) {
+      const more = new Set();
+      refsIn(await file.clone().text(), url, more);
+      for (const ref of more) if (!seen.has(ref)) queue.push(ref);
+    }
+    await cache.put(key, file).catch(() => failed.push(key));
+  };
+  while (queue.length) {
+    const batch = queue.splice(0);
+    await pool(batch, 6, async href => { await fetchFile(href); progress(queue.length); });
+  }
+}
+
+// One book on its own (its page asked, see static/epub-reader.js): its reader
+// page and everything that page loads, then the book itself. What the page
+// loaded before this service worker looked after it is kept here too.
+async function keepOneBook(id) {
+  await gathering;   // the ranges the reader just fetched: no second download
+  const cache = await caches.open(CACHE);
+  const path = `/epub/${id}`;
+  try {
+    const page = await fetch(path, { cache: "no-store", credentials: "same-origin" });
+    if (page.ok) {
+      const refs = new Set();
+      refsIn(await page.clone().text(), new URL(path, self.location.origin), refs);
+      await cache.put(path, page);
+      await keepFiles(cache, refs);
+    }
+  } catch { /* offline: kept as it was */ }
+  await keepBook(cache, { id, title: "EPUB" });
 }
 
 let downloading = null;
@@ -343,34 +457,9 @@ async function runDownload(listUrl) {
       progress("pages", ++done, list.pages.length);
     });
 
-    // 2. Files: the reader's own (fetched afresh) and the rest once; the
-    // stylesheets among them bring their fonts.
-    const seen = new Set();
-    const fetchFile = async href => {
-      if (seen.has(href)) return;
-      seen.add(href);
-      const url = new URL(href);
-      const key = keyOf(url);
-      if (sameOrigin(url)) wanted.add(url.pathname);
-      const once = sameOrigin(url) ? KEEP_FIRST.test(url.pathname) : true;
-      if (once && await match(cache, key)) return;
-      let file;
-      try { file = await fetch(url, sameOrigin(url) ? { cache: "no-store" } : { mode: "cors", credentials: "omit" }); }
-      catch { try { file = await fetch(url, { mode: "no-cors" }); } catch { file = null; } }
-      if (!keepable(file)) { if (sameOrigin(url)) failed.push(url.pathname); return; }
-      if (file.type !== "opaque" && /css/.test(file.headers.get("content-type") || "")) {
-        const more = new Set();
-        refsIn(await file.clone().text(), url, more);
-        for (const ref of more) if (!seen.has(ref)) queue.push(ref);
-      }
-      await cache.put(key, file).catch(() => failed.push(key));
-    };
-    const queue = [...refs];
+    // 2. Files: the reader's own (fetched afresh) and the rest once.
     done = 0;
-    while (queue.length) {
-      const batch = queue.splice(0);
-      await pool(batch, 6, async href => { await fetchFile(href); progress("files", ++done, done + queue.length); });
-    }
+    await keepFiles(cache, refs, { fresh: true, wanted, failed, progress: left => progress("files", ++done, done + left) });
 
     // 3. EPUBs, one at a time (they are large), and each one's notes.
     done = 0;
@@ -378,7 +467,7 @@ async function runDownload(listUrl) {
       wanted.add(`/epub-file/${book.id}`);
       wanted.add(`/api/epub-bookmarks/${book.id}`);
       progress("books", done, list.epubs.length);
-      try { await keepEpub(cache, book); }
+      try { await keepBook(cache, book); }
       catch (error) { failed.push(error.message); }
       if (list.cloud) {
         try {
@@ -414,6 +503,11 @@ self.addEventListener("message", event => {
   const reply = message => event.source?.postMessage(message);
   if (data.type === "download") event.waitUntil(download(data.list));
   else if (data.type === "flush") event.waitUntil(flush());
+  // A book's own page, online: keep the book (or bring it up to date) for
+  // reading offline, whether or not the home page's download was ever used.
+  else if (data.type === "keep" && /^[a-f0-9]{64}$/.test(data.id || "")) {
+    event.waitUntil(keepOneBook(data.id).catch(() => {}));
+  }
   else if (data.type === "forget") event.waitUntil(forget().then(() => reply({ type: "forgotten" })));
   else if (data.type === "status") {
     event.waitUntil((async () => reply({

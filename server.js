@@ -150,8 +150,13 @@ app.use("/vendor/jszip", express.static(path.join(__dirname, "node_modules/jszip
 
 app.get(["/epub/:id", "/epub-file/:id"], async (req, res) => {
   try {
-    const book = (await listEpubs()).find(book => book.id === req.params.id);
+    const listing = await entrySource.listAll();
+    const book = epubsFromAssets(listing.assets).find(book => book.id === req.params.id);
     if (!book) return res.status(404).type("html").send(renderUnavailablePage());
+    // Which version of the file this is: a copy kept for offline reading
+    // (static/sw.js) is replaced when it changes.
+    const version = listing.assetVersions?.[book.path];
+    if (version) res.set("X-Md2book-Version", version);
     if (req.path.startsWith("/epub/")) return res.type("html").send(renderEpubPage(book, undefined, { homePath: SETTINGS_MODE === "repo" && !hasBookmarkSession(req) ? "/" : HOME_PATH }));
     // Served in ranges: a Vercel function's response is capped (about 4.5 MB).
     const match = /^bytes=(\d+)-(\d+)$/.exec(req.get("range") || "");
@@ -201,8 +206,10 @@ app.get("/pdf-file/:id", async (req, res) => {
   }
 });
 
-// The private library URL unlocks personal bookmarks, as it does settings.
-// Shared EPUB URLs neither expose that URL nor grant write access.
+// Opening the private home page marks this browser as the owner's, so an
+// EPUB's "back" link may lead there; a shared EPUB link leads to "/" instead
+// and so never shows the private address. (Bookmarks and highlights don't
+// depend on it: any reader of a book can save them, see bookmarkGuard.)
 const BOOKMARK_COOKIE = "md2book-epub-owner";
 function bookmarkSignature(value) {
   return crypto.createHmac("sha256", process.env.GITHUB_TOKEN || "").update(HOME_PATH + ":" + value).digest("hex");
@@ -220,15 +227,17 @@ function hasBookmarkSession(req) {
   if (!/^\d+$/.test(expires || "") || Number(expires) < Date.now() || !/^[a-f0-9]{64}$/.test(signature || "")) return false;
   return crypto.timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(bookmarkSignature(expires), "hex"));
 }
-// A local vault's own files need no sign-in, from this computer.
+// A local vault's own files are saved from this computer only. A deployed
+// site saves each book's notes for whoever reads it: no sign-in, so a book
+// added to a home screen on its own (its own storage, its own cookies) saves
+// them too.
 const isLoopback = req => ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress);
 function bookmarkGuard(req, res, next) {
   res.set("Cache-Control", "no-store");
   if (LOCAL_BOOKMARKS) {
     if (!isLoopback(req)) return res.status(403).json({ error: "Bookmarks are saved from this computer only." });
   } else {
-    if (SETTINGS_MODE !== "repo" || !entrySource.bookmarks) return res.status(503).json({ error: "Cloud bookmarks need GITHUB_OWNER, GITHUB_REPO, GITHUB_TOKEN (Contents: Read and write), and a private HOME_PATH." });
-    if (!hasBookmarkSession(req)) return res.status(403).json({ error: "Open your private library URL first to enable cloud bookmarks on this device." });
+    if (!REPO_SETTINGS || !entrySource.bookmarks) return res.status(503).json({ error: "Cloud bookmarks need GITHUB_OWNER, GITHUB_REPO and GITHUB_TOKEN (Contents: Read and write)." });
   }
   if (!/^[a-f0-9]{64}$/.test(req.params.id)) return res.status(400).json({ error: "Invalid book id" });
   listEpubs().then(books => {
@@ -297,7 +306,7 @@ const OFFLINE_FILES = [
 app.get(OFFLINE_PATH, async (_req, res) => {
   if (!PWA) return res.status(404).json({ error: "Not found" });
   res.set("Cache-Control", "no-store");
-  // Downloading is the moment to (re)gain the right to save EPUB notes, too.
+  // (Marks this browser as the owner's, as the home page does: see BOOKMARK_COOKIE.)
   if (SETTINGS_MODE === "repo") grantBookmarkSession(res);
   try {
     const listing = await entrySource.listAll();
