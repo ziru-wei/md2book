@@ -25,7 +25,18 @@ const KEEP_FIRST = /^\/(static\/fonts|static\/icons|vendor|img|asset|epub-cover)
 // What one sync keeps, by path; whatever else of these kinds is left over is removed.
 const PRUNED = /^\/(entry|contents|epub|epub-file|api\/epub-bookmarks)\//;
 const CHUNK = 3 * 1024 * 1024;   // a Vercel response is capped at about 4.5 MB
-const PAGE_WAIT = 4000;          // ms to wait for the network before showing the kept page
+const HOME_WAIT = 1500;          // ms the home page waits for the network before its kept copy shows
+const NET_WAIT = 2500;           // ms anything else not kept here waits for the network (fonts, notes)
+
+// Offline, or a connection that answers nothing ("Wi-Fi without internet"): no
+// request waits long for it.
+const offline = () => self.navigator.onLine === false;
+function fetchWithin(req, ms, init) {
+  if (offline()) return Promise.reject(new TypeError("offline"));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(req, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", event => event.waitUntil((async () => {
@@ -51,10 +62,13 @@ self.addEventListener("fetch", event => {
     if (p === "/events" || p === "/sw.js" || /\/settings$|\/api\/settings$|\/offline\.json$|\/manifest\.webmanifest$/.test(p) || p.startsWith("/pdf")) return;
     if (p.startsWith("/epub-file/")) return event.respondWith(epubFile(req, url, event));
     if (KEEP_FIRST.test(p)) return event.respondWith(cacheFirst(req, p, event));
-    if (p.startsWith("/static/")) return event.respondWith(networkFirst(req, p, event, PAGE_WAIT));
+    // The reader's own files and a book's page: the kept copy at once (refreshed
+    // behind it, for next time), so a book opens as fast offline as on.
+    if (p.startsWith("/static/")) return event.respondWith(staleWhileRevalidate(req, p, event));
     if (req.mode === "navigate" || req.destination === "document" || req.destination === "iframe") {
       // Notes and collections: online only (nothing of them is kept).
       if (/^\/(entry|contents)\//.test(p)) return event.respondWith(fetch(req).catch(() => notKeptPage()));
+      if (p.startsWith("/epub/")) return event.respondWith(staleWhileRevalidate(req, p, event, () => notKeptPage()));
       return event.respondWith(page(req, url, event));
     }
     return;   // search and the like: online only
@@ -68,26 +82,34 @@ async function cacheFirst(req, key, event) {
   const cache = await caches.open(CACHE);
   const kept = await match(cache, key);
   if (kept) return kept;
-  const res = await fetch(req);
+  const res = await fetchWithin(req, 15000);
   if (keepable(res)) event.waitUntil(cache.put(key, res.clone()).catch(() => {}));
   return res;
 }
 
-async function staleWhileRevalidate(req, key, event) {
+async function staleWhileRevalidate(req, key, event, fallback) {
   const cache = await caches.open(CACHE);
   const kept = await match(cache, key);
-  const fresh = fetch(req).then(res => {
-    if (keepable(res)) return cache.put(key, res.clone()).then(() => res, () => res);
+  if (kept) {
+    // Refreshed behind it when online; nothing is waited for.
+    if (!offline()) event.waitUntil(fetch(req).then(res => keepable(res) ? cache.put(key, res) : null).catch(() => {}));
+    return kept;
+  }
+  // Not kept: the network, but never for long (fonts would hold the page).
+  try {
+    const res = await fetchWithin(req, NET_WAIT);
+    if (keepable(res)) event.waitUntil(cache.put(key, res.clone()).catch(() => {}));
     return res;
-  });
-  if (kept) { event.waitUntil(fresh.catch(() => {})); return kept; }
-  return fresh;
+  } catch {
+    return fallback ? fallback() : Response.error();
+  }
 }
 
 // The network's answer, kept; the kept copy when the network fails, or is slow
 // and there is a copy (the network's answer is still kept when it comes).
 async function networkFirst(req, key, event, wait, fallback) {
   const cache = await caches.open(CACHE);
+  if (offline()) return (await match(cache, key)) || (fallback ? fallback() : Response.error());
   const network = fetch(req).then(async res => {
     if (res.ok && res.type === "basic") await cache.put(key, res.clone()).catch(() => {});
     return res;
@@ -99,7 +121,7 @@ async function networkFirst(req, key, event, wait, fallback) {
 }
 
 function page(req, url, event) {
-  return networkFirst(req, url.pathname, event, PAGE_WAIT, () => notKeptPage());
+  return networkFirst(req, url.pathname, event, HOME_WAIT, () => notKeptPage());
 }
 
 function notKeptPage() {
@@ -123,10 +145,16 @@ async function epubFile(req, url, event) {
     }
     return res;
   }
-  const blob = await kept.blob();
   const type = "application/epub+zip";
   const range = /^bytes=(\d+)-(\d*)$/.exec(req.headers.get("range") || "");
-  if (!range) return new Response(blob, { headers: { "Content-Type": type, "Content-Length": String(blob.size) } });
+  // From the start: the whole book in one answer (a 200, which the reader takes
+  // as all of it), streamed from the kept copy rather than read range by range.
+  if (!range || range[1] === "0") {
+    const headers = { "Content-Type": type };
+    if (kept.headers.get("Content-Length")) headers["Content-Length"] = kept.headers.get("Content-Length");
+    return new Response(kept.body, { headers });
+  }
+  const blob = await kept.blob();
   const start = Number(range[1]);
   const end = Math.min(range[2] ? Number(range[2]) : blob.size - 1, blob.size - 1);
   if (start > end) return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${blob.size}` } });
@@ -205,32 +233,32 @@ async function notesHere(key) {
 
 async function bookmarks(req, url, event) {
   const key = url.pathname;
+  // Changes still waiting are sent behind the answer, never before it.
+  event.waitUntil(flush());
+  const waitingHere = async () => (await queued().catch(() => [])).some(item => item.url === key);
   if (req.method === "GET") {
-    await flush();
+    if (offline() || await waitingHere()) return notesHere(key);
     try {
-      const res = await fetch(req);
-      if (res.ok) {
-        await res.clone().json().then(data => keepNotes(key, data)).catch(() => {});
-        if (!(await queued().catch(() => [])).some(item => item.url === key)) return res;
-      }
-      // Not reachable as it should be, or changes still waiting: what is kept here.
-      const cache = await caches.open(CACHE);
-      if (res.ok || await match(cache, key)) return notesHere(key);
-      return res;
+      const res = await fetchWithin(req, NET_WAIT);
+      if (!res.ok) return (await match(await caches.open(CACHE), key)) ? notesHere(key) : res;
+      await res.clone().json().then(data => keepNotes(key, data)).catch(() => {});
+      return (await waitingHere()) ? notesHere(key) : res;
     } catch {
-      return notesHere(key);
+      return notesHere(key);   // offline, or too slow: what is kept here
     }
   }
   if (req.method === "POST") {
     const op = await req.clone().json().catch(() => null);
-    await flush();
-    // Nothing waiting before it: straight to the server.
-    if (!(await queued().catch(() => [])).length) {
+    // Nothing waiting before it, and a connection: straight to the server.
+    if (!offline() && !(await queued().catch(() => [])).length) {
       try {
-        const res = await fetch(req);
-        if (res.ok) event.waitUntil(res.clone().json().then(data => keepNotes(key, data)).catch(() => {}));
+        const res = await fetchWithin(req.clone(), NET_WAIT);
+        if (res.ok) await res.clone().json().then(data => keepNotes(key, data)).catch(() => {});
         return res;
-      } catch { /* offline: queued below */ }
+      } catch {
+        // Offline or too slow: queued. (Should the slow request still arrive,
+        // sending it again changes nothing: each change is idempotent.)
+      }
     }
     await enqueue({ url: key, op, at: Date.now() });
     return notesHere(key);
@@ -248,7 +276,7 @@ function flush() {
       for (const item of await queued()) {
         let res;
         try {
-          res = await fetch(item.url, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(item.op) });
+          res = await fetchWithin(item.url, 15000, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(item.op) });
         } catch { break; }
         if (res.ok) { await keepNotes(item.url, await res.json().catch(() => ({}))); await dequeue(item.seq); sent++; }
         else if (res.status === 400 || res.status === 404) await dequeue(item.seq);   // a change the server will never take

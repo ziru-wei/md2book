@@ -97,6 +97,9 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
   let kitFeed = null, kitWaited = false;
   async function feedKit(glyphs) {
     if (!document.querySelector('script[src*="typekit.net"],link[href*="typekit.net"]')) return;
+    // Offline the kit can deliver nothing new (its glyphs come from Adobe's
+    // servers): the pages are laid out at once in the fonts already here.
+    if (navigator.onLine === false) return;
     const fresh = [...glyphs].filter(char => char.trim() && !kitGlyphs.has(char));
     if (!fresh.length) return;
     fresh.forEach(char => kitGlyphs.add(char));

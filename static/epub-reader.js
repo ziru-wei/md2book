@@ -357,7 +357,7 @@
     if (cloud && event.data?.type === "notes" && event.data.sent && !bookmarkBusy) loadBookmarks();
   });
   function showWaiting() {
-    syncNote.textContent = waiting ? `Offline: ${waiting} change${waiting === 1 ? "" : "s"} saved on this device, sent when you're back online.` : "";
+    syncNote.textContent = waiting ? `${waiting} change${waiting === 1 ? "" : "s"} saved on this device, not yet synced: sent once the site can be reached.` : "";
     syncNote.hidden = !waiting;
   }
   const arrayOf = value => Array.isArray(value) ? value : [];
