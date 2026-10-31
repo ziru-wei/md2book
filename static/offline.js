@@ -136,6 +136,8 @@
     else if (act === "remove" && confirm(T.confirmRemove)) {
       write(ENABLED, null);
       send({ type: "forget" });
+      // The books' pages laid out on this device go too (static/epub-view.js).
+      try { indexedDB.deleteDatabase("md2book-epub-layout"); } catch { /* none */ }
     }
   });
   document.addEventListener("click", event => {

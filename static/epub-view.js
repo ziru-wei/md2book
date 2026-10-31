@@ -1,6 +1,6 @@
 // EPUB owns pagination; the shared reader owns sheets and paper folds.
 // Chapters are measured once; ordinary page DOM stays unchanged throughout a fold.
-window.createEpubView = function createEpubView(book, mount, row) {
+window.createEpubView = function createEpubView(book, mount, row, options = {}) {
   const root = document.documentElement, geometry = window.createReaderLayout(root, { tabletAspectRatio: .72, fixedTablet: true });
   const fixedLayout = book.package.metadata.layout === "pre-paginated";
   // Paper effects stack extra copies and blended text shadows on every sheet;
@@ -151,6 +151,105 @@ window.createEpubView = function createEpubView(book, mount, row) {
   // lately. Page counting (`transient`) measures every chapter once but must not
   // keep them, or a long book fills the device's memory.
   const CHAPTER_CACHE = geometry.isTouch ? 3 : 6;
+
+  // --- Chapters kept on this device ---------------------------------------
+  // A chapter laid out once is kept (IndexedDB) as plain data: its pages as
+  // frozen HTML, its positions, anchors and notes. Opening the book, turning
+  // into a chapter, jumping to a bookmark in it or showing it through the
+  // paper then reads it back instead of laying it out again, offline too.
+  // Kept per book and reader code (options.bookKey) and per layout: screen
+  // geometry, settings, theme and fonts; anything else is laid out afresh.
+  // The background page count lays out (and so keeps) every chapter.
+  const KEEP_DB = "md2book-epub-layout";
+  let keepDb = null;
+  function keepStore(mode, name, run) {
+    if (!options.bookKey || !window.indexedDB) return Promise.resolve(null);
+    keepDb ||= new Promise(resolve => {
+      const opening = indexedDB.open(KEEP_DB, 1);
+      opening.onupgradeneeded = () => { opening.result.createObjectStore("chapters"); opening.result.createObjectStore("totals"); };
+      opening.onsuccess = () => resolve(opening.result);
+      opening.onerror = opening.onblocked = () => resolve(null);
+    });
+    return keepDb.then(db => db && new Promise(resolve => {
+      let tx;
+      try { tx = db.transaction(name, mode); } catch { return resolve(null); }
+      const request = run(tx.objectStore(name));
+      tx.oncomplete = () => resolve(request?.result ?? null);
+      tx.onerror = tx.onabort = () => resolve(null);
+    })).catch(() => null);
+  }
+  const hashText = text => {
+    let a = 0x811c9dc5, b = 0x01000193;
+    for (let i = 0; i < text.length; i++) { const c = text.charCodeAt(i); a = Math.imul(a ^ c, 16777619); b = Math.imul(b ^ c, 2246822519); }
+    return (a >>> 0).toString(16).padStart(8, "0") + (b >>> 0).toString(16).padStart(8, "0");
+  };
+  function keepKey(section) {
+    const css = getComputedStyle(root);
+    const fonts = [css.getPropertyValue("--serif"), css.getPropertyValue("--title-serif"), css.getPropertyValue("--body-size"), css.getPropertyValue("--body-leading")];
+    return `${options.bookKey}|${hashText(JSON.stringify([layoutKey, row, lastTheme, devicePixelRatio, fonts]))}|${section.index}`;
+  }
+  // Pictures and fonts inside a book are blob: addresses made afresh each time
+  // it opens: kept as their paths in the book, made current again when read.
+  function bookResources() {
+    const urls = book.resources?.urls || [], blobs = book.resources?.replacementUrls || [];
+    if (!urls.length || urls.length !== blobs.length) return { toPaths: text => /blob:/.test(text) ? null : text, fromPaths: text => text };
+    const toPath = new Map(blobs.map((blob, i) => [blob, urls[i]])), toBlob = new Map(urls.map((url, i) => [url, blobs[i]]));
+    return {
+      toPaths: text => {
+        let missing = false;
+        const out = text.replace(/blob:[^"')\s]+/g, blob => toPath.has(blob) ? "md2book-res:" + encodeURIComponent(toPath.get(blob)) : (missing = true, blob));
+        return missing ? null : out;
+      },
+      fromPaths: text => text.replace(/md2book-res:([\w.~!*'()%-]+)/g, (token, path) => toBlob.get(decodeURIComponent(path)) || token)
+    };
+  }
+  let pruned = false;
+  async function keepChapter(section, entry) {
+    if (!options.bookKey) return;
+    const { toPaths } = bookResources();
+    const styles = [], fonts = [];
+    const index = (list, value) => { const at = list.indexOf(value); return at < 0 ? list.push(value) - 1 : at; };
+    const sheets = [];
+    for (const host of entry.pages) {
+      const data = content.serializePage(host);
+      const css = data && toPaths(data.css), fontText = data && toPaths(JSON.stringify(data.fonts));
+      const parts = data?.parts.map(part => ({ ...part, html: toPaths(part.html) }));
+      // A page whose pictures can't be found again later isn't kept.
+      if (!data || css === null || fontText === null || parts.some(part => part.html === null)) return;
+      sheets.push({ host: data.host, attrs: data.attrs, parts, css: index(styles, css), fonts: index(fonts, fontText) });
+    }
+    const key = keepKey(section);
+    await keepStore("readwrite", "chapters", store => store.put({ total: entry.total, locations: entry.locations, anchors: [...entry.anchors], notes: entry.notes, styles, fonts, sheets }, key));
+    await keepStore("readwrite", "totals", store => store.put(entry.total, key));
+    // This book as it was before (another file, or older reader code): gone.
+    if (!pruned && options.bookId) {
+      pruned = true;
+      const range = IDBKeyRange.bound(options.bookId + ":", options.bookId + ":\uffff");
+      for (const name of ["chapters", "totals"]) keepStore("readwrite", name, store => {
+        const cursor = store.openKeyCursor(range);
+        cursor.onsuccess = () => { const at = cursor.result; if (!at) return; if (!String(at.key).startsWith(options.bookKey + "|")) store.delete(at.key); at.continue(); };
+        return null;
+      });
+    }
+  }
+  async function keptChapter(section, transient) {
+    if (!options.bookKey) return null;
+    const key = keepKey(section);
+    if (transient) {
+      const total = await keepStore("readonly", "totals", store => store.get(key));
+      return total ? { pages: [], locations: [], total, notes: [], anchors: new Map() } : null;
+    }
+    const kept = await keepStore("readonly", "chapters", store => store.get(key));
+    if (!kept) return null;
+    try {
+      const { fromPaths } = bookResources();
+      const styles = kept.styles.map(fromPaths), fonts = kept.fonts.map(text => JSON.parse(fromPaths(text)));
+      const pages = kept.sheets.map(sheet => content.thawPage({ host: sheet.host, attrs: sheet.attrs, css: styles[sheet.css], fonts: fonts[sheet.fonts],
+        parts: sheet.parts.map(part => ({ ...part, html: fromPaths(part.html) })) }, readingDocument));
+      return { pages, locations: kept.locations, total: kept.total, notes: kept.notes, anchors: new Map(kept.anchors) };
+    } catch { return null; }
+  }
+
   function chapter(section, transient = false) {
     const key = `${layoutKey}:${section.index}`;
     if (chapterCache.has(key)) {
@@ -161,6 +260,12 @@ window.createEpubView = function createEpubView(book, mount, row) {
     {
       const pending = measurement.then(async () => {
         await waitForPaper();
+        const kept = await keptChapter(section, transient);
+        if (kept) {
+          if (section === chapters[0] && !fixedLayout && kept.pages.length) hasCover = Boolean(coverPicture(kept.pages[0].shadowRoot));
+          chapterPages.set(section.index, kept.total); updatePageNumbers();
+          return kept;
+        }
         const notes = fixedLayout ? [] : await content.notesFor(section);
         const spread = {el:element("spread epub-preparing"), inner:element("spread-inner"), pages:[], renders:[]};
         spread.el.inert = true; spread.el.setAttribute("aria-hidden","true");
@@ -204,7 +309,9 @@ window.createEpubView = function createEpubView(book, mount, row) {
 
           // Counting pages for the whole-book total needs only the number: no
           // frozen sheets, no positions (they are for reading this chapter).
-          if (transient) {
+          // (Unless chapters are kept on this device: then counting lays the
+          // chapter out in full, keeps it, and lets it go.)
+          if (transient && !options.bookKey) {
             chapterPages.set(section.index,total); updatePageNumbers();
             return {pages:[],locations:[],total,notes,anchors:new Map()};
           }
@@ -228,6 +335,8 @@ window.createEpubView = function createEpubView(book, mount, row) {
           }
           if (section === chapters[0] && !fixedLayout) hasCover = Boolean(coverPicture(pages[0].shadowRoot));
           chapterPages.set(section.index,total); updatePageNumbers();
+          await keepChapter(section, {pages,locations,total,notes,anchors}).catch(() => {});
+          if (transient) return {pages:[],locations:[],total,notes,anchors:new Map()};
           return {pages,locations,total,notes,anchors};
         } finally { rendition?.destroy(); spread.el.remove(); }
       });
@@ -509,7 +618,8 @@ window.createEpubView = function createEpubView(book, mount, row) {
     // Resolve earlier chapter counts before opening/restoring a spread.
     for (const preceding of chapters) {
       if (preceding.index === section?.index) break;
-      if (!chapterPages.has(preceding.index)) await chapter(preceding);
+      // (Only its page count: kept chapters give it without being rebuilt.)
+      if (!chapterPages.has(preceding.index)) await chapter(preceding, Boolean(options.bookKey));
     }
     const next = await createSpread(target, false, true);
     activate(next); trim(); prefetch();

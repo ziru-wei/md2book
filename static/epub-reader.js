@@ -257,6 +257,23 @@
       };
     });
   }
+  // Laid-out chapters are kept on this device (static/epub-view.js) under a key
+  // that changes with the book's file and with the reader's own code and
+  // styles, so a kept page is never shown by a reader that would lay it out
+  // differently. Not with Adobe's kit: its glyphs come from its servers, so a
+  // chapter laid out online would not match the same chapter offline.
+  async function keptLayoutKey(bytes) {
+    if (document.querySelector('script[src*="typekit.net"],link[href*="typekit.net"]') || !crypto.subtle || !window.indexedDB) return {};
+    try {
+      const view = new Uint8Array(bytes), part = 262144;
+      const code = await Promise.all([...document.querySelectorAll('script[src*="/static/"], script[src*="/vendor/"], link[rel="stylesheet"][href*="/static/"]')]
+        .map(el => fetch(el.src || el.href).then(res => { if (!res.ok) throw new Error(res.status); return res.text(); })));
+      const fonts = [...document.querySelectorAll('link[rel="stylesheet"]')].map(link => link.href).filter(href => /fonts/.test(href));
+      const sample = await new Blob([view.subarray(0, part), view.subarray(Math.max(part, view.length - part)), code.join("\n"), fonts.join("\n")]).arrayBuffer();
+      const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", sample))].map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 24);
+      return { bookId: id, bookKey: `${id}:${bytes.byteLength}:${digest}` };
+    } catch { return {}; }
+  }
   async function prepareLocations(bytes) {
     // Indexing parses the whole book a second time: too much for a tablet's
     // memory on a large file (the slider stays off; contents still work).
@@ -721,7 +738,7 @@
     await window.md2bookOpening?.step("open");
     book = ePub();
     await book.open(bytes, "binary");
-    rendition = window.createEpubView(book, viewer, row);
+    rendition = window.createEpubView(book, viewer, row, await keptLayoutKey(bytes));
     rendition.setHighlights(highlightsOf);
     rendition.setBookmarks(() => bookmarks.map(b => b.cfi), async cfis => { for (const cfi of cfis) await changeBookmark({ type: "remove", cfi }); });
     rendition.hooks.content.register(contents => bindInput(contents.document));

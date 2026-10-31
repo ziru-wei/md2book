@@ -402,16 +402,12 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
     }).join("\n"));
     const css = snapshotStyles.get(doc);
     // Font faces belong to the document FontFaceSet, not to a shadow tree.
+    const fontRules = [];
     for (const sheet of doc.styleSheets) {
-      try { for (const rule of sheet.cssRules) if (rule.type === 5) {
-        const text = absoluteURLs(rule.cssText, sheet.href || doc.baseURI);
-        if (!readingDocument._epubFontRules) readingDocument._epubFontRules = new Set();
-        if (!readingDocument._epubFontRules.has(text)) {
-          readingDocument._epubFontRules.add(text);
-          const style = readingDocument.createElement("style"); style.textContent = text; readingDocument.head.append(style);
-        }
-      } } catch { /* Same resources have already been loaded by prepare(). */ }
+      try { for (const rule of sheet.cssRules) if (rule.type === 5) fontRules.push(absoluteURLs(rule.cssText, sheet.href || doc.baseURI)); }
+      catch { /* Same resources have already been loaded by prepare(). */ }
     }
+    installFontRules(fontRules, readingDocument);
     const host = readingDocument.createElement("div"); host.className = "epub-page-content";
     host.style.cssText = `position:absolute;inset:0;overflow:hidden;width:${page.querySelector('.epub-viewport').offsetWidth}px;height:${page.querySelector('.epub-viewport').offsetHeight}px`;
     const shadow = host.attachShadow({ mode: "open" });
@@ -422,14 +418,57 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
       html.style.transform = `translateX(${offset}px)`;
       html.style.width = frame.offsetWidth + "px";
     }
-    if (readingDocument.defaultView.CSSStyleSheet?.prototype.replaceSync) {
-      if (!sharedSheets.has(style.textContent)) {
-        const sheet = new readingDocument.defaultView.CSSStyleSheet();
-        sheet.replaceSync(style.textContent); sharedSheets.set(style.textContent,sheet);
-      }
-      shadow.adoptedStyleSheets = [sharedSheets.get(style.textContent)];
-    } else shadow.append(style);
+    sheetFor(style.textContent, shadow, readingDocument);
     shadow.append(readingDocument.importNode(html, true));
+    // What it takes to make this page again without laying the chapter out
+    // (serializePage, for the copy kept on this device).
+    host._epubCss = style.textContent; host._epubFontRules = fontRules;
+    return host;
+  }
+  function installFontRules(rules, readingDocument = document) {
+    if (!readingDocument._epubFontRules) readingDocument._epubFontRules = new Set();
+    for (const text of rules) {
+      if (readingDocument._epubFontRules.has(text)) continue;
+      readingDocument._epubFontRules.add(text);
+      const style = readingDocument.createElement("style"); style.textContent = text; readingDocument.head.append(style);
+    }
+  }
+  function sheetFor(cssText, shadow, readingDocument = document) {
+    if (readingDocument.defaultView.CSSStyleSheet?.prototype.replaceSync) {
+      if (!sharedSheets.has(cssText)) {
+        const sheet = new readingDocument.defaultView.CSSStyleSheet();
+        sheet.replaceSync(cssText); sharedSheets.set(cssText, sheet);
+      }
+      shadow.adoptedStyleSheets = [sharedSheets.get(cssText)];
+    } else {
+      const style = readingDocument.createElement("style"); style.textContent = cssText; shadow.append(style);
+    }
+  }
+  // A frozen page as plain data (strings), and back: the <html> it holds, part
+  // by part, with its attributes; the stylesheet and font faces it needs.
+  const attrsOf = el => [...el.attributes].map(a => [a.name, a.value]);
+  function serializePage(host) {
+    const html = [...(host.shadowRoot?.children || [])].find(el => el.localName === "html");
+    if (!html || host._epubCss === undefined) return null;
+    return { host: host.style.cssText, css: host._epubCss, fonts: host._epubFontRules || [], attrs: attrsOf(html),
+      parts: [...html.children].map(el => ({ tag: el.localName, attrs: attrsOf(el), html: el.innerHTML })) };
+  }
+  function thawPage(data, readingDocument = document) {
+    installFontRules(data.fonts, readingDocument);
+    const host = readingDocument.createElement("div"); host.className = "epub-page-content";
+    host.style.cssText = data.host;
+    const shadow = host.attachShadow({ mode: "open" });
+    sheetFor(data.css, shadow, readingDocument);
+    const html = readingDocument.createElement("html");
+    for (const [name, value] of data.attrs) html.setAttribute(name, value);
+    for (const part of data.parts) {
+      const el = readingDocument.createElement(part.tag);
+      for (const [name, value] of part.attrs) el.setAttribute(name, value);
+      el.innerHTML = part.html;
+      html.append(el);
+    }
+    shadow.append(html);
+    host._epubCss = data.css; host._epubFontRules = data.fonts;
     return host;
   }
   function clonePage(source, bleed = false) {
@@ -457,6 +496,6 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
     if (source.classList.contains("page--notes")) copy.dataset.notes = "";
     page.prepend(copy);
   }
-  return { load, stylesheet, notesFor, prepare, placeNotes, showThrough, startCfi, hasPage, freezePage, clonePage,
+  return { load, stylesheet, notesFor, prepare, placeNotes, showThrough, startCfi, hasPage, freezePage, clonePage, serializePage, thawPage,
     addBleed: page => window.addReaderInkBleed([page], () => ({copy:clonePage(page,true),restore(){}})) };
 };

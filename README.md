@@ -218,6 +218,8 @@ A published site is also an app you can keep on an iPad or phone's home screen, 
 
 A single book can have its own icon too: open the book, then **Share → Add to Home Screen**; the app is named after the book. Once it has been opened online, the book is kept and opens offline (each home-screen app keeps its own copy, so a book's own app doesn't need the download above).
 
+Each book's pages, once laid out on the device, are kept there too (with their positions, notes and what shows through the paper), so opening a book, turning into a new chapter or jumping to a bookmark reads them back instead of laying the chapter out again; while you read, the rest of the book is laid out and kept in the background. A Chinese serif from an Adobe Fonts kit (`source-han-serif-sc`) is replaced in the app's EPUB reader by the same design served by the site (Noto Serif SC), so pages look and break the same online and offline.
+
 EPUB bookmarks, highlights and notes made offline are kept on the device and sent, in order, to the book's file in your repository as soon as the site can be reached again (the reader's menu says how many are waiting). They are merged with changes made on other devices meanwhile. Search, settings and the Adobe Fonts kit's fonts for text you haven't opened online need a connection; without them, the page uses the next font in line.
 
 ## Writing and reading
