@@ -423,7 +423,8 @@
       jump.querySelector(".toc-title").textContent = nameOf(bookmark);
       jump.querySelector(".toc-title").classList.toggle("is-placeholder", !bookmark.label);
       jump.querySelector(".epub-bookmark-pct").textContent = Number.isFinite(bookmark.percent) ? `${(bookmark.percent * 100).toFixed(1)}%` : "";
-      jump.firstChild.classList.toggle("is-latest", bookmark.cfi === latestCfi());
+      jump.firstChild.classList.toggle("is-starred", starred(bookmark));
+      jump.firstChild.classList.toggle("is-latest", !starred(bookmark) && bookmark.cfi === latestCfi());
       if (bookmark.created) jump.title = new Date(bookmark.created).toLocaleString();
       jump.addEventListener("click", () => { menu.close(); navigate(() => rendition.display(bookmark.cfi)); });
       const remove = document.createElement("button");
@@ -454,7 +455,8 @@
       const at = bookmark.percent;
       if (!Number.isFinite(at) || at < 0) continue;
       const tick = document.createElement("i");
-      tick.classList.toggle("is-latest", bookmark.cfi === latestCfi());
+      tick.classList.toggle("is-starred", starred(bookmark));
+      tick.classList.toggle("is-latest", !starred(bookmark) && bookmark.cfi === latestCfi());
       tick.style.left = (at * 100) + "%";
       line.append(tick);
     }
@@ -570,6 +572,8 @@
     return { ...(text ? { excerpt: text.slice(0, 24) } : {}), ...(page ? { page } : {}), percent: Math.round(Math.min(1, Math.max(0, percent)) * 10000) / 10000 };
   }
   const nameOf = b => b.label || `${b.page ?? "—"} | ${b.excerpt || ""}`.trim();
+  // A name beginning with "*": marked out (pale blue, over the newest's orange).
+  const starred = b => /^[*＊]/.test(b.label.trim());
   addBookmark.addEventListener("click", () => { menu.close(); quickBookmark("left"); });
 
   // --- Bookmark notes in the book's edges --------------------------------------
@@ -580,7 +584,7 @@
     // A name given by hand shows on the note, as much as fits. Where
     // it is down the edge and how deep in it: from the place it was made at.
     return bookmarks.filter(b => Number.isFinite(b.percent) && Number.isInteger(b.page))
-      .map(b => ({ cfi: b.cfi, label: nameOf(b), name: b.label.trim(), at: b.percent, page: b.page, latest: b.cfi === latest }));
+      .map(b => ({ cfi: b.cfi, label: nameOf(b), name: b.label.trim(), at: b.percent, page: b.page, latest: b.cfi === latest, starred: starred(b) }));
   };
   // The note open (its name in full, or being named) looks pressed (greyer).
   const markOpen = cfi => viewer.querySelectorAll(".epub-tab").forEach(el => {
@@ -589,8 +593,8 @@
   });
   const closeTab = () => markOpen(null);
   // `how` (epub-view.js): "jump" (a tap or click), "edit" (a double one),
-  // "preview" (the pointer resting on it, a finger held): the note opens out
-  // to show its whole name (one with no name is only pressed), "unpreview".
+  // "preview" (the pointer resting on it, a finger held): the note darkens,
+  // and opens out if its name is cut short; "unpreview".
   function openTab(cfi, el, how) {
     const b = bookmarks.find(x => x.cfi === cfi);
     if (!b || naming) return;
@@ -598,7 +602,9 @@
     if (how === "edit") { editTab(cfi); return; }
     if (how === "unpreview") { closeTab(); return; }
     markOpen(cfi);
-    el.classList.toggle("is-expanded", !!b.label);
+    // Only a name cut short opens out; one shown whole just darkens.
+    const text = el.querySelector(".epub-tab-text");
+    el.classList.toggle("is-expanded", text.scrollHeight > text.clientHeight + 1 || text.scrollWidth > text.clientWidth + 1);
   }
   document.addEventListener("pointerdown", event => { if (!naming && !event.target.closest?.(".epub-tab")) closeTab(); }, true);
   // A note's name is written on the note itself (drawn out over the page a

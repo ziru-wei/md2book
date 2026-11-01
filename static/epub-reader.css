@@ -172,13 +172,17 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
   width: calc(var(--stack, 0px) - var(--depth, 0px) + var(--out));
   --tab: #fbfaf7; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .2); }
 /* Where it comes out from under the sheets above it: a narrow shadow on it. */
-.epub-tab--left { right: calc(100% + var(--depth, 0px)); border-radius: 2px 0 0 2px;
+.epub-tab--left { right: calc(100% + var(--depth, 0px));
   background: linear-gradient(to left, rgba(0, 0, 0, .24), transparent 3px), var(--tab); }
-.epub-tab--right { left: calc(100% + var(--depth, 0px)); border-radius: 0 2px 2px 0;
+.epub-tab--right { left: calc(100% + var(--depth, 0px));
   background: linear-gradient(to right, rgba(0, 0, 0, .24), transparent 3px), var(--tab); }
-.epub-tab.is-latest { --tab: #c4473d; box-shadow: 0 0 0 .5px rgba(90, 20, 15, .4); }
+/* The newest bright orange, one whose name begins with "*" pale blue; a
+   note looked at (or being named) a shade darker. */
+.epub-tab.is-latest { --tab: #ffd36d; }
+.epub-tab.is-starred { --tab: #d3f2ff; }
 .epub-tab.is-open { --tab: #d6d3cb; }
-.epub-tab.is-latest.is-open { --tab: #a63a31; }
+.epub-tab.is-latest.is-open { --tab: #f0bd4a; }
+.epub-tab.is-starred.is-open { --tab: #a9dcf0; }
 /* On the page shown: stuck on its paper (28px), over the whole stack beside it
    and out beyond it. */
 .epub-tab.is-here { z-index: 4; width: calc(28px + var(--stack, 0px) + var(--out)); background: var(--tab);
@@ -189,21 +193,25 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
 .epub-tab::before { content: ""; position: absolute; inset: -3px 0; }
 .epub-tab.is-unnamed { height: 10px; }
 .epub-tab.is-unnamed::before { inset: -4px 0; }
-/* A name given by hand: small, on the end that sticks out, in two lines, as
-   much of it as fits (a little clear of the flag's outer end). */
-.epub-tab-name-short { position: absolute; top: 0; bottom: 0; width: var(--out); box-sizing: border-box; overflow: hidden;
-  display: flex; align-items: center; justify-content: center; padding: 2px 1px;
-  font: 600 8px/11px var(--serif); text-align: center; color: #4a463f; word-break: break-all; pointer-events: none; }
+/* A name given by hand: small, in the device's own type, black, set left, in
+   two lines, as much of it as fits, on all the note that shows (from the page
+   shown's edge, for the page's own; a little clear of the flag's outer end). */
+.epub-tab { --name-w: 100%; }
+.epub-tab.is-here { --name-w: calc(100% - 28px); }
+.epub-tab-name-short { position: absolute; top: 0; bottom: 0; width: var(--name-w); box-sizing: border-box; overflow: hidden;
+  display: flex; align-items: center; justify-content: flex-start; padding: 2px 2px;
+  font: 500 8px/11px -apple-system, BlinkMacSystemFont, system-ui, sans-serif; text-align: left; color: #000;
+  word-break: break-all; pointer-events: none; }
 .epub-tab--left .epub-tab-name-short { left: 0; padding-left: 3px; }
 .epub-tab--right .epub-tab-name-short { right: 0; padding-right: 3px; }
 .epub-tab-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; max-width: 100%; }
-/* Tapped (its whole name shown) or its name being written: the note drawn out
-   over the page a little and as tall as the name, the name in full inside it,
-   in the same small type. */
+/* Its name cut short and looked at, or being written: the note drawn out over
+   the page a little and as tall as the name, the name in full inside it, in
+   the same small type. */
 .epub-tab:is(.is-expanded, .is-editing), .epub-tabs:has(.is-expanded, .is-editing) { z-index: 12; }
-.epub-tab:is(.is-expanded, .is-editing) .epub-tab-name-short { bottom: auto; min-height: 28px; width: max(var(--out), 132px);
-  justify-content: flex-start; text-align: left; padding: 3px 6px; overflow: visible; pointer-events: auto;
-  background: var(--tab); box-shadow: 0 1px 4px rgba(0, 0, 0, .35); border-radius: 2px; }
+.epub-tab:is(.is-expanded, .is-editing) .epub-tab-name-short { bottom: auto; min-height: 28px; width: max(var(--name-w), 132px);
+  padding: 3px 6px; overflow: visible; pointer-events: auto;
+  background: var(--tab); box-shadow: 0 1px 4px rgba(0, 0, 0, .35); }
 .epub-tab.is-unnamed.is-editing .epub-tab-name-short { margin-top: -9px; }
 .epub-tab:is(.is-expanded, .is-editing) .epub-tab-text { display: block; -webkit-line-clamp: none; width: 100%; outline: none; }
 .epub-tab.is-editing .epub-tab-name-short { cursor: text; -webkit-user-select: text; user-select: text; }
@@ -217,7 +225,6 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
 .epub-tab--left .epub-tab-delete { left: calc(100% + 4px); }
 .epub-tab--right .epub-tab-delete { right: calc(100% + 4px); }
 .epub-tab-delete svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.epub-tab.is-latest .epub-tab-name-short { color: #fff; }
 /* The menu's bookmarks: the name, and how far into the book on the right. */
 #epub-bookmarks .epub-bookmark-jump { display: flex; align-items: center; }
 #epub-bookmarks .epub-bookmark-jump .toc-title { flex: 1; min-width: 0; }
@@ -235,12 +242,14 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
 /* A bookmark in the menu and on the progress line: a little flag, coloured as
    its note in the book (the newest red, the others grey-white). */
 .epub-glyph { display: inline-block; width: 12px; height: 7px; margin-right: 9px; vertical-align: 1px; border-radius: 0 1.5px 1.5px 0; background: #fbfaf7; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .3); }
-.epub-glyph.is-latest { background: #c4473d; box-shadow: none; }
+.epub-glyph.is-latest { background: #ffd36d; }
+.epub-glyph.is-starred { background: #d3f2ff; }
 .epub-bookmark-jump .toc-title { display: inline; }
 .epub-progress-wrap { position: relative; }
 #epub-ticks { position: absolute; left: 0; right: 0; top: -4px; height: 10px; pointer-events: none; }
 #epub-ticks i { position: absolute; top: 0; width: 5px; height: 11px; margin-left: -2.5px; background: #fbfaf7; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .35); border-radius: 1px; }
-#epub-ticks i.is-latest { background: #c4473d; box-shadow: none; }
+#epub-ticks i.is-latest { background: #ffd36d; }
+#epub-ticks i.is-starred { background: #d3f2ff; }
 
 /* Behind the sheets is the dark desk (book.css) on a tablet, with the browser's own bars
    tinted paper by the theme-color meta. On a phone the sheet is the whole screen, so the

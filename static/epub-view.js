@@ -482,7 +482,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   const jitter = cfi => { let h = 2166136261; for (let i = 0; i < cfi.length; i++) h = Math.imul(h ^ cfi.charCodeAt(i), 16777619); return ((h >>> 0) % 400) / 100; };
   function noteFor(tab, side) {
     // A note with no name given is a mere sliver.
-    const el = element(`epub-tab epub-tab--${side}` + (tab.latest ? " is-latest" : "") + (tab.name ? "" : " is-unnamed"));
+    const el = element(`epub-tab epub-tab--${side}` + (tab.starred ? " is-starred" : tab.latest ? " is-latest" : "") + (tab.name ? "" : " is-unnamed"));
     el.dataset.cfi = tab.cfi;
     el.style.setProperty("--at", tab.at.toFixed(4));
     // As far out as the screen leaves room beyond its side's edges (a name
