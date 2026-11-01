@@ -262,7 +262,6 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
         await waitForPaper();
         const kept = await keptChapter(section, transient);
         if (kept) {
-          if (section === chapters[0] && !fixedLayout && kept.pages.length) hasCover = Boolean(coverPicture(kept.pages[0].shadowRoot));
           chapterPages.set(section.index, kept.total); updatePageNumbers();
           return kept;
         }
@@ -333,7 +332,6 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
             // Yield between fragments, never carry chapter measurement into a fold.
             await new Promise(resolve => setTimeout(resolve,0));
           }
-          if (section === chapters[0] && !fixedLayout) hasCover = Boolean(coverPicture(pages[0].shadowRoot));
           chapterPages.set(section.index,total); updatePageNumbers();
           await keepChapter(section, {pages,locations,total,notes,anchors}).catch(() => {});
           if (transient) return {pages:[],locations:[],total,notes,anchors:new Map()};
@@ -610,8 +608,19 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       if (!foregroundBusy && !engine.turn && !gesture) trim();
     }).catch(() => { /* A foreground turn retries and reports loading errors. */ });
   }
+  // Whether the book opens on a cover is read from its first chapter itself,
+  // once. It used to be noticed only when that chapter was laid out, which a
+  // reader opened mid-book with kept page counts never does: then every page
+  // sat one place off, and changed hands with any setting that changed what
+  // was kept (Paper effects).
+  let coverChecked = null;
+  const checkCover = () => coverChecked ??= (async () => {
+    if (fixedLayout || !chapters[0]) return;
+    try { hasCover = Boolean(coverPicture(await content.load(chapters[0].url))); } catch { /* no cover then */ }
+  })();
   async function display(target) {
     await styleReady;
+    await checkCover();
     if (!perSpread) configure();
     target ??= { index: book.spine.first().index, sheet: 0 };
     const section = book.spine.get(target.index ?? target);
