@@ -115,6 +115,27 @@
     return d + "Z";
   }
 
+  // The last `reach` page px of a line at one end, from inside out to the tip,
+  // with a pressure that rises smoothly from 0 to 1 at the tip: drawn wider and
+  // darker there, the line swells into its ink dot instead of meeting it.
+  function capPoints(points, atStart, reach = 6) {
+    const pts = atStart ? points : points.slice().reverse();
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    const L = Math.min(reach, total / 2);
+    const out = [[pts[0][0], pts[0][1], 1]];
+    if (!L) return out;
+    let d = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], seg = Math.hypot(x1 - x0, y1 - y0);
+      if (d + seg >= L) { const k = (L - d) / (seg || 1); out.push([x0 + (x1 - x0) * k, y0 + (y1 - y0) * k, 0]); break; }
+      d += seg;
+      const t = 1 - d / L;
+      out.push([x1, y1, t * t * (3 - 2 * t)]);
+    }
+    return out.reverse();
+  }
+
   // Whether [x, y] is inside the polygon (even-odd rule).
   function inPolygon([x, y], poly) {
     let inside = false;
@@ -133,7 +154,7 @@
     return { ...stroke, id, pts, created: new Date().toISOString() };
   }
 
-  const api = { opKey, encodePoints, decodePoints, cleanPoints, freshSamples, penPressure, inPolygon, movedStroke, applyOps, stateOf, takeBatch, pathOf };
+  const api = { opKey, encodePoints, decodePoints, cleanPoints, capPoints, freshSamples, penPressure, inPolygon, movedStroke, applyOps, stateOf, takeBatch, pathOf };
   if (typeof module !== "undefined" && module.exports) { module.exports = api; return; }
   root.epubInk = api;
 
@@ -201,7 +222,7 @@
     const saveState = () => tx(["state"], "readwrite", t => { t.objectStore("state").put({ strokes: [...base.strokes.values()], erased: [...base.erased], held }, key); });
     // `sections`: the chapters that changed (a stroke drawn or erased here):
     // only their pages are drawn again. Without it, every page shown.
-    function rebuild(sections) {
+    function rebuild(sections, ops) {
       const state = stateOf(null);
       state.strokes = new Map(base.strokes); state.erased = new Set(base.erased);
       applyOps(state, held);
@@ -211,7 +232,7 @@
         if (!bySection.has(s.section)) bySection.set(s.section, []);
         bySection.get(s.section).push(s);
       }
-      if (sections) { for (const page of pagesShown()) if (sections.has(+page.dataset.section)) paint(page); }
+      if (sections) { for (const page of pagesShown()) if (sections.has(+page.dataset.section) && !(ops && patch(page, ops))) paint(page); }
       else repaintAll();
       showStatus();
     }
@@ -224,7 +245,7 @@
       const entries = ops.map(op => ({ op, seq: null }));
       const sections = sectionsOf(ops);
       pending.push(...entries);
-      rebuild(sections);
+      rebuild(sections, ops);
       if (!cloud) {
         // This browser is the only store: straight into its state.
         applyOps(base, ops);
@@ -391,28 +412,68 @@
     }
     // One stroke: its body and its two ink dots, together (erased, selected
     // and moved as one).
-    function strokeShape(points, size, color) {
+    // An end of the line: over its last few px it widens from the line's width
+    // to the dot's and darkens from the body's opacity to full (a gradient
+    // over the see-through body adds up to opaque at the tip).
+    let capSeq = 0;
+    function capOutline(clean, atStart, size) {
+      const r0 = size * 1.75 / 2, cap = capPoints(clean, atStart);
+      const ring = getStroke
+        ? getStroke(cap, { size: r0 + DOT, thinning: (DOT - r0) / (DOT + r0), smoothing: .5, streamline: 0, simulatePressure: false, easing: t => t, last: true })
+        : [];
+      return { d: pathOf(ring), tip: cap[cap.length - 1], inner: cap[0] };
+    }
+    function strokeShape(points, size, color, id) {
       const g = document.createElementNS(SVG, "g");
       g.setAttribute("fill", color);
+      if (id) g.dataset.id = id;
       const body = document.createElementNS(SVG, "path");
       body.setAttribute("d", pathOf(outline(points, size, true))); body.setAttribute("fill-opacity", BODY_OPACITY);
       g.append(body);
-      const ends = cleanPoints(points);
-      for (const [x, y] of ends.length > 1 ? [ends[0], ends[ends.length - 1]] : ends.slice(0, 1)) {
-        const dot = document.createElementNS(SVG, "circle");
-        dot.setAttribute("cx", x); dot.setAttribute("cy", y); dot.setAttribute("r", DOT);
-        g.append(dot);
+      const clean = cleanPoints(points);
+      for (const atStart of clean.length > 1 ? [true, false] : [true]) {
+        const { d, tip, inner } = capOutline(clean, atStart, size);
+        if (!d) continue;
+        const path = document.createElementNS(SVG, "path");
+        path.setAttribute("d", d);
+        if (Math.hypot(tip[0] - inner[0], tip[1] - inner[1]) > .1) {
+          const grad = document.createElementNS(SVG, "linearGradient"), gid = `ink-cap-${++capSeq}`;
+          grad.id = gid; grad.setAttribute("gradientUnits", "userSpaceOnUse");
+          for (const [k, v] of Object.entries({ x1: tip[0], y1: tip[1], x2: inner[0], y2: inner[1] })) grad.setAttribute(k, v);
+          grad.innerHTML = `<stop offset="0" stop-color="${color}"/><stop offset="1" stop-color="${color}" stop-opacity="0"/>`;
+          g.append(grad);
+          path.setAttribute("fill", `url(#${gid})`);
+        }
+        g.append(path);
       }
       return g;
+    }
+    function placeStroke(stroke) {
+      const points = decodePoints(stroke.pts).map(([x, y, p]) => [stroke.page.x + x, stroke.page.y + y, p]);
+      return { id: stroke.id, stroke, points, path: strokeShape(points, stroke.size, stroke.color, stroke.id), size: stroke.size };
+    }
+    // Strokes drawn or erased here: added to or taken from the pages (and the
+    // copies showing through) as they are, rather than every stroke drawn
+    // anew. False when the page must be drawn whole (a selection on it).
+    function patch(page, ops) {
+      if (selection?.page === page || !page.isConnected) return false;
+      for (const op of ops) {
+        if (op.type === "erase") {
+          page.querySelector(`:scope > svg.epub-handwriting > [data-id="${CSS.escape(op.id)}"]`)?.remove();
+          if (page._ink) page._ink = page._ink.filter(p => p.id !== op.id);
+        } else if (op.stroke.section === +page.dataset.section && tablet() && onPage(op.stroke, page)) {
+          const placed = placeStroke(op.stroke);
+          layerOf(page).append(placed.path);
+          (page._ink ||= []).push(placed);
+        }
+      }
+      return true;
     }
     function paint(page) {
       if (!page.isConnected || page.dataset.section === undefined) return;
       const list = tablet() ? (bySection.get(+page.dataset.section) || []).filter(stroke => onPage(stroke, page)) : [];
       if (!list.length && !page.querySelector(":scope > svg.epub-handwriting")) { page._ink = []; return; }
-      const placed = list.map(stroke => {
-        const points = decodePoints(stroke.pts).map(([x, y, p]) => [stroke.page.x + x, stroke.page.y + y, p]);
-        return { id: stroke.id, stroke, points, path: strokeShape(points, stroke.size, stroke.color), size: stroke.size };
-      });
+      const placed = list.map(placeStroke);
       const layer = layerOf(page);
       layer.replaceChildren(...placed.map(p => p.path));
       page._ink = placed;
@@ -532,9 +593,19 @@
         liveContext.globalAlpha = BODY_OPACITY;
         liveContext.fill(new Path2D(pathOf(outline(points, SIZE, false))));
         liveContext.globalAlpha = 1;
-        // The dot where the pen came down (the other comes as it lifts).
-        const [x0, y0] = drawing.points[0];
-        liveContext.beginPath(); liveContext.arc(x0, y0, DOT, 0, 2 * Math.PI); liveContext.fill();
+        // Where the pen came down, the line swells into its dot (the other end
+        // comes as it lifts).
+        const clean = cleanPoints(drawing.points.slice(0, 60));   // only the start matters here
+        if (clean.length > 1 && getStroke) {
+          const { d, tip, inner } = capOutline(clean, true, SIZE);
+          if (Math.hypot(tip[0] - inner[0], tip[1] - inner[1]) > .1) {
+            const grad = liveContext.createLinearGradient(tip[0], tip[1], inner[0], inner[1]);
+            grad.addColorStop(0, INKS[ink]); grad.addColorStop(1, INKS[ink] + "00");
+            liveContext.fillStyle = grad;
+          }
+          liveContext.fill(new Path2D(d));
+          liveContext.fillStyle = INKS[ink];
+        }
         if (drawing.trace) { drawing.trace.frames++; drawing.trace.drawMs += performance.now() - t0; }
       });
     }

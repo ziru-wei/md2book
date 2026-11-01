@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { applyInkOperations, createFileInkStore, createGitHubInkStore, formatInk, inkFileName, validateInkOperations } from "../lib/epub-ink.js";
 await import("../static/epub-ink.js");
-const { encodePoints, decodePoints, cleanPoints, freshSamples, penPressure, applyOps, stateOf, takeBatch, opKey } = globalThis.epubInk;
+const { encodePoints, decodePoints, cleanPoints, capPoints, freshSamples, penPressure, applyOps, stateOf, takeBatch, opKey } = globalThis.epubInk;
 
 const stroke = (id, extra = {}) => ({ id, section: 3, color: "#26324a", size: 2.4,
   page: { key: "[\"tablet\",720,1000,1]", sheet: 2, x: 40.25, y: 80 },
@@ -38,6 +38,19 @@ test("samples a pointermove repeats are skipped; light pressure still draws", ()
   const stairs = Array.from({ length: 12 }, (_, i) => [i * 1.4, i < 6 ? 0 : 1.37, .5]);
   const smooth = cleanPoints(stairs);
   for (let i = 1; i < smooth.length; i++) assert.ok(smooth[i][1] - smooth[i - 1][1] < .6);
+});
+
+test("a line's end swells over a fixed length into its ink dot", () => {
+  const line = Array.from({ length: 41 }, (_, i) => [i, 0, .5]);
+  const end = capPoints(line, false);
+  assert.deepEqual(end[end.length - 1], [40, 0, 1], "out to the tip, at full pressure");
+  assert.deepEqual(end[0].slice(0, 2), [34, 0], "6 px in, whatever the line's length");
+  assert.equal(end[0][2], 0);
+  for (let i = 1; i < end.length; i++) assert.ok(end[i][2] >= end[i - 1][2]);
+  assert.deepEqual(capPoints(line, true)[capPoints(line, true).length - 1], [0, 0, 1]);
+  // A short line shares itself between its two ends.
+  assert.deepEqual(capPoints([[0, 0, .5], [4, 0, .5]], true)[0], [2, 0, 0]);
+  assert.deepEqual(capPoints([[3, 3, .5]], true), [[3, 3, 1]], "a dot is all tip");
 });
 
 test("ink operations can be sent twice; an erased stroke never comes back", () => {
