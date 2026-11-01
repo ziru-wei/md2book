@@ -115,6 +115,20 @@
     return d + "Z";
   }
 
+  // A liner pen's line: a little fuller where the pen comes down and lifts
+  // (ink pools there), a little finer in between. Pressure is scaled by how
+  // near each point is to either end, over `reach` page px along the line.
+  function linerPressure(points, reach = 6, ends = 1.1, middle = .9) {
+    const along = [0];
+    for (let i = 1; i < points.length; i++) along.push(along[i - 1] + Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]));
+    const total = along[along.length - 1] || 0;
+    const near = d => { const t = Math.min(1, d / reach); return 1 - t * t * (3 - 2 * t); };   // 1 at the end, 0 from `reach` on
+    return points.map(([x, y, p], i) => {
+      const f = Math.max(near(along[i]), near(total - along[i]));
+      return [x, y, Math.min(1, p * (middle + (ends - middle) * f))];
+    });
+  }
+
   // Whether [x, y] is inside the polygon (even-odd rule).
   function inPolygon([x, y], poly) {
     let inside = false;
@@ -133,7 +147,7 @@
     return { ...stroke, id, pts, created: new Date().toISOString() };
   }
 
-  const api = { opKey, encodePoints, decodePoints, cleanPoints, freshSamples, penPressure, inPolygon, movedStroke, applyOps, stateOf, takeBatch, pathOf };
+  const api = { opKey, encodePoints, decodePoints, cleanPoints, linerPressure, freshSamples, penPressure, inPolygon, movedStroke, applyOps, stateOf, takeBatch, pathOf };
   if (typeof module !== "undefined" && module.exports) { module.exports = api; return; }
   root.epubInk = api;
 
@@ -150,7 +164,7 @@
     import(new URL(lib, document.baseURI).href).then(m => { getStroke = m.getStroke; repaintAll(); }).catch(() => {});
     // A mouse has no pressure (always .5): an even line.
     const outline = (points, size, last) => getStroke
-      ? getStroke(cleanPoints(points), { size: size * 2.2, thinning: .4, smoothing: .6, streamline: .45, simulatePressure: false, last })
+      ? getStroke(linerPressure(cleanPoints(points)), { size: size * 2.2, thinning: .4, smoothing: .6, streamline: .45, simulatePressure: false, last })
       : points.flatMap(([x, y]) => [[x - size / 2, y - size / 2], [x + size / 2, y + size / 2]]);
 
     // --- Where the strokes are kept --------------------------------------

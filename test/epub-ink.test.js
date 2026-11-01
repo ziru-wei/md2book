@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { applyInkOperations, createFileInkStore, createGitHubInkStore, formatInk, inkFileName, validateInkOperations } from "../lib/epub-ink.js";
 await import("../static/epub-ink.js");
-const { encodePoints, decodePoints, cleanPoints, freshSamples, penPressure, applyOps, stateOf, takeBatch, opKey } = globalThis.epubInk;
+const { encodePoints, decodePoints, cleanPoints, linerPressure, freshSamples, penPressure, applyOps, stateOf, takeBatch, opKey } = globalThis.epubInk;
 
 const stroke = (id, extra = {}) => ({ id, section: 3, color: "#26324a", size: 2.4,
   page: { key: "[\"tablet\",720,1000,1]", sheet: 2, x: 40.25, y: 80 },
@@ -38,6 +38,15 @@ test("samples a pointermove repeats are skipped; light pressure still draws", ()
   const stairs = Array.from({ length: 12 }, (_, i) => [i * 1.4, i < 6 ? 0 : 1.37, .5]);
   const smooth = cleanPoints(stairs);
   for (let i = 1; i < smooth.length; i++) assert.ok(smooth[i][1] - smooth[i - 1][1] < .6);
+});
+
+test("a line is fuller at its ends and finer in the middle, like a liner pen", () => {
+  const line = Array.from({ length: 41 }, (_, i) => [i, 0, .5]);
+  const p = linerPressure(line).map(q => q[2]);
+  assert.ok(Math.abs(p[0] - .55) < 1e-9 && Math.abs(p[40] - .55) < 1e-9, "both ends 1.1 times");
+  assert.ok(Math.abs(p[20] - .45) < 1e-9, "the middle .9 times");
+  assert.ok(p[3] < p[0] && p[3] > p[20], "eased in between");
+  assert.equal(linerPressure([[0, 0, .95]])[0][2], 1, "never past full pressure");
 });
 
 test("ink operations can be sent twice; an erased stroke never comes back", () => {
