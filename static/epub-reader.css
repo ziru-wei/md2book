@@ -180,6 +180,12 @@ html { -webkit-text-size-adjust: none; text-size-adjust: none; }
 .epub-report button { font: 12px system-ui, sans-serif; padding: 5px 12px; border: 1px solid #232527; border-radius: 999px; background: none; color: #232527; cursor: pointer; }
 .epub-report button.main { background: #232527; color: #f6f8f9; }
 
+/* A finger on the page belongs to the page turn, however slowly or
+   unevenly it moves: the paper never scrolls, so the browser takes no pan
+   from it (a pan it took would cancel the turn half-way). Pinch still zooms;
+   zoomed in, every pan is the browser's again (book.css). */
+html.is-touch:not(.is-zoomed) #epub-viewer { touch-action: pinch-zoom; }
+
 /* Handwriting: drawn over the page's text, under its ribbon. */
 .epub-handwriting { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; overflow: hidden; pointer-events: none; }
 .epub-inking #epub-viewer { cursor: crosshair; -webkit-user-select: none; user-select: none; }

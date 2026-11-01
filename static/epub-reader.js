@@ -576,7 +576,8 @@
       }, 450) };
     });
     viewer.addEventListener("pointermove", event => {
-      if (press && event.pointerId === press.id && Math.hypot(event.clientX - press.x, event.clientY - press.y) > 8) cancel();
+      // A finger already moving sideways, however slowly, is turning the page.
+      if (press && event.pointerId === press.id && (Math.hypot(event.clientX - press.x, event.clientY - press.y) > 8 || Math.abs(event.clientX - press.x) > 4)) cancel();
     });
     const up = event => {
       fingers.delete(event.pointerId);
