@@ -201,11 +201,15 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
   background: linear-gradient(90deg, rgb(150 200 80 / 60%), rgb(150 200 80 / 12%) 28%, rgb(150 200 80 / 9%) 72%, rgb(150 200 80 / 60%)); }
 
 /* Menu: bookmark rows carry a tiny ribbon; ribbons also mark the progress line. */
-.epub-glyph { display: inline-block; width: 6px; height: 14px; margin-right: 9px; vertical-align: -2px; background: #9b2f2f; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%); }
+/* A bookmark in the menu and on the progress line: a little flag, coloured as
+   its note in the book (the newest red, the others grey-white). */
+.epub-glyph { display: inline-block; width: 12px; height: 7px; margin-right: 9px; vertical-align: 1px; border-radius: 0 1.5px 1.5px 0; background: #fbfaf7; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .3); }
+.epub-glyph.is-latest { background: #c4473d; box-shadow: none; }
 .epub-bookmark-jump .toc-title { display: inline; }
 .epub-progress-wrap { position: relative; }
 #epub-ticks { position: absolute; left: 0; right: 0; top: -4px; height: 10px; pointer-events: none; }
-#epub-ticks i { position: absolute; top: 0; width: 5px; height: 11px; margin-left: -2.5px; background: #9b2f2f; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%); }
+#epub-ticks i { position: absolute; top: 0; width: 5px; height: 11px; margin-left: -2.5px; background: #fbfaf7; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .35); border-radius: 1px; }
+#epub-ticks i.is-latest { background: #c4473d; box-shadow: none; }
 
 /* Behind the sheets is the dark desk (book.css) on a tablet, with the browser's own bars
    tinted paper by the theme-color meta. On a phone the sheet is the whole screen, so the

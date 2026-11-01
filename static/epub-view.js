@@ -93,7 +93,8 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       turns.viewScale = scale;
       for (const spread of spreads) spread.inner.style.transform = `scale(${scale})`;
     }
-    for (const spread of spreads) setEdges(spread);
+    // The edges grow once the book is counted: the notes in them move with them.
+    for (const spread of spreads) { setEdges(spread); setTabs(spread); }
     for (const spread of spreads) {
       for (const page of spread.pages.flatMap(page => [page, ...page.querySelectorAll(':scope > .page-back')])) {
         if (!page.dataset.section) continue;

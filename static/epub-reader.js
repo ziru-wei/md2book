@@ -416,6 +416,7 @@
       jump.className = "epub-bookmark-jump";
       jump.innerHTML = '<span class="epub-glyph" aria-hidden="true"></span><span class="toc-title"></span>';
       jump.lastChild.textContent = bookmark.label;
+      jump.firstChild.classList.toggle("is-latest", bookmark.cfi === latestCfi());
       if (bookmark.created) jump.title = new Date(bookmark.created).toLocaleString();
       jump.addEventListener("click", () => { menu.close(); navigate(() => rendition.display(bookmark.cfi)); });
       const remove = document.createElement("button");
@@ -446,6 +447,7 @@
       const at = book.locations.percentageFromCfi(bookmark.cfi);
       if (!Number.isFinite(at) || at < 0) continue;
       const tick = document.createElement("i");
+      tick.classList.toggle("is-latest", bookmark.cfi === latestCfi());
       tick.style.left = (at * 100) + "%";
       line.append(tick);
     }
