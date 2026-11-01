@@ -122,6 +122,8 @@
       ink.toggle(); return;
     }
     if (event.code === "KeyE" && ink.active) { event.preventDefault(); ink.eraserToggle(); return; }
+    if (event.code === "KeyL" && ink.active) { event.preventDefault(); ink.setTool("lasso"); return; }
+    if ((event.key === "Backspace" || event.key === "Delete") && ink.selected) { event.preventDefault(); ink.deleteSelection(); return; }
     if (event.key === "Escape" && ink.active) { ink.toggle(); return; }
     if (event.key === " ") { event.preventDefault(); toggleMenu(); return; }
     if (menu.open) return;
@@ -147,8 +149,8 @@
     if (performance.now() - dismissedAt < 700) return;
     const box = visibleBox();
     const fraction = (x - box.left) / box.width;
-    // The menu opens from the upper half of the gutter only.
-    if (Math.abs(fraction - .5) <= .08 && y - box.top <= box.height / 2) { toggleMenu(); return; }
+    // The upper half of the gutter opens the menu, the lower half the pen kit.
+    if (Math.abs(fraction - .5) <= .08) { if (y - box.top <= box.height / 2) toggleMenu(); else ink.toggleBar(); return; }
     if (!touch) return;
     turn((fraction > .5) !== (book.package.metadata.direction === "rtl"));
   }

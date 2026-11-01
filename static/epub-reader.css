@@ -195,15 +195,23 @@ html.is-touch #epub-viewer { touch-action: pinch-zoom; }
 .epub-inking #epub-viewer { cursor: crosshair; -webkit-user-select: none; user-select: none; }
 /* Pencil strokes are ours: no Scribble, no callout. */
 #epub-viewer { -webkit-touch-callout: none; }
-#epub-ink-bar { display: flex; align-items: center; gap: 1px; padding: 2px; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%); }
+/* Pinned to the screen by static/epub-ink.js (placeBar), whatever the zoom:
+   frosted glass over the page. */
+#epub-ink-bar { display: flex; align-items: center; gap: 1px; padding: 3px; left: 0; top: 0; transform-origin: 0 0;
+  transform: translate(50vw, calc(100svh - 16px)) translate(-50%, -100%);
+  background: rgba(30, 32, 35, .5); -webkit-backdrop-filter: blur(18px) saturate(1.6); backdrop-filter: blur(18px) saturate(1.6);
+  border: 1px solid rgba(255, 255, 255, .16); border-radius: 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, .22); }
 #epub-ink-bar[hidden] { display: none; }
-#epub-ink-bar button { width: 34px; height: 30px; padding: 0; display: grid; place-items: center; color: rgba(241, 243, 244, .66); }
+#epub-ink-bar button { width: 34px; height: 30px; padding: 0; display: grid; place-items: center; color: rgba(241, 243, 244, .78); border-radius: 8px; }
 #epub-ink-bar button[aria-pressed="true"] { color: #fff; background: rgba(241, 243, 244, .14); }
 #epub-ink-bar svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 #epub-ink-bar .epub-ink-colour { width: 26px; }
 #epub-ink-bar .epub-ink-colour i { display: block; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(241, 243, 244, .35); }
 #epub-ink-bar .epub-ink-colour[aria-pressed="true"] { background: none; }
 #epub-ink-bar .epub-ink-colour[aria-pressed="true"] i { box-shadow: 0 0 0 2px var(--entry-bg), 0 0 0 3.5px rgba(241, 243, 244, .9); }
+/* The lasso's selection: its strokes outlined, a dashed box to move it by. */
+.epub-handwriting path.is-selected { filter: drop-shadow(0 0 1.2px rgba(60, 110, 220, .95)); }
+.epub-ink-selection { fill: rgba(60, 110, 220, .05); stroke: rgba(60, 110, 220, .75); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 /* Where the eraser reaches, round the pen or pointer. */
 .epub-eraser-ring { position: fixed; z-index: 36; box-sizing: border-box; border: 1.5px solid rgba(38, 50, 74, .7); border-radius: 50%;
   background: rgba(255, 255, 255, .25); box-shadow: 0 0 0 1px rgba(255, 255, 255, .6); pointer-events: none; transform: translate(-50%, -50%); }

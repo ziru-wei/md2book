@@ -115,7 +115,25 @@
     return d + "Z";
   }
 
-  const api = { opKey, encodePoints, decodePoints, cleanPoints, freshSamples, penPressure, applyOps, stateOf, takeBatch, pathOf };
+  // Whether [x, y] is inside the polygon (even-odd rule).
+  function inPolygon([x, y], poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  // A stroke moved by (dx, dy) page px, as a new stroke: strokes never change,
+  // so a move is the old one erased and this one added. Its points are kept
+  // from the page's corner, the first one whole: only that one moves.
+  function movedStroke(stroke, dx, dy, id) {
+    const pts = stroke.pts.slice();
+    pts[0] += Math.round(dx * 4); pts[1] += Math.round(dy * 4);
+    return { ...stroke, id, pts, created: new Date().toISOString() };
+  }
+
+  const api = { opKey, encodePoints, decodePoints, cleanPoints, freshSamples, penPressure, inPolygon, movedStroke, applyOps, stateOf, takeBatch, pathOf };
   if (typeof module !== "undefined" && module.exports) { module.exports = api; return; }
   root.epubInk = api;
 
@@ -381,11 +399,13 @@
       const layer = layerOf(page);
       layer.replaceChildren(...placed.map(p => p.path));
       page._ink = placed;
+      if (selection?.page === page) showSelection(page, placed, layer);
     }
 
     // --- Writing -------------------------------------------------------------
     let ink = "black";
     try { if (INKS[localStorage.getItem("md2book.epub.ink")]) ink = localStorage.getItem("md2book.epub.ink"); } catch { /* no storage */ }
+    let selection = null;   // the lasso's: { page, ids, box, paths, rect }
     let mode = false, tool = "pen", drawing = null, lastPen = -Infinity, penNear = -Infinity, undo = [];
     // Palm rejection, as a pen app does it: a hand on the screen while the pen
     // writes, hovers (an iPad that can tell) or has just lifted is a palm, and
@@ -433,10 +453,23 @@
       if (event.pointerType === "pen") onPenDown?.();   // what a palm already began (a turn, a long press) stops
       if (!page || view()?.turn || !tablet()) return;
       event.preventDefault(); event.stopImmediatePropagation();
-      if (event.pointerType === "pen") { lastPen = performance.now(); onActive?.(); }
-      const frame = frameOf(page);
-      drawing = { id: event.pointerId, page, frame, points: [local(event, frame)], erase: erasing(event), hits: new Set(), ahead: [], trace: startTrace(event, frame), last: event.timeStamp };
+      if (event.pointerType === "pen") {
+        // The Pencil opening the kit by itself writes in black.
+        if (bar.hidden) setInk("black");
+        lastPen = performance.now(); onActive?.();
+      }
+      const frame = frameOf(page), at = local(event, frame);
+      const base = { id: event.pointerId, page, frame, points: [at], hits: new Set(), ahead: [], last: event.timeStamp };
       try { viewer.setPointerCapture(event.pointerId); } catch { /* gone already */ }
+      if (tool === "lasso" && !erasing(event)) {
+        // Inside what is selected: the pen moves it; elsewhere, a new loop.
+        if (selection?.page === page && selection.box && inBox(at, selection.box)) { drawing = { ...base, move: true, from: at, dx: 0, dy: 0 }; return; }
+        clearSelection();
+        drawing = { ...base, lasso: true };
+        startLive(frame);
+        return;
+      }
+      drawing = { ...base, erase: erasing(event), trace: startTrace(event, frame) };
       if (drawing.erase) { showRing(event, frame.k); eraseAt(drawing.points[0]); }
       else { startLive(frame); drawLive(); }
     }, true);
@@ -458,12 +491,24 @@
     const clearLive = () => { liveContext.save(); liveContext.setTransform(1, 0, 0, 1, 0, 0); liveContext.clearRect(0, 0, live.width, live.height); liveContext.restore(); };
     let frameRequest = 0;
     function drawLive() {
-      if (frameRequest || !drawing || drawing.erase) return;
+      if (frameRequest || !drawing || drawing.erase || drawing.move) return;
       frameRequest = requestAnimationFrame(() => {
         frameRequest = 0;
-        if (!drawing || drawing.erase) return;
+        if (!drawing || drawing.erase || drawing.move) return;
         const t0 = performance.now();
         clearLive();
+        if (drawing.lasso) {
+          // The loop being drawn: a dashed line, closed back to where it began.
+          liveContext.save();
+          liveContext.lineWidth = 1.5; liveContext.setLineDash([5, 4]); liveContext.strokeStyle = "rgba(60, 110, 220, .9)";
+          liveContext.fillStyle = "rgba(60, 110, 220, .06)";
+          const path = new Path2D();
+          drawing.points.forEach(([x, y], i) => i ? path.lineTo(x, y) : path.moveTo(x, y));
+          path.closePath();
+          liveContext.fill(path); liveContext.stroke(path);
+          liveContext.restore();
+          return;
+        }
         // Where the pen is about to be (Safari's guess) is drawn too, so the
         // line keeps up with a quick pen; it is never kept.
         liveContext.fill(new Path2D(pathOf(outline([...drawing.points, ...drawing.ahead], SIZE, false))));
@@ -477,15 +522,18 @@
       const t0 = performance.now();
       const samples = event.getCoalescedEvents?.() || [];
       const fresh = freshSamples(samples.length ? samples : [event], drawing.last);
-      drawing.ahead = drawing.erase ? [] : (event.getPredictedEvents?.() || []).map(sample => local(sample, drawing.frame));
+      drawing.ahead = drawing.erase || drawing.lasso || drawing.move ? [] : (event.getPredictedEvents?.() || []).map(sample => local(sample, drawing.frame));
       record(drawing.trace, event, samples, fresh.length);
       if (!fresh.length) return;
       drawing.last = fresh[fresh.length - 1].timeStamp;
       for (const sample of fresh) {
         const point = local(sample, drawing.frame);
-        if (drawing.erase) eraseAt(point); else drawing.points.push(point);
+        if (drawing.erase) eraseAt(point);
+        else if (drawing.move) { drawing.dx = point[0] - drawing.from[0]; drawing.dy = point[1] - drawing.from[1]; }
+        else drawing.points.push(point);
       }
       if (drawing.erase) showRing(event, drawing.frame.k);
+      if (drawing.move) moveSelection(drawing.dx, drawing.dy);
       drawLive();
       if (drawing.trace) drawing.trace.moveMs += performance.now() - t0;
     }, true);
@@ -507,6 +555,8 @@
       drawing = null;
       try { viewer.releasePointerCapture(d.id); } catch { /* released */ }
       endTrace(d, event);
+      if (d.lasso) { cancelAnimationFrame(frameRequest); frameRequest = 0; clearLive(); select(d.page, d.points); return; }
+      if (d.move) { dropSelection(d.dx, d.dy); return; }
       if (d.erase) {
         ring.hidden = true;   // a hovering pen or the mouse shows it again
         const gone = [...bySection.values()].flat().filter(s => d.hits.has(s.id));
@@ -605,10 +655,59 @@
       return lines.join("\n");
     }
 
+    // --- The lasso: a loop drawn round strokes selects them; the pen inside the
+    // selection then moves them about the page. -------------------------------
+    const inBox = ([x, y], b) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+    function select(page, loop) {
+      if (loop.length < 3) return;
+      // A stroke is in the loop when most of it is.
+      const ids = (page._ink || []).filter(p => p.points.filter(point => inPolygon(point, loop)).length >= p.points.length * .6).map(p => p.id);
+      if (!ids.length) return;
+      selection = { page, ids: new Set(ids) };
+      paint(page);
+    }
+    function showSelection(page, placed, layer) {
+      const chosen = placed.filter(p => selection.ids.has(p.id));
+      if (!chosen.length) { selection = null; return; }
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const p of chosen) {
+        p.path.classList.add("is-selected");
+        for (const [x, y] of p.points) { x0 = Math.min(x0, x - p.size); y0 = Math.min(y0, y - p.size); x1 = Math.max(x1, x + p.size); y1 = Math.max(y1, y + p.size); }
+      }
+      const pad = 6, box = { x: x0 - pad, y: y0 - pad, w: x1 - x0 + 2 * pad, h: y1 - y0 + 2 * pad };
+      const rect = document.createElementNS(SVG, "rect");
+      rect.setAttribute("class", "epub-ink-selection");
+      for (const [k, v] of Object.entries({ x: box.x, y: box.y, width: box.w, height: box.h, rx: 4 })) rect.setAttribute(k, v);
+      layer.append(rect);
+      Object.assign(selection, { box, rect, paths: chosen.map(p => p.path) });
+    }
+    function moveSelection(dx, dy) {
+      for (const el of [...(selection?.paths || []), selection?.rect]) el?.setAttribute("transform", `translate(${dx} ${dy})`);
+    }
+    function dropSelection(dx, dy) {
+      if (!selection) return;
+      if (Math.hypot(dx, dy) < 1) { moveSelection(0, 0); return; }
+      const strokes = [...bySection.values()].flat().filter(s => selection.ids.has(s.id));
+      const moved = strokes.map(old => ({ old, now: newId() }));
+      selection.ids = new Set(moved.map(m => m.now));
+      undo.push({ moved });
+      commit([...strokes.map(s => ({ type: "erase", id: s.id })), ...moved.map(m => ({ type: "stroke", stroke: movedStroke(m.old, dx, dy, m.now) }))]);
+    }
+    function clearSelection() {
+      if (!selection) return;
+      const page = selection.page;
+      selection = null;
+      if (page.isConnected) paint(page);
+    }
+
     function undoLast() {
       const last = undo.pop();
       if (!last) return;
-      if (last.ids) commit(last.ids.map(id => ({ type: "erase", id })));
+      if (last.moved) {
+        clearSelection();
+        commit([...last.moved.map(m => ({ type: "erase", id: m.now })), ...last.moved.map(m => ({ type: "stroke", stroke: { ...m.old, id: newId() } }))]);
+      }
+      else if (last.ids) commit(last.ids.map(id => ({ type: "erase", id })));
       // An erased stroke stays erased: it comes back as a copy.
       else commit(last.restore.map(s => ({ type: "stroke", stroke: { ...s, id: newId() } })));
     }
@@ -621,6 +720,7 @@
       tool = next;
       for (const button of bar.querySelectorAll("[data-tool]")) button.setAttribute("aria-pressed", String(button.dataset.tool === tool));
       if (tool !== "eraser") ring.hidden = true;
+      if (tool !== "lasso") clearSelection();
     }
     // A colour is picked to write with: the pen again, not the eraser.
     function setInk(next) {
@@ -648,7 +748,20 @@
       else if (!matchMedia("(pointer: coarse)").matches) bar.hidden = true;
       if (!on) flush();
     }
-    function showBar() { bar.hidden = false; }
+    function showBar() { bar.hidden = false; placeBar(); }
+    // The bar stays put on the screen, the same size, however the page is
+    // pinch-zoomed or moved: kept at the bottom of what is seen, scaled back.
+    function placeBar() {
+      if (bar.hidden) return;
+      const vv = window.visualViewport;
+      if (!vv) return;
+      const s = 1 / vv.scale;
+      bar.style.transform = `translate(${vv.offsetLeft + vv.width / 2}px, ${vv.offsetTop + vv.height - 16 * s}px) scale(${s}) translate(-50%, -100%)`;
+    }
+    window.visualViewport?.addEventListener("resize", placeBar);
+    window.visualViewport?.addEventListener("scroll", placeBar);
+    window.addEventListener("resize", placeBar);
+    new MutationObserver(placeBar).observe(bar, { attributes: true, attributeFilter: ["hidden"] });
 
     // --- When to send and fetch ----------------------------------------------
     document.addEventListener("visibilitychange", () => {
@@ -674,9 +787,18 @@
       get tablet() { return tablet(); },
       get active() { return mode; },
       setTool, undo: undoLast, showBar, log,
+      // The lower half of the gutter: the pen kit (on a computer, the mouse as a pen).
+      toggleBar: () => { if (matchMedia("(pointer: coarse)").matches) { bar.hidden = !bar.hidden; if (bar.hidden) clearSelection(); } else setMode(!mode); },
+      get selected() { return Boolean(selection); },
+      deleteSelection: () => {
+        if (!selection) return;
+        const gone = [...bySection.values()].flat().filter(s => selection.ids.has(s.id));
+        selection = null;
+        if (gone.length) { undo.push({ restore: gone }); commit(gone.map(s => ({ type: "erase", id: s.id }))); }
+      },
       eraserToggle: () => setTool(tool === "eraser" ? "pen" : "eraser"),
       // A page turn is a pause in writing: send what is waiting.
-      turned: () => { if (pending.length) scheduleFlush(600); },
+      turned: () => { clearSelection(); if (pending.length) scheduleFlush(600); },
       exportData: () => ({ strokes: [...[...bySection.values()].flat()] }),
       importData: data => commit([...stateOf(data).strokes.values()].map(stroke => ({ type: "stroke", stroke })))
     };

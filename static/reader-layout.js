@@ -40,7 +40,9 @@ window.createReaderLayout = function createReaderLayout(root, { tabletAspectRati
 
   function layoutFor(wantsTablet) {
     if (!isTouch) return wantsTablet ? "tablet" : "book";
-    if (!isTablet) return "phone";
+    // EPUB's fixed paper is the same on a phone as on an iPad (same pages,
+    // same page numbers), only smaller.
+    if (!isTablet && !fixedTablet) return "phone";
     return fixedTablet ? (wantsTablet ? "tablet" : "book") : viewportWidth() > viewportHeight() ? "tablet" : "book";
   }
 
