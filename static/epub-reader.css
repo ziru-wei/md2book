@@ -72,10 +72,13 @@ html.epub-fixed-paper[data-layout="tablet"] .epub-face.page--notes {
 
 /* Retain bounded ink surfaces while the shared leaf clips and transforms them. */
 html:not(.is-touch) .epub-face > :is(.page-area,.page-bleed,.page-back) { will-change:transform; }
-/* On a tablet too when the paper effects are on, but only for the sheets on
-   screen and those about to turn in: their blurred and masked copies are then
-   drawn once and moved, instead of drawn again at every frame of a turn. */
-html.is-touch:is(.show-through, .ink-bleed, .letterpress) .spread:is(.is-current, .is-near) .epub-face > :is(.page-area, .page-bleed, .page-back) { will-change: transform; }
+/* On a tablet with the paper effects on, the text (with its letterpress) of
+   the sheets on screen and about to turn in is drawn once and moved through a
+   turn; the blurred, masked copies (show-through, ink bleed) are left out
+   while a page turns, since iPad Safari drew them again at every frame. They
+   are faint, and the page is moving: they come back as it lands. */
+html.is-touch:is(.show-through, .ink-bleed, .letterpress) .spread:is(.is-current, .is-near) .epub-face > .page-area { will-change: transform; }
+html.is-touch.is-turning .epub-face > :is(.page-back, .page-bleed, .epub-bleed) { visibility: hidden; }
 #epub-toc .toc-item button { padding-left: calc(4px + var(--depth, 0) * 1.1em); }
 #epub-toc .toc-item.is-current .toc-title { color: #fff; }
 
