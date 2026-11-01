@@ -16,10 +16,10 @@
    pages' edges, many fine lines, darker toward the outside; as tall as the
    page where it meets it and lower toward the outside (--slope), the stack
    seen a little from the side. */
-.book-edge { position: absolute; top: 0; bottom: 0; pointer-events: none; z-index: -1;
+.book-edge { position: absolute; top: 0; bottom: 0; pointer-events: none; z-index: -2;
   background:
     linear-gradient(var(--edge-dir), rgba(0, 0, 0, .02), rgba(0, 0, 0, .18)),
-    repeating-linear-gradient(90deg, color-mix(in srgb, var(--paper) 86%, transparent) 0 1.1px, rgba(120, 112, 100, .4) 1.1px 1.5px); }
+    repeating-linear-gradient(90deg, var(--paper) 0 1.1px, #c9c4bb 1.1px 1.5px); }
 .book-edge[hidden] { display: none; }
 .book-edge--left { right: 100%; --edge-dir: to left;
   clip-path: polygon(0 var(--slope), 100% 0, 100% 100%, 0 calc(100% - var(--slope))); }
@@ -152,27 +152,35 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
    red and the others grey-white. Between other pages a note is behind them,
    only its top showing above the edge; on its own page it lies on the paper. */
 /* Bookmark notes (epub-view.js, setTabs). Layered as in a book: the notes
-   between other pages under the edges (whose paper lets their colour through
-   a little: how deep they are), the edges, then the pages, a page shown with
-   its own note stuck on it. */
-.epub-tabs { position: absolute; inset: 0; z-index: -2; pointer-events: none; }
+   between other pages under the (opaque) edges, only their ends out beyond;
+   on the edges, where each lies in the stack, the sliver of it seen between
+   the pages; then the pages, a page shown with its own note stuck on it. */
+.epub-tabs { position: absolute; inset: 0; z-index: -3; pointer-events: none; }
+.epub-slivers { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.epub-sliver { position: absolute; width: 1.5px; height: 11px; background: #b9b4aa; }
+.epub-sliver.is-latest { background: #c4473d; }
 /* Only the spread on screen shows the notes between its pages; while a page
    turns, the one being uncovered does, not the one turning over it. */
-.spread:not(.is-current):not(.is-turn-under) .epub-tabs--behind, .spread.is-turn-top .epub-tabs--behind { visibility: hidden; }
+.spread:not(.is-current):not(.is-turn-under) :is(.epub-tabs--behind, .epub-slivers), .spread.is-turn-top :is(.epub-tabs--behind, .epub-slivers) { visibility: hidden; }
 /* A slim flag: as far down the edge as its place in the book (--at), from
    its page in the stack (--depth) through to past the stack's outer edge
    (--stack), sticking out --out beyond it. */
 .epub-tab { position: absolute; top: calc(var(--at) * (100% - 11px)); height: 11px; cursor: pointer; pointer-events: auto;
   width: calc(var(--stack, 0px) - var(--depth, 0px) + var(--out));
-  background: #fbfaf7; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .18), 0 .5px 1.5px rgba(0, 0, 0, .16); }
-.epub-tab--left { right: calc(100% + var(--depth, 0px)); border-radius: 2px 0 0 2px; }
-.epub-tab--right { left: calc(100% + var(--depth, 0px)); border-radius: 0 2px 2px 0; }
-.epub-tab.is-latest { background: #c4473d; box-shadow: 0 0 0 .5px rgba(90, 20, 15, .4), 0 .5px 1.5px rgba(0, 0, 0, .2); }
-.epub-tab.is-open { background: #d6d3cb; }
-.epub-tab.is-latest.is-open { background: #a63a31; }
+  --tab: #fbfaf7; --hid: calc(var(--stack, 0px) - var(--depth, 0px));
+  box-shadow: 0 0 0 .5px rgba(0, 0, 0, .2); }
+/* Where it comes out from under the edge: a narrow shadow on it. */
+.epub-tab--left { right: calc(100% + var(--depth, 0px)); border-radius: 2px 0 0 2px;
+  background: linear-gradient(to left, transparent var(--hid), rgba(0, 0, 0, .22) var(--hid), transparent calc(var(--hid) + 3px)), var(--tab); }
+.epub-tab--right { left: calc(100% + var(--depth, 0px)); border-radius: 0 2px 2px 0;
+  background: linear-gradient(to right, transparent var(--hid), rgba(0, 0, 0, .22) var(--hid), transparent calc(var(--hid) + 3px)), var(--tab); }
+.epub-tab.is-latest { --tab: #c4473d; box-shadow: 0 0 0 .5px rgba(90, 20, 15, .4); }
+.epub-tab.is-open { --tab: #d6d3cb; }
+.epub-tab.is-latest.is-open { --tab: #a63a31; }
 /* On the page shown: stuck on its paper (28px), over the whole stack beside it
    and out beyond it. */
-.epub-tab.is-here { z-index: 4; width: calc(28px + var(--stack, 0px) + var(--out)); }
+.epub-tab.is-here { z-index: 4; width: calc(28px + var(--stack, 0px) + var(--out)); background: var(--tab);
+  box-shadow: 0 0 0 .5px rgba(0, 0, 0, .25), 0 1px 3px rgba(0, 0, 0, .3); }
 .epub-tab--left.is-here { right: calc(100% - 28px); }
 .epub-tab--right.is-here { left: calc(100% - 28px); }
 /* A finger-sized target round the slim flag. */

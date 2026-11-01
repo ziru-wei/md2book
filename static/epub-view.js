@@ -434,9 +434,11 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     if (!spread.inner.isConnected) return;
     const tabs = bookmarkTabs();
     for (const page of spread.pages) page.querySelectorAll(":scope > .epub-tab").forEach(el => el.remove());
-    let behind = spread.inner.querySelector(":scope > .epub-tabs--behind");
-    if (!tabs.length || !spread.first) { behind?.remove(); return; }
+    let behind = spread.inner.querySelector(":scope > .epub-tabs--behind"), slivers = spread.inner.querySelector(":scope > .epub-slivers");
+    if (!tabs.length || !spread.first) { behind?.remove(); slivers?.remove(); return; }
     if (!behind) { behind = element("epub-tabs epub-tabs--behind"); spread.inner.prepend(behind); }
+    if (!slivers) { slivers = element("epub-slivers"); spread.inner.prepend(slivers); }
+    const lines = [];
     const first = pagination(spread.first), last = pagination(spread.last || spread.first), total = first.total;
     const stack = bookEdges() ? thickness(total) : 0;
     // How thick the stack is on either side of this spread.
@@ -463,9 +465,14 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       note.style.setProperty("--depth", depth.toFixed(2) + "px");
       note.style.setProperty("--stack", sides[right ? "right" : "left"].toFixed(2) + "px");
       elsewhere.push(note);
-      placed.push({ el: note, side: right ? "right" : "left", at: tab.at });
+      // The sliver of it seen between the pages, where it lies in the stack.
+      const line = element("epub-sliver" + (tab.latest ? " is-latest" : ""));
+      line.style[right ? "left" : "right"] = `calc(100% + ${depth.toFixed(2)}px)`;
+      if (depth > .5) lines.push(line);
+      placed.push({ el: note, side: right ? "right" : "left", at: tab.at, line });
     }
     behind.replaceChildren(...elsewhere);
+    slivers.replaceChildren(...lines);
     // Down each side as far as its place in the book, but never on top of
     // another (a name must stay readable): from the top down, each at least a
     // flag below the one above; what runs off the bottom goes back up.
@@ -476,7 +483,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       for (const p of list) { p.y = Math.max(p.at * room, y + FLAG + GAP); y = p.y; }
       y = Infinity;
       for (const p of list.slice().reverse()) { p.y = Math.max(0, Math.min(p.y, room, y - FLAG - GAP)); y = p.y; }
-      for (const p of list) p.el.style.top = p.y.toFixed(2) + "px";
+      for (const p of list) { p.el.style.top = p.y.toFixed(2) + "px"; if (p.line) p.line.style.top = p.y.toFixed(2) + "px"; }
     }
   }
 
