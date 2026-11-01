@@ -57,16 +57,17 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   // Only with two single-column sheets side by side, once the book is counted.
   // Every page is as thick as every other (page px): a book of a thousand
   // pages is a thick book. Past EDGE_MAX it would crowd the pages out.
-  const EDGE_MAX = 64, EDGE_PER_PAGE = .055, TAB_ROOM = 22;
+  const EDGE_MAX = 64, EDGE_PER_PAGE = .055, NOTE_OUT = 16;
   const bookEdges = () => !fixedLayout && root.dataset.layout === "tablet" && perSpread === 2;
   const bookTotal = () => chapters.length ? pagination({ index: chapters[0].index, sheet: 0 }).total : null;
   const thickness = total => total ? Math.min(EDGE_MAX, total * EDGE_PER_PAGE) : 0;
   // The spread's scale, with room for the edges as thick as this book's.
   let edgeRoom = 0;
+  // Either side of the pages: the edges, and the bookmark notes out of them.
+  const roomBeside = () => 2 * ((bookEdges() ? thickness(bookTotal()) : 0) + NOTE_OUT + 4);
   function fitScale() {
-    edgeRoom = bookEdges() ? 2 * thickness(bookTotal()) + 8 : 0;
-    // Above and below the pages, room for the bookmark tabs.
-    return root.dataset.layout !== "phone" ? Math.min(geometry.viewportWidth() / (width * perSpread + edgeRoom), geometry.viewportHeight() / (height + 2 * TAB_ROOM)) : 1;
+    edgeRoom = roomBeside();
+    return root.dataset.layout !== "phone" ? Math.min(geometry.viewportWidth() / (width * perSpread + edgeRoom), geometry.viewportHeight() / height) : 1;
   }
   function setEdges(spread) {
     if (!spread.first || !spread.inner.isConnected) return;
@@ -87,7 +88,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
 
   function updatePageNumbers() {
     // The book counted (or its count changed): room for its edges.
-    if (perSpread && bookEdges() && 2 * thickness(bookTotal()) + 8 !== edgeRoom) {
+    if (perSpread && roomBeside() !== edgeRoom) {
       scale = fitScale();
       turns.viewScale = scale;
       for (const spread of spreads) spread.inner.style.transform = `scale(${scale})`;
@@ -405,23 +406,24 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   };
   // Bookmarks are sticky notes now (setTabs): no ribbon on the page.
   function setRibbon(page) { page.querySelector(":scope > .epub-ribbon")?.remove(); }
-  // Bookmarks are sticky notes stuck in the book, sticking out of its top: the
-  // whole top edge of the spread is the whole book, each note where its page
-  // is in it. A note between other pages is behind these (only its top shows);
-  // the note of a page shown is on that very sheet, all of it seen, and turns
-  // with it. Each note sticks out a little more or less than the next (its
-  // own, from its place in the book), and a named one shows the name's first
-  // two characters on its top.
+  // Bookmarks are sticky notes stuck in the book, sticking out of its fore-edge
+  // as in a printed book: a note between pages already read out of the left
+  // edge, between pages still to read out of the right one, as deep in the
+  // stack as its page is (EDGE_PER_PAGE a page) and as far down the edge as its
+  // place in the book (top 0 %, bottom 100 %). The note of a page shown is on
+  // that very sheet, sticking out of its outer edge, and turns with it. A note
+  // given a name shows its first two characters.
   const pageOf = (spread, cfi) => spread.pages.find(page => {
     const range = pageRange.get(page);
     return range && cfi.startsWith(`epubcfi(${range.base}!`) && compareCfi(cfi, range.start) >= 0 && (!range.end || compareCfi(cfi, range.end) < 0);
   });
-  const jitter = cfi => { let h = 2166136261; for (let i = 0; i < cfi.length; i++) h = Math.imul(h ^ cfi.charCodeAt(i), 16777619); return ((h >>> 0) % 800) / 100; };
-  function noteFor(tab, left) {
-    const el = element("epub-tab" + (tab.latest ? " is-latest" : ""));
+  // Each note sticks out its own little bit more or less (from its place, so always the same).
+  const jitter = cfi => { let h = 2166136261; for (let i = 0; i < cfi.length; i++) h = Math.imul(h ^ cfi.charCodeAt(i), 16777619); return ((h >>> 0) % 500) / 100; };
+  function noteFor(tab, side) {
+    const el = element(`epub-tab epub-tab--${side}` + (tab.latest ? " is-latest" : ""));
     el.dataset.cfi = tab.cfi;
-    el.style.left = left;
-    el.style.setProperty("--lift", jitter(tab.cfi).toFixed(2) + "px");
+    el.style.setProperty("--at", tab.at.toFixed(4));
+    el.style.setProperty("--out", (NOTE_OUT - 5 + jitter(tab.cfi)).toFixed(2) + "px");
     if (tab.short) { const name = element("epub-tab-name-short"); name.textContent = tab.short; el.append(name); }
     el.setAttribute("role", "button"); el.setAttribute("aria-label", tab.label || "Bookmark");
     el.addEventListener("click", event => { event.stopPropagation(); onTab?.(tab.cfi, el); });
@@ -432,21 +434,33 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     const tabs = bookmarkTabs();
     for (const page of spread.pages) page.querySelectorAll(":scope > .epub-tab").forEach(el => el.remove());
     let behind = spread.inner.querySelector(":scope > .epub-tabs--behind");
-    if (!tabs.length) { behind?.remove(); return; }
-    // Before the pages, so they cover it.
+    if (!tabs.length || !spread.first) { behind?.remove(); return; }
     if (!behind) { behind = element("epub-tabs epub-tabs--behind"); spread.inner.prepend(behind); }
-    const elsewhere = [], innerWidth = spread.inner.offsetWidth;
+    const first = pagination(spread.first), last = pagination(spread.last || spread.first), total = first.total;
+    const stack = bookEdges() ? thickness(total) : 0;
+    const elsewhere = [];
     for (const tab of tabs) {
       const page = pageOf(spread, tab.cfi);
-      if (!page) { elsewhere.push(noteFor(tab, (tab.at * 100).toFixed(3) + "%")); continue; }
-      // On its sheet, where along the spread's top edge it belongs.
-      const offset = perSpread === 2 && page.classList.contains("page--right") ? page.offsetWidth : 0;
-      const note = noteFor(tab, (tab.at * innerWidth - offset).toFixed(2) + "px");
-      note.classList.add("is-here");
-      page.append(note);
+      if (page) {
+        // On its sheet, out of the sheet's outer edge (a lone page: by its place in the book).
+        const right = perSpread === 2 ? page.classList.contains("page--right") : tab.at >= .5;
+        const note = noteFor(tab, right ? "right" : "left");
+        note.classList.add("is-here");
+        page.append(note);
+        continue;
+      }
+      // Between other pages: before this spread on the left, after it on the right.
+      const at = total ? Math.max(1, Math.round(tab.at * total)) : null;
+      const right = at !== null && first.page !== null ? at > (last.page ?? first.page) : tab.at > .5;
+      const depth = !total || !stack ? 0 : stack * (right ? at - (last.page ?? first.page) : (first.page ?? 1) - at) / total;
+      const note = noteFor(tab, right ? "right" : "left");
+      note.style.setProperty("--depth", depth.toFixed(2) + "px");
+      note.style.setProperty("--stack", (stack * (right ? total - (last.page ?? 0) : (first.page ?? 1) - 1) / (total || 1)).toFixed(2) + "px");
+      elsewhere.push(note);
     }
     behind.replaceChildren(...elsewhere);
   }
+
   // A highlight is pressed hard enough to show on the back of the sheet: the
   // marks of the page behind this one, mirrored, faint, under this page's text.
   async function setBleed(page) {
