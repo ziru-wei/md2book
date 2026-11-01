@@ -115,10 +115,8 @@
     }
     if (event.altKey || event.ctrlKey || event.metaKey || typing || event.target?.tagName === "BUTTON") return;
     // P: the mouse writes (and again: it reads); E: the eraser while writing.
-    // Handwriting is on the single-column (iPad) pages only: P goes there first.
     if (event.code === "KeyP" && !menu.open) {
       event.preventDefault();
-      if (!ink.active && !ink.tablet && rendition?.canSwitchColumns) navigate(() => rendition.toggleColumns());
       ink.toggle(); return;
     }
     if (event.code === "KeyE" && ink.active) { event.preventDefault(); ink.eraserToggle(); return; }
@@ -127,7 +125,6 @@
     if (event.key === "Escape" && ink.active) { ink.toggle(); return; }
     if (event.key === " ") { event.preventDefault(); toggleMenu(); return; }
     if (menu.open) return;
-    if (event.code === "Backslash" || event.key === "\\") { event.preventDefault(); if (ink.active) ink.toggle(); navigate(() => rendition.toggleColumns()); return; }
     if (event.code === "Slash" || event.key === "/") { event.preventDefault(); navigate(() => rendition.toggleSpread()); return; }
     const back = ["a", "A", "ArrowLeft"].includes(event.key) || event.code === "ShiftLeft";
     const forward = ["d", "D", "ArrowRight"].includes(event.key) || event.code === "ShiftRight";
@@ -414,15 +411,19 @@
       const li = document.createElement("li");
       const jump = document.createElement("button");
       jump.className = "epub-bookmark-jump";
-      jump.innerHTML = '<span class="epub-glyph" aria-hidden="true"></span><span class="toc-title"></span>';
-      jump.lastChild.textContent = bookmark.label;
+      // The name (or, until one is given, page | how the page begins), and how
+      // far into the book, apart on the right.
+      jump.innerHTML = '<span class="epub-glyph" aria-hidden="true"></span><span class="toc-title"></span><span class="epub-bookmark-pct"></span>';
+      jump.querySelector(".toc-title").textContent = nameOf(bookmark);
+      jump.querySelector(".toc-title").classList.toggle("is-placeholder", !bookmark.label);
+      jump.querySelector(".epub-bookmark-pct").textContent = Number.isFinite(bookmark.percent) ? `${(bookmark.percent * 100).toFixed(1)}%` : "";
       jump.firstChild.classList.toggle("is-latest", bookmark.cfi === latestCfi());
       if (bookmark.created) jump.title = new Date(bookmark.created).toLocaleString();
       jump.addEventListener("click", () => { menu.close(); navigate(() => rendition.display(bookmark.cfi)); });
       const remove = document.createElement("button");
       remove.className = "epub-bookmark-remove";
       remove.innerHTML = '<span class="toc-title">×</span>';
-      remove.setAttribute("aria-label", `Remove bookmark: ${bookmark.label}`);
+      remove.setAttribute("aria-label", `Remove bookmark: ${nameOf(bookmark)}`);
       remove.disabled = bookmarkBusy;
       remove.addEventListener("click", () => changeBookmark({ type: "remove", cfi: bookmark.cfi }));
       li.className = "toc-item"; li.append(jump, remove); list.append(li);
@@ -442,9 +443,8 @@
     const line = $("epub-ticks");
     if (!line) return;
     line.replaceChildren();
-    if (!locationsReady) return;
     for (const bookmark of bookmarks) {
-      const at = book.locations.percentageFromCfi(bookmark.cfi);
+      const at = bookmark.percent;
       if (!Number.isFinite(at) || at < 0) continue;
       const tick = document.createElement("i");
       tick.classList.toggle("is-latest", bookmark.cfi === latestCfi());
@@ -517,7 +517,9 @@
         const result = bookmarks.filter(b => b.cfi !== operation.cfi);
         // Renamed, a bookmark keeps its date (and so whether it is the newest).
         const kept = bookmarks.find(b => b.cfi === operation.cfi);
-        if (operation.type === "add") result.push({ cfi: operation.cfi, label: operation.label, created: kept?.created || new Date().toISOString() });
+        const meta = {};
+        for (const key of ["excerpt", "page", "percent"]) if ((operation[key] ?? kept?.[key]) !== undefined) meta[key] = operation[key] ?? kept[key];
+        if (operation.type === "add") result.push({ cfi: operation.cfi, label: operation.label, ...meta, created: kept?.created || new Date().toISOString() });
         bookmarks = result;
         await saveLocal({ bookmarks, highlights });
       }
@@ -532,13 +534,23 @@
     if (bookmarks.some(b => b.cfi === current.start.cfi)) changeBookmark({ type: "remove", cfi: current.start.cfi });
     else addBookmark.click();
   });
-  const newBookmarkLabel = () => {
-    const chapter = chapterAt(current.start.index)?.label || `Chapter ${current.start.index + 1}`;
-    return `${chapter}${locationsReady ? ` · ${percent.textContent}` : ""}`.slice(0, 300);
-  };
+  // A bookmark is made with what stays true of it, as its date does: the page
+  // it was on, how far into the book that is, and how the page begins (its
+  // name until it is given one).
+  function bookmarkMeta() {
+    const shown = viewer.querySelector(".spread.is-current .page.epub-face:not(.page--absent) .epub-page-content");
+    const text = (shown?.shadowRoot?.querySelector("body")?.textContent || "").replace(/\s+/g, " ").trim();
+    const page = current?.pagination?.page ?? null, total = current?.pagination?.total ?? null;
+    const spine = book.spine.spineItems.filter(s => s.linear), at = spine.findIndex(s => s.index === current.start.index);
+    const percent = page && total ? (page - 1) / total
+      : locationsReady ? book.locations.percentageFromCfi(current.start.cfi)
+      : Math.max(0, at) / Math.max(1, spine.length);
+    return { ...(text ? { excerpt: text.slice(0, 24) } : {}), ...(page ? { page } : {}), percent: Math.round(Math.min(1, Math.max(0, percent)) * 10000) / 10000 };
+  }
+  const nameOf = b => b.label || `${b.page ?? "—"} | ${b.excerpt || ""}`.trim();
   addBookmark.addEventListener("click", () => {
     if (!current || bookmarks.some(b => b.cfi === current.start.cfi)) return;
-    changeBookmark({ type: "add", cfi: current.start.cfi, label: newBookmarkLabel() });
+    changeBookmark({ type: "add", cfi: current.start.cfi, label: "", ...bookmarkMeta() });
   });
 
   // --- Bookmark tabs on the top edge -----------------------------------------
@@ -546,13 +558,11 @@
   // bookmark's whole name (to rename or delete it); tapped again, goes there.
   const latestCfi = () => bookmarks.reduce((a, b) => !a || String(b.created || "") > String(a.created || "") ? b : a, null)?.cfi || null;
   const bookmarkTabs = () => {
-    if (!locationsReady) return [];
     const latest = latestCfi();
-    // A name given by hand (not the "chapter · percent" a bookmark starts with)
-    // shows its first two characters on the note.
-    const named = label => label && !/ · [\d.]+%$/.test(label) ? [...label.trim()].slice(0, 2).join("") : "";
-    return bookmarks.map(b => ({ cfi: b.cfi, label: b.label, short: named(b.label), at: book.locations.percentageFromCfi(b.cfi), latest: b.cfi === latest }))
-      .filter(t => Number.isFinite(t.at) && t.at >= 0);
+    // A name given by hand shows its first two characters on the note. Where
+    // it is down the edge and how deep in it: from the place it was made at.
+    return bookmarks.filter(b => Number.isFinite(b.percent) && Number.isInteger(b.page))
+      .map(b => ({ cfi: b.cfi, label: nameOf(b), short: b.label ? [...b.label.trim()].slice(0, 2).join("") : "", at: b.percent, page: b.page, latest: b.cfi === latest }));
   };
   const tabPop = document.createElement("div");
   tabPop.className = "epub-popup epub-tab-pop"; tabPop.hidden = true;
@@ -570,7 +580,8 @@
     if (!tabPop.hidden && tabPop.dataset.cfi === cfi && !rename) { closeTab(); navigate(() => rendition.display(cfi)); return; }
     tabPop.dataset.cfi = cfi;
     markOpen(cfi);
-    tabName.textContent = b.label || "Bookmark";
+    tabName.textContent = nameOf(b);
+    tabName.classList.toggle("is-placeholder", !b.label);
     tabInput.hidden = true; tabName.hidden = false;
     const r = el?.getBoundingClientRect?.() || el;
     place(tabPop, { left: r.left, width: r.width || 0, top: r.top, bottom: (r.bottom ?? r.top) + 6 }, true);
@@ -579,14 +590,16 @@
   function startRename() {
     const b = bookmarks.find(x => x.cfi === tabPop.dataset.cfi);
     if (!b) return;
-    tabInput.value = b.label || ""; tabName.hidden = true; tabInput.hidden = false;
+    tabInput.value = b.label || ""; tabInput.placeholder = nameOf({ ...b, label: "" });
+    tabName.hidden = true; tabInput.hidden = false;
     tabInput.focus(); tabInput.select();
   }
   async function saveRename() {
     const cfi = tabPop.dataset.cfi, label = tabInput.value.trim().slice(0, 300), b = bookmarks.find(x => x.cfi === cfi);
     tabInput.hidden = true; tabName.hidden = false;
-    if (!b || !label || label === b.label) return;
-    tabName.textContent = label;
+    // An empty name gives the bookmark back its "page | text" one.
+    if (!b || label === (b.label || "")) return;
+    tabName.textContent = nameOf({ ...b, label }); tabName.classList.toggle("is-placeholder", !label);
     await changeBookmark({ type: "add", cfi, label });
   }
   tabPop.addEventListener("click", event => {
@@ -607,7 +620,7 @@
   async function quickBookmark() {
     if (!current || !bookmarksReady) return;
     const cfi = current.start.cfi;
-    if (!bookmarks.some(b => b.cfi === cfi)) await changeBookmark({ type: "add", cfi, label: newBookmarkLabel() });
+    if (!bookmarks.some(b => b.cfi === cfi)) await changeBookmark({ type: "add", cfi, label: "", ...bookmarkMeta() });
     if (!bookmarks.some(b => b.cfi === cfi)) return;
     const tab = viewer.querySelector(`.spread.is-current .epub-tab[data-cfi="${CSS.escape(cfi)}"]`);
     const page = viewer.querySelector(".spread.is-current .page.epub-face:not(.page--absent)")?.getBoundingClientRect();

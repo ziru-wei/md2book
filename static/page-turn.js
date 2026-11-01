@@ -208,6 +208,8 @@ window.createPageTurn = function createPageTurn(state) {
       anim: null,
       t0: performance.now(), lastFrame: performance.now(), frames: 0, worst: 0, worstAt: 0
     };
+    // The reader may dress the turning sheet (both its faces) for the turn.
+    state.onTurnStart?.({ frontPage, backPage, top: state.spreads[top], under: state.spreads[top === from ? to : from] });
     drawTurn(0);
     return turn;
   }
@@ -244,7 +246,7 @@ window.createPageTurn = function createPageTurn(state) {
       // iframe views can override inherited visibility; opacity hides the
       // entire folded surface, including independently composited children.
       for (const el of flapParts) el.style.opacity = "0";
-      if (!t.double) uncut(t.frontLeaf);
+      uncut(t.frontLeaf);
       return;
     }
     for (const el of flapParts) el.style.opacity = "";
@@ -270,14 +272,14 @@ window.createPageTurn = function createPageTurn(state) {
     t.backBand.style.opacity = curl.toFixed(3);
     t.backBand.style.transform = css(bandMap(t.backBand, [W - M[0], M[1]], [n[0], -n[1]]));
 
+    // The turning page, cut back to the fold (two pages a spread, what's
+    // beyond its edges too: a note sticking out of it goes with the flap).
+    cutAlong(t.frontLeaf, M, n, [[t.frontPage, IDENTITY]]);
     if (t.double) {
       // The page underneath shows where the flap lifted off; the facing
       // page of the next spread is the flap.
       cutAlong(t.underLeaf, M, m, [[t.underPage, IDENTITY]]);
       cutAlong(t.backLeaf, M, n, [[t.backPage, flip]], t.backOrigin);
-    } else {
-      // The turning page, cut back to the fold.
-      cutAlong(t.frontLeaf, M, n, [[t.frontPage, IDENTITY]]);
     }
     cutAlong(t.backShade, M, n, [[t.backSheet, flip]]);
     cutAlong(t.frontShade, M, n, [[t.frontBand, bandMap(t.frontBand, M, n)]]);
@@ -300,6 +302,7 @@ window.createPageTurn = function createPageTurn(state) {
     state.current = index;
     state.markSpreads();
     for (const i of [t.from, t.to]) { state.spreads[i].style.zIndex = ""; state.spreads[i].classList.remove("is-turn-top", "is-turn-under"); }
+    state.onTurnEnd?.();
     for (const el of [t.frontLeaf, t.backLeaf, t.underLeaf]) {
       if (!el) continue;
       uncut(el);

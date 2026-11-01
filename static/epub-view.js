@@ -18,8 +18,10 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   const content = window.createEpubContent(book, root, row, fixedLayout);
   root.classList.add("reader", "epub-fixed-paper");
   mount.tabIndex = 0;
-  let wantsTablet = Number(row.columns) === 1, wantsDouble = null;
-  let perSpread, columns, width, height, scale, current, disposed = false;
+  // One column a page always (the iPad's pages, on every screen): the pages,
+  // their numbers and the handwriting on them are the same everywhere.
+  let wantsDouble = null;
+  let perSpread, width, height, scale, current, disposed = false;
   let serial = Promise.resolve(), background = Promise.resolve(), foregroundBusy = false, resizeTimer, engine, gesture, lastTheme = {};
   const listeners = new Map(), hooks = [], spreads = new Set(), turnWaiters = [];
   const waitForPaper = () => engine?.turn ? new Promise(resolve => turnWaiters.push(resolve)) : Promise.resolve();
@@ -86,6 +88,17 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     }
   }
 
+  // A spread's edges and the notes in them follow from where it lies in
+  // the book: made with it, and again only when that changes (the book
+  // counted further), not on every turn.
+  function setStack(spread) {
+    if (!spread.first) return;
+    const first = pagination(spread.first), last = pagination(spread.last || spread.first);
+    const key = `${first.page}|${last.page}|${first.total}`;
+    if (spread.stackKey === key) return;
+    spread.stackKey = key;
+    setEdges(spread); setTabs(spread);
+  }
   function updatePageNumbers() {
     // The book counted (or its count changed): room for its edges.
     if (perSpread && roomBeside() !== edgeRoom) {
@@ -94,7 +107,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       for (const spread of spreads) spread.inner.style.transform = `scale(${scale})`;
     }
     // The edges grow once the book is counted: the notes in them move with them.
-    for (const spread of spreads) { setEdges(spread); setTabs(spread); }
+    for (const spread of spreads) setStack(spread);
     for (const spread of spreads) {
       for (const page of spread.pages.flatMap(page => [page, ...page.querySelectorAll(':scope > .page-back')])) {
         if (!page.dataset.section) continue;
@@ -131,15 +144,40 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   const paint = () => new Promise(resolve => requestAnimationFrame(resolve));
   const element = window.createPageTurn.element;
   const turns = { pageWidth: 0, pageHeight: 0, viewScale: 1, perSpread: 1, current: 0, spreads: [], spreadPages: [] };
+  // A turning sheet carries its bookmark notes on both faces (a note sticks out
+  // of the sheet's edge, seen from either side): each face's note is copied,
+  // mirrored, onto the other for the turn; and the spread on top, whose notes
+  // show while a page turns, keeps those between its pages, not the turning
+  // sheet's (that is still turning, not yet in a stack).
+  turns.onTurnStart = ({ frontPage, backPage, top }) => {
+    const cfis = new Set();
+    for (const [from, to] of [[frontPage, backPage], [backPage, frontPage]]) {
+      if (!from) continue;
+      for (const note of from.querySelectorAll(":scope > .epub-tab.is-here:not(.is-twin)")) {
+        cfis.add(note.dataset.cfi);
+        if (!to) continue;
+        const twin = note.cloneNode(true);
+        twin.classList.add("is-twin");
+        twin.classList.toggle("epub-tab--left", note.classList.contains("epub-tab--right"));
+        twin.classList.toggle("epub-tab--right", note.classList.contains("epub-tab--left"));
+        to.append(twin);
+      }
+    }
+    for (const note of top.querySelectorAll(".epub-tabs--behind > .epub-tab")) note.classList.toggle("is-turning", cfis.has(note.dataset.cfi));
+  };
+  turns.onTurnEnd = () => {
+    for (const el of mount.querySelectorAll(".epub-tab.is-twin")) el.remove();
+    for (const el of mount.querySelectorAll(".epub-tab.is-turning")) el.classList.remove("is-turning");
+  };
   engine = window.createPageTurn(turns);
   function configure() {
     clearTimeout(indexTimer); indexEpoch++; indexing = false; paginationError = false;
-    geometry.applyLayout(wantsTablet);
+    geometry.applyLayout(true);
     perSpread = geometry.pagesPerSpread(wantsDouble);
-    columns = !fixedLayout && root.dataset.layout === "book" ? 2 : 1;
     const probe = element("page"); mount.append(probe);
     width = probe.offsetWidth; height = probe.offsetHeight; probe.remove();
-    const nextKey = JSON.stringify([root.dataset.layout, width, height, columns]);
+    // (Its last place, the columns, is always 1: kept so counts and handwriting saved under it still match.)
+    const nextKey = JSON.stringify([root.dataset.layout, width, height, 1]);
     if (nextKey !== layoutKey) {
       layoutKey = nextKey;
       if (!pageIndexes.has(layoutKey)) pageIndexes.set(layoutKey, new Map());
@@ -188,9 +226,8 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     const area = element("page-area"), viewport = element("epub-viewport"), number = element("page-number");
     area.append(viewport); page.append(area, number);
     spread.inner.append(engine.leaf("", [page])); spread.pages.push(page);
-    const gap = columns === 2 ? parseFloat(getComputedStyle(root).getPropertyValue("--column-gap")) : 0;
-    Object.assign(viewport.style, {left:-gap / 2 + "px", width:area.offsetWidth + gap + "px", height:area.offsetHeight + "px"});
-    return {page, area, viewport, number, gap};
+    Object.assign(viewport.style, {width:area.offsetWidth + "px", height:area.offsetHeight + "px"});
+    return {page, area, viewport, number};
   }
   // Laid-out chapters hold a DOM clone of every sheet: keep only the few read
   // lately. Page counting (`transient`) measures every chapter once but must not
@@ -314,12 +351,12 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
         const spread = {el:element("spread epub-preparing"), inner:element("spread-inner"), pages:[], renders:[]};
         spread.el.inert = true; spread.el.setAttribute("aria-hidden","true");
         spread.el.append(spread.inner); outerMount.append(spread.el);
-        const {page,area,viewport,gap} = pageShell(spread, 0, notes.length > 0);
+        const {page,area,viewport} = pageShell(spread, 0, notes.length > 0);
         let rendition;
         try {
           const r = rendition = new PaperRendition(book, {
-            width: area.offsetWidth + gap, height: area.offsetHeight,
-            flow: "paginated", spread: columns === 2 ? "both" : "none", minSpreadWidth: 0, gap,
+            width: area.offsetWidth, height: area.offsetHeight,
+            flow: "paginated", spread: "none", minSpreadWidth: 0, gap: 0,
             allowScriptedContent: false, allowPopups: false, resizeOnOrientationChange: false
           });
 
@@ -459,7 +496,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       // right, by its exact place (the page a percentage suggests can be off
       // by a few). How deep it lies: from that page, within its side's stack.
       const right = compareCfi(tab.cfi, spread.location.start.cfi) > 0;
-      const at = total ? Math.max(1, Math.round(tab.at * total)) : null;
+      const at = tab.page;
       const side = sides[right ? "right" : "left"];
       const depth = !total || !stack ? 0
         : Math.min(Math.max(side - .5, 0), Math.max(.5, stack * (right ? at - (last.page ?? first.page) : (first.page ?? 1) - at) / total));
@@ -473,7 +510,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     // Down each side as far as its place in the book, but never on top of
     // another (a name must stay readable): from the top down, each at least a
     // flag below the one above; what runs off the bottom goes back up.
-    const FLAG = 11, GAP = 1, room = height - FLAG;
+    const FLAG = 16, GAP = 1, room = height - FLAG;
     for (const side of ["left", "right"]) {
       const list = placed.filter(p => p.side === side).sort((a, b) => a.at - b.at);
       let y = -Infinity;
@@ -627,7 +664,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       spread.first = first.point; spread.last = last.point;
       spread.location = { start: first.location.start, end: last.location.end,
         atStart: !adjacent(first.point, false), atEnd: !adjacent(last.point, true), pagination: pagination(first.point) };
-      setEdges(spread); setTabs(spread);
+      setStack(spread);
       if (row.showThrough && root.dataset.layout !== "phone") {
         // Prepare both outward faces before a spread can become visible.
         // This also covers reverse navigation and opening in mid-book.
@@ -845,7 +882,6 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     on(name, fn) { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); },
     display: target => enqueue(() => display(target)),
     next: () => enqueue(() => move(true)), prev: () => enqueue(() => move(false)),
-    toggleColumns: () => enqueue(() => { if (geometry.isTouch || fixedLayout) return; wantsTablet = !wantsTablet; return relayout(); }),
     toggleSpread: () => enqueue(() => { if (geometry.isTouch) return; wantsDouble = perSpread !== 2; return relayout(); }),
     dragTurn,
     releaseTurn: velocity => settleGesture("release", velocity),
@@ -949,8 +985,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     },
     currentLocation: () => current?.location,
     get canSwitchSpread() { return !geometry.isTouch; },
-    get canSwitchColumns() { return !geometry.isTouch && !fixedLayout; },
-    get columns() { return columns; }, get perSpread() { return perSpread; },
+    get perSpread() { return perSpread; },
     getContents: () => [{document:readingDocument}],
     destroy() { disposed = true; chapterCache.clear(); clearTimeout(resizeTimer); clearTimeout(indexTimer); indexEpoch++; window.removeEventListener("resize", onResize); engine.cancelTurn(); turnWaiters.splice(0).forEach(done => done()); for (const entry of spreads) destroySpread(entry); }
   };

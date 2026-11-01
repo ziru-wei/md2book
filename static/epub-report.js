@@ -32,7 +32,7 @@ window.md2bookLayoutReport = async function (ctx) {
   out("ua:", navigator.userAgent);
   out("platform:", navigator.platform, "| touch points:", navigator.maxTouchPoints, "| dpr:", devicePixelRatio);
   out("screen:", `${screen.width}x${screen.height}`, "| viewport:", `${root.clientWidth}x${root.clientHeight}`, "| standalone:", matchMedia("(display-mode: standalone)").matches || navigator.standalone === true);
-  out("layout:", root.dataset.layout, "| columns:", rendition?.columns, "| pages per spread:", rendition?.perSpread,
+  out("layout:", root.dataset.layout, "| pages per spread:", rendition?.perSpread,
     "| paper:", css.getPropertyValue("--paper-width").trim() || "(book)", "x", css.getPropertyValue("--page-height").trim() || "(book)");
   out("row:", JSON.stringify(row));
   out("paper effects on:", ["show-through", "letterpress", "ink-bleed"].filter(name => root.classList.contains(name)).join(", ") || "none");

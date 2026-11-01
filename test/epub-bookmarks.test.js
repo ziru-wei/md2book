@@ -67,3 +67,15 @@ test("a local vault keeps each book's notes in its own file, one write at a time
   assert.deepEqual(fs.readdirSync(path.join(root, "Book", "EPUB Notes")), ["Book.json"]);
   assert.deepEqual(await store.read(id, "Book.json"), { bookmarks: saved.bookmarks, highlights: saved.highlights });
 });
+
+test("a bookmark renamed keeps what it was made with: date, excerpt, page, percent", () => {
+  const first = applyBookmarkOperation([], validateBookmarkOperation({ type: "add", cfi: a.cfi, label: "", excerpt: "圣地亚哥站在门口", page: 35, percent: .048 }));
+  const renamed = applyBookmarkOperation(first, validateBookmarkOperation({ type: "add", cfi: a.cfi, label: "审讯" }));
+  assert.equal(renamed[0].label, "审讯");
+  assert.equal(renamed[0].excerpt, "圣地亚哥站在门口");
+  assert.equal(renamed[0].page, 35);
+  assert.equal(renamed[0].percent, .048);
+  assert.equal(renamed[0].created, first[0].created);
+  assert.throws(() => validateBookmarkOperation({ type: "add", cfi: a.cfi, label: "", percent: 2 }));
+  assert.throws(() => validateBookmarkOperation({ type: "add", cfi: a.cfi, label: "", excerpt: "x".repeat(121) }));
+});
