@@ -79,3 +79,11 @@ test("a bookmark renamed keeps what it was made with: date, excerpt, page, perce
   assert.throws(() => validateBookmarkOperation({ type: "add", cfi: a.cfi, label: "", percent: 2 }));
   assert.throws(() => validateBookmarkOperation({ type: "add", cfi: a.cfi, label: "", excerpt: "x".repeat(121) }));
 });
+
+test("a note keeps where its sticky note was in the margin; a highlight without a note has none", () => {
+  const h = { id: "n1", section: 3, quote: "words", note: "a thought", place: { page: 12, y: 340.27, h: 48 } };
+  assert.deepEqual(validateBookmarkOperation({ type: "highlight", highlight: h }).highlight.place, { page: 12, y: 340.3, h: 48 });
+  assert.equal(validateBookmarkOperation({ type: "highlight", highlight: { ...h, note: "" } }).highlight.place, undefined);
+  assert.throws(() => validateBookmarkOperation({ type: "highlight", highlight: { ...h, place: { page: 0, y: 1, h: 1 } } }));
+  assert.throws(() => validateBookmarkOperation({ type: "highlight", highlight: { ...h, place: { page: 2, y: -1, h: 1 } } }));
+});

@@ -93,7 +93,7 @@
         const middle = from > 0 ? target.splitText(from) : target;
         const mark = body.ownerDocument.createElement("span");
         mark.className = "epub-hl" + (h.pending ? " is-pending" : "") + (h.marker === false ? " bare" : ""); mark.dataset.id = h.id;
-        if (h.note) mark.dataset.note = "";
+        if (h.note || h.draft) mark.dataset.note = "";
         middle.replaceWith(mark); mark.append(middle);
       }
     }

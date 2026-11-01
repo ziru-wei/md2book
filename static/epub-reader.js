@@ -146,6 +146,10 @@
   // click) on one bookmarks the page on that side; a single one does nothing,
   // not even turn the page.
   let lastSideTap = { side: null, at: -Infinity };
+  // (A double click there isn't the one beside the book that goes back to the
+  // shelf, reader-opening.js, nor picks the word nearest.)
+  document.addEventListener("dblclick", event => { if (sideStrip(event.clientX, event.clientY)) event.stopPropagation(); }, true);
+  document.addEventListener("mousedown", event => { if (event.detail > 1 && sideStrip(event.clientX, event.clientY)) event.preventDefault(); }, true);
   function sideStrip(x, y) {
     const pages = [...viewer.querySelectorAll(".spread.is-current .page.epub-face:not(.page--absent)")];
     if (!pages.length) return null;
@@ -281,7 +285,7 @@
     let start = null;
     const doc = documentOrElement.ownerDocument || documentOrElement;
     const hasSelection = () => doc === document ? selectionActive() : Boolean(doc.getSelection()?.toString());
-    const interactive = target => target.closest?.("a, button, input, select, textarea, audio, video, [contenteditable], span.epub-hl, .epub-ribbon, .epub-tab");
+    const interactive = target => target.closest?.("a, button, input, select, textarea, audio, video, [contenteditable], span.epub-hl, .epub-ribbon, .epub-tab, .epub-sticky");
     const toViewer = (x, y) => {
       if (doc === document) return [x, y];
       const frame = doc.defaultView.frameElement, rect = frame.getBoundingClientRect();
@@ -671,7 +675,10 @@
   // a failed save reloads what is actually stored.
   // While a highlight is being stretched, the painted copy follows its saved note and marker.
   const livePending = () => { const saved = pending?.edit && highlights.find(x => x.id === pending.id); return saved ? { ...pending, note: saved.note, marker: saved.marker } : pending; };
-  const highlightsOf = index => [...highlights.filter(h => h.section === index && h.id !== pending?.id), ...(pending?.section === index ? [livePending()] : [])];
+  // (And a new note not yet written: its sticky note, empty, by its passage.)
+  let draftNote = null;
+  const highlightsOf = index => [...highlights.filter(h => h.section === index && h.id !== pending?.id), ...(pending?.section === index ? [livePending()] : []),
+    ...(draftNote?.section === index ? [draftNote] : [])];
   let saving = Promise.resolve();
   function changeHighlight(operation) {
     if (!bookmarksReady) return;
@@ -764,7 +771,8 @@
     return true;
   }
   // A tap on a highlight selects it: handles to stretch it, and Note / Delete.
-  function startEdit(mark) {
+  // A tapped highlight: its handles, and (`box`) the box for a note to it.
+  function startEdit(mark, box = true) {
     const h = highlights.find(x => x.id === mark.dataset.id), found = h && rendition.editInfo(mark);
     if (!found) return false;
     if (pending?.id === h.id) return true;
@@ -772,7 +780,8 @@
     pending = { ...found, id: h.id, edit: true, base: h, note: h.note, quote: h.quote, prefix: h.prefix, suffix: h.suffix };
     rendition.refreshHighlights();
     showSelection();
-    if (pending) openEditor(h);
+    if (pending && box) { openEditor(h); bar.hidden = true; }
+    else bar.hidden = true;
     return true;
   }
   // The stretched range of a tapped highlight is saved when the handle is let go.
@@ -854,7 +863,7 @@
     }, 250);
   });
   document.addEventListener("pointerdown", event => {
-    if (pending && !pending.edit && !bar.contains(event.target) && !editor.contains(event.target) && !event.target.closest?.(".epub-handle")) { dismissedAt = performance.now(); dismissedStamp = event.timeStamp; clearPending(); }
+    if (pending && !pending.edit && !bar.contains(event.target) && !editor.contains(event.target) && !event.target.closest?.(".epub-handle, .epub-sticky, .epub-sticky-delete")) { dismissedAt = performance.now(); dismissedStamp = event.timeStamp; clearPending(); }
   }, true);
   // Pressing the bar must not drop a native selection (mouse).
   bar.addEventListener("mousedown", event => event.preventDefault());
@@ -865,19 +874,113 @@
     if (!bookmarksReady) { bar.hidden = true; toggleMenu(); return; }
     const rect = picked.rect;
     if (act === "note") {
-      // Note, not Highlight: only the underline will show, and only once there is a note.
+      // Note, not Highlight: only the underline shows, and a sticky note in the
+      // margin to write it on (kept only once written on).
       const info = await rendition.contextFor(picked).catch(() => picked);
-      drafting = { id: newId(), section: info.section, quote: info.quote.slice(0, 1000), prefix: info.prefix, suffix: info.suffix, note: "", marker: false };
+      pending = null; picked = null; handles.forEach(h => { h.hidden = true; });
+      document.getSelection()?.removeAllRanges();
       bar.hidden = true;
-      openEditor(drafting, rect);
+      draftNote = { id: newId(), section: info.section, quote: info.quote.slice(0, 1000), prefix: info.prefix, suffix: info.suffix, note: "", marker: false, draft: true };
+      rendition.refreshHighlights();
+      editSticky(draftNote.id);
       return;
     }
     await createHighlight(picked);
   });
   viewer.addEventListener("click", event => {
+    if (event.target.closest?.(".epub-sticky, .epub-sticky-delete")) return;
     const mark = event.composedPath().find(node => node.matches?.("span.epub-hl"));
-    if (mark && mark.dataset.id !== "pending" && !document.getSelection()?.toString()) startEdit(mark);
+    if (!mark || mark.dataset.id === "pending" || mark.dataset.id === stickyEditing?.id || document.getSelection()?.toString()) return;
+    // A note's passage: written on on its sticky note; a highlight: its box.
+    if (highlights.find(x => x.id === mark.dataset.id)?.note) writeNote(mark.dataset.id);
+    else startEdit(mark);
   });
+
+  // --- Notes on sticky notes ----------------------------------------------------
+  // A note is written on its sticky note in the margin (epub-view.js,
+  // setStickies), there and nowhere else: a double click or tap on it, or a
+  // click on its passage, and it is written on, the passage's handles out to
+  // stretch what it is about. Enter or a press elsewhere keeps it (Shift+Enter:
+  // a new line), Escape doesn't; its delete button floats beside it.
+  let stickyEditing = null, lastStickyUp = null;
+  const stickyOf = id => viewer.querySelector(`.spread.is-current .epub-sticky[data-id="${CSS.escape(id)}"]`);
+  viewer.addEventListener("pointerup", event => {
+    const sticky = event.target.closest?.(".epub-sticky");
+    if (!sticky || sticky.classList.contains("is-editing")) return;
+    const id = sticky.dataset.id, now = performance.now();
+    if (lastStickyUp?.id === id && now - lastStickyUp.at < 400) { lastStickyUp = null; writeNote(id); }
+    else lastStickyUp = { id, at: now };
+  });
+  // Where a page's sticky notes were just put: kept with the notes whose place
+  // changed (a note added above moves the ones below), for the bits of them in
+  // the edge once the page is turned.
+  // (After the drawing that told it, not in the middle of it.)
+  function notesPlaced(list) {
+    queueMicrotask(() => {
+      for (const { id, place } of list) {
+        const h = highlights.find(x => x.id === id);
+        if (!h?.note || (h.place && h.place.page === place.page && Math.abs(h.place.y - place.y) < 1 && Math.abs(h.place.h - place.h) < 1)) continue;
+        changeHighlight({ type: "highlight", highlight: { ...h, place } });
+      }
+    });
+  }
+  function writeNote(id) {
+    const mark = [...viewer.querySelectorAll(".spread.is-current .epub-page-content")]
+      .map(host => host.shadowRoot?.querySelector(`span.epub-hl[data-id="${CSS.escape(id)}"]`)).find(Boolean);
+    if (mark) startEdit(mark, false);
+    editSticky(id);
+  }
+  function editSticky(id) {
+    const el = stickyOf(id);
+    if (!el) return;
+    if (stickyEditing) endSticky(true);
+    const text = el.querySelector(".epub-sticky-text");
+    stickyEditing = { id, el, text };
+    el.classList.add("is-editing");
+    text.contentEditable = "true";
+    const remove = document.createElement("button");
+    remove.type = "button"; remove.className = "epub-sticky-delete"; remove.title = remove.ariaLabel = "Delete note";
+    remove.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+    remove.style.top = el.offsetTop + "px";
+    remove.style.left = (el.classList.contains("epub-sticky--left") ? el.offsetLeft + el.offsetWidth + 6 : el.offsetLeft - 34) + "px";
+    remove.addEventListener("pointerdown", event => {
+      event.preventDefault(); event.stopPropagation();
+      const h = draftNote?.id === id ? null : highlights.find(x => x.id === id);
+      endSticky(false);
+      // The note goes; a highlight it was written to stays.
+      if (h) changeHighlight(h.marker === false ? { type: "unhighlight", id } : { type: "highlight", highlight: { ...h, note: "" } });
+    });
+    el.parentElement.append(remove);
+    stickyEditing.remove = remove;
+    text.addEventListener("keydown", event => {
+      event.stopPropagation();
+      if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); endSticky(true); }
+      else if (event.key === "Escape") { event.preventDefault(); endSticky(false); }
+    });
+    text.addEventListener("paste", event => {
+      event.preventDefault();
+      document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
+    });
+    text.addEventListener("blur", () => { if (stickyEditing?.el === el) endSticky(true); });
+    text.focus();
+    const range = document.createRange(); range.selectNodeContents(text); range.collapse(false);
+    const selection = document.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+  }
+  function endSticky(save) {
+    if (!stickyEditing) return;
+    const { id, el, text, remove } = stickyEditing;
+    stickyEditing = null;
+    const note = text.innerText.replace(/\u00a0/g, " ").trim().slice(0, 2000);
+    text.contentEditable = "false"; el.classList.remove("is-editing"); remove?.remove();
+    document.getSelection()?.removeAllRanges();
+    const draft = draftNote?.id === id ? draftNote : null, h = highlights.find(x => x.id === id);
+    if (draft) draftNote = null;
+    if (pending?.edit) { pending = null; handles.forEach(handle => { handle.hidden = true; }); }
+    if (save && draft && note) changeHighlight({ type: "highlight", highlight: { ...draft, draft: undefined, note } });
+    // Written off, a note leaves its highlight (or, without one, it comes back).
+    else if (save && h && note !== (h.note || "")) changeHighlight({ type: "highlight", highlight: { ...h, note, marker: note ? h.marker : undefined, place: note ? h.place : undefined } });
+    else rendition?.refreshHighlights();
+  }
   // The highlight as stored now (its range may have been stretched since the box opened).
   const current_ = () => highlights.find(x => x.id === editing.id) || editing;
   // The eraser keeps the note and drops the green: only worth pressing with a note.
@@ -1024,7 +1127,7 @@
     await book.open(bytes, "binary");
     keep = await keptLayoutKey(bytes);
     rendition = window.createEpubView(book, viewer, row, keep);
-    rendition.setHighlights(highlightsOf);
+    rendition.setHighlights(highlightsOf, () => highlights.filter(h => h.note && h.place).map(h => ({ id: h.id, place: h.place })), notesPlaced);
     rendition.setBookmarks(() => bookmarks.map(b => b.cfi), async cfis => { for (const cfi of cfis) await changeBookmark({ type: "remove", cfi }); },
       { tabs: bookmarkTabs, latest: latestCfi, open: openTab });
     rendition.setInk(ink.paint);

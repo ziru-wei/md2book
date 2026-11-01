@@ -35,7 +35,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   const chapters = book.spine.spineItems.filter(section => section.linear);
   let chapterPages = new Map();
   const pageIndexes = new Map();
-  let layoutKey = "", viewportKey = "", highlightsOf = () => [], lastActivity = 0;
+  let layoutKey = "", viewportKey = "", highlightsOf = () => [], placedNotes = () => [], onNotesPlaced = null, lastActivity = 0;
   let indexTimer, indexEpoch = 0, indexing = false, paginationError = false;
   // Whether the first page is the book's cover (only a picture): in a printed
   // book the blank inside of the cover comes next, so every later page sits one
@@ -170,10 +170,31 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       }
     }
     for (const note of top.querySelectorAll(".epub-tabs--behind > .epub-tab")) note.classList.toggle("is-turning", cfis.has(note.dataset.cfi));
+    // So with its sticky notes: each face's is copied, mirrored, onto the other
+    // (tracing paper: seen from behind, its writing backwards and faint), so
+    // the bit sticking out past the sheet goes over with it.
+    for (const [from, to] of [[frontPage, backPage], [backPage, frontPage]]) {
+      const notes = from && to ? from.querySelectorAll(":scope > .epub-stickies:not(.epub-sticky-twins) > .epub-sticky") : [];
+      if (!notes.length) continue;
+      const layer = element("epub-stickies epub-sticky-twins");
+      for (const note of notes) {
+        const twin = note.cloneNode(true), left = note.classList.contains("epub-sticky--right");
+        twin.classList.add("is-twin"); twin.classList.remove("is-editing");
+        twin.classList.toggle("epub-sticky--left", left); twin.classList.toggle("epub-sticky--right", !left);
+        twin.style.setProperty(left ? "--stack-left" : "--stack-right", getComputedStyle(note).getPropertyValue("--stack-side"));
+        layer.append(twin);
+      }
+      to.append(layer);
+    }
+    // (And the bits of its sticky notes in the stack: they turn on it.)
+    const turning = new Set([frontPage, backPage].filter(page => page?.dataset.section !== undefined)
+      .map(page => String(pagination({ index: +page.dataset.section, sheet: +page.dataset.sheet }).page)));
+    for (const edge of top.querySelectorAll(".epub-sticky-edge")) edge.classList.toggle("is-turning", turning.has(edge.dataset.page));
   };
   turns.onTurnEnd = () => {
     for (const el of mount.querySelectorAll(".epub-tab.is-twin")) el.remove();
-    for (const el of mount.querySelectorAll(".epub-tab.is-turning")) el.classList.remove("is-turning");
+    for (const el of mount.querySelectorAll(".is-turning")) el.classList.remove("is-turning");
+    for (const el of mount.querySelectorAll(".epub-sticky-twins")) el.remove();
   };
   engine = window.createPageTurn(turns);
   function configure() {
@@ -520,12 +541,37 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     const tabs = bookmarkTabs();
     for (const page of spread.pages) page.querySelectorAll(":scope > .epub-tab").forEach(el => el.remove());
     let behind = spread.inner.querySelector(":scope > .epub-tabs--behind");
-    if (!tabs.length || !spread.first || !spread.location) { behind?.remove(); return; }
-    if (!behind) { behind = element("epub-tabs epub-tabs--behind"); spread.inner.prepend(behind); }
+    if (!spread.first || !spread.location) { behind?.remove(); return; }
     const first = pagination(spread.first), last = pagination(spread.last || spread.first), total = first.total;
     const stack = bookEdges() ? thickness(total) : 0;
-    // How thick the stack is on either side of this spread.
+    // How thick the stack is on either side of this spread (its pages' sticky
+    // notes stick out past it).
     const sides = { left: total ? stack * ((first.page ?? 1) - 1) / total : 0, right: total ? stack * (total - (last.page ?? total)) / total : 0 };
+    spread.inner.style.setProperty("--stack-left", sides.left.toFixed(2) + "px");
+    spread.inner.style.setProperty("--stack-right", sides.right.toFixed(2) + "px");
+    // The sticky notes of pages turned (or still to turn): only the bit of each
+    // that sticks out of the edge, from its page's depth there, where it was on
+    // its page; under the bookmarks, and not to be pressed.
+    const slivers = [];
+    if (stack && total && first.page !== null && last.page !== null) for (const { id, place } of placedNotes()) {
+      const right = place.page > last.page;
+      if (!right && place.page >= first.page) continue;
+      const side = sides[right ? "right" : "left"];
+      const depth = Math.min(Math.max(side - .5, 0), Math.max(.5, stack * (right ? place.page - last.page : first.page - place.page) / total));
+      const el = element(`epub-sticky-edge epub-sticky-edge--${right ? "right" : "left"}`);
+      el.dataset.id = id; el.dataset.page = place.page;
+      el.style.top = place.y + "px"; el.style.height = place.h + "px";
+      el.style.setProperty("--depth", depth.toFixed(2) + "px"); el.style.setProperty("--stack", side.toFixed(2) + "px");
+      slivers.push(el);
+    }
+    // (Under the pages, so under a page shown's own sticky notes too.)
+    let edges = spread.inner.querySelector(":scope > .epub-sticky-edges");
+    if (slivers.length) {
+      if (!edges) { edges = element("epub-sticky-edges"); spread.inner.prepend(edges); }
+      edges.replaceChildren(...slivers);
+    } else edges?.remove();
+    if (!tabs.length) { behind?.remove(); return; }
+    if (!behind) { behind = element("epub-tabs epub-tabs--behind"); spread.inner.prepend(behind); }
     const elsewhere = [], placed = [];
     for (const tab of tabs) {
       const page = pageOf(spread, tab.cfi);
@@ -568,6 +614,57 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     }
   }
 
+  // A highlight's note is written on a sticky note in the page's outer margin
+  // (sticking out a little past the book's edge), level with where the passage
+  // begins, or just below the footnote or note above it there. The text keeps
+  // the note's underline, where it belongs. A note being written on stays as
+  // it is (only moved), and so does its delete button (epub-reader.js).
+  function setStickies(page) {
+    let layer = page.querySelector(":scope > .epub-stickies");
+    const keep = layer?.querySelector(".epub-sticky.is-editing");
+    if (layer) for (const child of [...layer.children]) if (child !== keep && !child.classList.contains("epub-sticky-delete")) child.remove();
+    const area = page.querySelector(":scope > .page-area");
+    const marks = area?.querySelector(".epub-page-content")?.shadowRoot?.querySelectorAll("span.epub-hl[data-note]") || [];
+    const notes = new Map(highlightsOf(+page.dataset.section).filter(h => h.note || h.draft).map(h => [h.id, h.note || ""]));
+    const box = page.getBoundingClientRect(), k = page.offsetHeight / (box.height || 1);   // screen px → page px
+    const side = perSpread === 2 && page.classList.contains("page--left") ? "left" : "right";
+    const a = area?.getBoundingClientRect(), margin = a ? (side === "left" ? a.left - box.left : box.right - a.right) * k : 0;
+    const items = [], seen = new Set();
+    for (const mark of marks) {
+      const id = mark.dataset.id, r = mark.getClientRects()[0];
+      if (seen.has(id) || !notes.has(id) || !r) continue;
+      seen.add(id);
+      const el = keep?.dataset.id === id ? keep : element(`epub-sticky epub-sticky--${side}`);
+      if (el !== keep) {
+        const text = element("epub-sticky-text"); text.textContent = notes.get(id);
+        el.dataset.id = id; el.append(text); el.style.setProperty("--sticky-w", Math.max(62, margin - 8) + "px");
+      }
+      items.push({ el, top: (r.top - box.top) * k });
+    }
+    if (!items.length && !keep) { layer?.remove(); return; }
+    if (!layer) { layer = element("epub-stickies"); page.append(layer); }
+    for (const item of items) if (item.el !== keep) layer.append(item.el);
+    for (const { el } of items) { const text = el.firstChild; el.classList.toggle("is-cut", text.scrollHeight > text.clientHeight + 1); }
+    // The footnotes in that margin stay where they are; the notes go round them.
+    const taken = [...page.querySelectorAll(`:scope > .page-comments > .comment-margin-marker--${side}`)]
+      .map(note => [note.offsetTop, note.offsetTop + note.offsetHeight]);
+    const GAP = 6;
+    let cursor = 0;
+    for (const item of items.sort((x, y) => x.top - y.top)) {
+      const h = item.el.offsetHeight;
+      let y = Math.max(item.top, cursor);
+      for (let moved = true; moved;) {
+        moved = false;
+        for (const [t, b] of taken) if (y < b + GAP && y + h + GAP > t) { y = b + GAP; moved = true; }
+      }
+      item.el.style.top = y + "px";
+      cursor = y + h + GAP;
+    }
+    // Where each is now, for the bit of it in the edge once its page is turned.
+    const number = pagination({ index: +page.dataset.section, sheet: +page.dataset.sheet }).page;
+    if (number !== null) onNotesPlaced?.(items.filter(item => item.el !== keep && !item.el.classList.contains("is-twin"))
+      .map(item => ({ id: item.el.dataset.id, place: { page: number, y: parseFloat(item.el.style.top), h: item.el.offsetHeight } })));
+  }
   // A highlight is pressed hard enough to show on the back of the sheet: the
   // marks of the page behind this one, mirrored, faint, under this page's text.
   async function setBleed(page) {
@@ -733,6 +830,8 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       spread.inner.style.transform = `scale(${scale})`;
       spread.el.style.visibility = "";
       spread.ready = true; spread.el.classList.remove("epub-preparing");
+      // (Placed by where their passages are, now laid out.)
+      for (const page of spread.pages) setStickies(page);
       return spread;
     } catch (error) { destroySpread(spread); throw error; }
   }
@@ -939,14 +1038,18 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     },
     // Highlights are painted into the page clones; the saved list is the
     // reader's (`fn(sectionIndex)` returns that chapter's).
-    setHighlights(fn) { highlightsOf = fn; },
+    // (`notes()`: every note with where its sticky note is: [{ id, place }];
+    // `placed(list)`: where a page's sticky notes have been put, each time.)
+    setHighlights(fn, notes, placed) { highlightsOf = fn; if (notes) placedNotes = notes; if (placed) onNotesPlaced = placed; },
+    // A page's number in the book (`page`: one of the pages shown).
+    pageNumber(page) { return pagination({ index: +page.dataset.section, sheet: +page.dataset.sheet }).page; },
     refreshHighlights() {
       // Every copy of a page: the page itself, its show-through back and its ink layer.
       for (const host of mount.querySelectorAll(".epub-page-content")) {
         const owner = host.closest("[data-section]");
         if (owner) window.epubAnnotations.paint(host.shadowRoot, highlightsOf(+owner.dataset.section));
       }
-      for (const entry of spreads) for (const page of entry.pages) laterBleed(page);
+      for (const entry of spreads) { for (const page of entry.pages) { setStickies(page); laterBleed(page); } setTabs(entry); }
     },
     // `cfis()`: the bookmarks' positions; `remove(cfis)`: a tap on a ribbon.
     setBookmarks(cfis, remove, { tabs, latest, open } = {}) {

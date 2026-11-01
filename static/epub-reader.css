@@ -156,7 +156,9 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
    cover; a note between other pages is under the sheets above it and over
    those below, so it shows from its own depth in the edge out beyond the
    edge. A page shown carries its own note over everything. */
-.epub-tabs { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+/* (Over the pages: what sticks out of a page shown, its sticky notes, goes
+   under the bookmarks; the notes never lie on a page itself.) */
+.epub-tabs { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
 /* Only the spread on screen shows the notes between its pages; while a page
    turns, the one on top does (its edges cover the other's), but for the
    turning sheet's own (epub-view.js, onTurnStart). */
@@ -215,6 +217,49 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
 .epub-tab.is-unnamed.is-editing .epub-tab-name-short { margin-top: -9px; }
 .epub-tab:is(.is-expanded, .is-editing) .epub-tab-text { display: block; -webkit-line-clamp: none; width: 100%; outline: none; }
 .epub-tab.is-editing .epub-tab-name-short { cursor: text; -webkit-user-select: text; user-select: text; }
+/* A highlight's note: a sticky note of tracing paper in the outer margin,
+   sticking out a little past the page (epub-view.js, setStickies), square, in
+   the device's type; a long one shows its first lines, and opens whole while
+   it is written on. */
+.epub-stickies { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+/* (Only on the spread shown, and the two of a turn: one prepared would stick out past it.) */
+.spread:not(.is-current):not(.is-turn-under):not(.is-turn-top) .epub-stickies { visibility: hidden; }
+.epub-sticky { position: absolute; box-sizing: border-box; padding: 5px 7px; width: calc(var(--sticky-w) + var(--stack-side, 0px) + 14px);
+  /* (No backdrop blur: on a sheet turning, it broke the drawing of the pages.) */
+  background: rgba(252, 252, 249, .7); color: #000;
+  /* A faint, fine shadow to its left and below. */
+  box-shadow: 0 0 0 .5px rgba(0, 0, 0, .12), -1px 1px 0 rgba(0, 0, 0, .06), -1.5px 1.5px 3px rgba(0, 0, 0, .1);
+  font: 400 12px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; white-space: pre-wrap; word-break: break-word;
+  cursor: pointer; pointer-events: auto; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+/* Past the page by the stack beside it, and a little more. */
+.epub-sticky--left { left: calc(-14px - var(--stack-left, 0px)); --stack-side: var(--stack-left, 0px); padding-left: calc(7px + 14px + var(--stack-left, 0px)); }
+.epub-sticky--right { right: calc(-14px - var(--stack-right, 0px)); --stack-side: var(--stack-right, 0px); padding-right: calc(7px + 14px + var(--stack-right, 0px)); }
+.epub-sticky-text { display: block; max-height: 118px; overflow: hidden; }
+/* (Faded at the bottom only when there is more of it than shows.) */
+.epub-sticky.is-cut:not(.is-editing) .epub-sticky-text {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), transparent); }
+.epub-sticky.is-editing { cursor: text; background: rgba(252, 252, 249, .78); }
+.epub-sticky.is-editing .epub-sticky-text { max-height: none; overflow: visible; outline: none;
+  -webkit-user-select: text; user-select: text; }
+/* A turning sheet's sticky note seen from its other side. */
+.epub-sticky.is-twin { pointer-events: none; }
+.epub-sticky.is-twin .epub-sticky-text { transform: scaleX(-1); opacity: .3; }
+/* A turned page's sticky note: the bit sticking out of the edge. */
+.epub-sticky-edge { position: absolute; width: calc(var(--stack) - var(--depth) + 14px); pointer-events: none;
+  background: rgba(252, 252, 249, .66); box-shadow: 0 0 0 .5px rgba(0, 0, 0, .12), -1px 1px 0 rgba(0, 0, 0, .06), -1.5px 1.5px 3px rgba(0, 0, 0, .1); }
+.epub-sticky-edge--left { right: calc(100% + var(--depth)); }
+.epub-sticky-edge--right { left: calc(100% + var(--depth)); }
+.epub-sticky-edge.is-turning { visibility: hidden; }
+/* (Under the pages, so under a page shown's own sticky notes too; shown as
+   the bookmarks between pages are.) */
+.epub-sticky-edges { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.spread:not(.is-current):not(.is-turn-top) .epub-sticky-edges, .spread.is-turn-under .epub-sticky-edges { visibility: hidden; }
+/* Its delete button while it is written on: beside it, on the text's side. */
+.epub-sticky-delete { position: absolute; width: 28px; height: 28px; padding: 0; border-radius: 50%; cursor: pointer; pointer-events: auto;
+  display: grid; place-items: center; color: rgba(30, 33, 38, .78);
+  background: rgba(128, 132, 138, .07); -webkit-backdrop-filter: blur(3px) saturate(1.2); backdrop-filter: blur(3px) saturate(1.2);
+  border: 1px solid rgba(40, 44, 50, .12); box-shadow: 0 4px 18px rgba(0, 0, 0, .1); }
+.epub-sticky-delete svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 /* Delete, floating just beside the note being named, on the page's side: a
    round button of the pen kit's frosted glass. */
 .epub-tab-delete { position: absolute; top: 0; width: 28px; height: 28px; padding: 0; border-radius: 50%; cursor: pointer;

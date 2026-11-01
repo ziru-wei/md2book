@@ -526,8 +526,8 @@
         if (drawing?.trace) drawing.trace.palms++;
         event.stopImmediatePropagation(); return;
       }
-      // A bookmark note (it lies on the page too) is pressed, not written on.
-      if (!writes(event) || drawing || event.target.closest?.(".epub-tab")) return;
+      // A bookmark or sticky note (they lie on the page too) is pressed, not written on.
+      if (!writes(event) || drawing || event.target.closest?.(".epub-tab, .epub-sticky")) return;
       const page = pageAt(event.clientX, event.clientY);
       if (event.pointerType === "pen") onPenDown?.();   // what a palm already began (a turn, a long press) stops
       if (!page || view()?.turn || !tablet()) return;
@@ -691,7 +691,7 @@
       }, { capture: true, passive: false });
     }
     viewer.addEventListener("click", event => {
-      if (event.target.closest?.(".epub-tab")) return;   // a bookmark note still answers
+      if (event.target.closest?.(".epub-tab, .epub-sticky")) return;   // a bookmark or sticky note still answers
       if (mode || performance.now() - lastPen < PALM_AFTER_PEN) { event.preventDefault(); event.stopImmediatePropagation(); }
     }, true);
 
