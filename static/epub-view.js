@@ -57,7 +57,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   // Only with two single-column sheets side by side, once the book is counted.
   // Every page is as thick as every other (page px): a book of a thousand
   // pages is a thick book. Past EDGE_MAX it would crowd the pages out.
-  const EDGE_MAX = 64, EDGE_PER_PAGE = .055;
+  const EDGE_MAX = 64, EDGE_PER_PAGE = .055, TAB_ROOM = 22;
   const bookEdges = () => !fixedLayout && root.dataset.layout === "tablet" && perSpread === 2;
   const bookTotal = () => chapters.length ? pagination({ index: chapters[0].index, sheet: 0 }).total : null;
   const thickness = total => total ? Math.min(EDGE_MAX, total * EDGE_PER_PAGE) : 0;
@@ -65,7 +65,8 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   let edgeRoom = 0;
   function fitScale() {
     edgeRoom = bookEdges() ? 2 * thickness(bookTotal()) + 8 : 0;
-    return root.dataset.layout !== "phone" ? Math.min(geometry.viewportWidth() / (width * perSpread + edgeRoom), geometry.viewportHeight() / height) : 1;
+    // Above and below the pages, room for the bookmark tabs.
+    return root.dataset.layout !== "phone" ? Math.min(geometry.viewportWidth() / (width * perSpread + edgeRoom), geometry.viewportHeight() / (height + 2 * TAB_ROOM)) : 1;
   }
   function setEdges(spread) {
     if (!spread.first || !spread.inner.isConnected) return;
@@ -391,6 +392,9 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   }
   // --- Bookmarks (a ribbon on the sheet) and highlight bleed-through -------
   let bookmarkCfis = () => [], onRibbon = null, inkPaint = null;
+  // Every bookmark as a tab on the spread's top edge (`tabs()`: [{ cfi, at,
+  // latest }], `at` 0–1 through the book); `latest()`: the newest one's cfi.
+  let bookmarkTabs = () => [], latestBookmark = () => null, onTab = null;
   const pageRange = new WeakMap();
   const compareCfi = (a, b) => { try { return new ePub.CFI().compare(a, b); } catch { return 0; } };
   const ribbonHits = page => {
@@ -408,6 +412,24 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       el.addEventListener("click", event => { event.stopPropagation(); onRibbon?.(ribbonHits(page)); });
       page.append(el);
     } else if (!hits.length && ribbon) ribbon.remove();
+    page.querySelector(":scope > .epub-ribbon")?.classList.toggle("is-latest", hits.includes(latestBookmark()));
+  }
+  // The bookmarks sticking out of the top of the book: the whole top edge of
+  // the spread is the whole book, each tab where its page is in it.
+  function setTabs(spread) {
+    if (!spread.inner.isConnected) return;
+    let strip = spread.inner.querySelector(":scope > .epub-tabs");
+    const tabs = bookmarkTabs();
+    if (!tabs.length) { strip?.remove(); return; }
+    if (!strip) { strip = element("epub-tabs"); spread.inner.append(strip); }
+    strip.replaceChildren(...tabs.map(tab => {
+      const el = element("epub-tab" + (tab.latest ? " is-latest" : ""));
+      el.dataset.cfi = tab.cfi;
+      el.style.left = (tab.at * 100).toFixed(3) + "%";
+      el.setAttribute("role", "button"); el.setAttribute("aria-label", tab.label || "Bookmark");
+      el.addEventListener("click", event => { event.stopPropagation(); onTab?.(tab.cfi, el); });
+      return el;
+    }));
   }
   // A highlight is pressed hard enough to show on the back of the sheet: the
   // marks of the page behind this one, mirrored, faint, under this page's text.
@@ -552,7 +574,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       spread.first = first.point; spread.last = last.point;
       spread.location = { start: first.location.start, end: last.location.end,
         atStart: !adjacent(first.point, false), atEnd: !adjacent(last.point, true), pagination: pagination(first.point) };
-      setEdges(spread);
+      setEdges(spread); setTabs(spread);
       if (row.showThrough && root.dataset.layout !== "phone") {
         // Prepare both outward faces before a spread can become visible.
         // This also covers reverse navigation and opening in mid-book.
@@ -790,12 +812,17 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       for (const entry of spreads) for (const page of entry.pages) laterBleed(page);
     },
     // `cfis()`: the bookmarks' positions; `remove(cfis)`: a tap on a ribbon.
-    setBookmarks(cfis, remove) { bookmarkCfis = cfis; onRibbon = remove; },
+    setBookmarks(cfis, remove, { tabs, latest, open } = {}) {
+      bookmarkCfis = cfis; onRibbon = remove;
+      if (tabs) bookmarkTabs = tabs;
+      if (latest) latestBookmark = latest;
+      if (open) onTab = open;
+    },
     // Handwriting is drawn onto each page as it is made (`paint(page)`).
     setInk(paint) { inkPaint = paint; },
     // The page geometry a stroke was drawn in: where a page without text keeps it.
     get inkLayout() { return layoutKey; },
-    refreshBookmarks() { for (const entry of spreads) for (const page of entry.pages) setRibbon(page); },
+    refreshBookmarks() { for (const entry of spreads) { for (const page of entry.pages) setRibbon(page); setTabs(entry); } },
     // A painted highlight, as a selection to adjust: its page text offsets.
     editInfo(mark) {
       const shadow = mark.getRootNode(), body = shadow.querySelector?.("body"), page = shadow.host?.closest(".page");

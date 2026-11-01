@@ -143,9 +143,23 @@
     const left = Math.max(b.left, 0), top = Math.max(b.top, 0);
     return { left, top, width: Math.min(b.right, innerWidth) - left, height: Math.min(b.bottom, innerHeight) - top };
   }
+  // The top edge of the page is the bookmarks': a double tap (or click) there
+  // bookmarks the page; a single one does nothing, not even turn the page.
+  let lastTopTap = -Infinity;
+  function inTopStrip(y) {
+    const page = viewer.querySelector(".spread.is-current .page.epub-face:not(.page--absent)");
+    if (!page) return false;
+    const r = page.getBoundingClientRect();
+    return y >= r.top - 30 && y <= r.top + r.height * .09;
+  }
   function tapAt(x, y, touch = false) {
     // The tap that dismissed a selection only dismisses it.
     if (performance.now() - dismissedAt < 700) return;
+    if (inTopStrip(y)) {
+      if (performance.now() - lastTopTap < 450) { lastTopTap = -Infinity; quickBookmark(); }
+      else lastTopTap = performance.now();
+      return;
+    }
     const box = visibleBox();
     const fraction = (x - box.left) / box.width;
     // The upper half of the gutter opens the menu, the lower half the pen kit.
@@ -264,7 +278,7 @@
     let start = null;
     const doc = documentOrElement.ownerDocument || documentOrElement;
     const hasSelection = () => doc === document ? selectionActive() : Boolean(doc.getSelection()?.toString());
-    const interactive = target => target.closest?.("a, button, input, select, textarea, audio, video, [contenteditable], span.epub-hl, .epub-ribbon");
+    const interactive = target => target.closest?.("a, button, input, select, textarea, audio, video, [contenteditable], span.epub-hl, .epub-ribbon, .epub-tab");
     const toViewer = (x, y) => {
       if (doc === document) return [x, y];
       const frame = doc.defaultView.frameElement, rect = frame.getBoundingClientRect();
@@ -382,6 +396,7 @@
       if (disposed) return;
       locationsReady = book.locations.length() > 0;
       renderTicks();
+      rendition?.refreshBookmarks();   // the tabs on the top edge need the percentages
       progress.disabled = !locationsReady;
       updateProgress();
       if (cacheKey && !cacheLoaded) await locationCache(cacheKey, book.locations.save());
@@ -498,7 +513,9 @@
       if (cloud) bookmarks = (await cloudRequest(operation)).bookmarks;
       else {
         const result = bookmarks.filter(b => b.cfi !== operation.cfi);
-        if (operation.type === "add") result.push({ cfi: operation.cfi, label: operation.label, created: new Date().toISOString() });
+        // Renamed, a bookmark keeps its date (and so whether it is the newest).
+        const kept = bookmarks.find(b => b.cfi === operation.cfi);
+        if (operation.type === "add") result.push({ cfi: operation.cfi, label: operation.label, created: kept?.created || new Date().toISOString() });
         bookmarks = result;
         await saveLocal({ bookmarks, highlights });
       }
@@ -513,11 +530,81 @@
     if (bookmarks.some(b => b.cfi === current.start.cfi)) changeBookmark({ type: "remove", cfi: current.start.cfi });
     else addBookmark.click();
   });
+  const newBookmarkLabel = () => {
+    const chapter = chapterAt(current.start.index)?.label || `Chapter ${current.start.index + 1}`;
+    return `${chapter}${locationsReady ? ` · ${percent.textContent}` : ""}`.slice(0, 300);
+  };
   addBookmark.addEventListener("click", () => {
     if (!current || bookmarks.some(b => b.cfi === current.start.cfi)) return;
-    const chapter = chapterAt(current.start.index)?.label || `Chapter ${current.start.index + 1}`;
-    changeBookmark({ type: "add", cfi: current.start.cfi, label: `${chapter}${locationsReady ? ` · ${percent.textContent}` : ""}`.slice(0, 300) });
+    changeBookmark({ type: "add", cfi: current.start.cfi, label: newBookmarkLabel() });
   });
+
+  // --- Bookmark tabs on the top edge -----------------------------------------
+  // The newest bookmark is red, the others pale. A tab tapped shows the
+  // bookmark's whole name (to rename or delete it); tapped again, goes there.
+  const latestCfi = () => bookmarks.reduce((a, b) => !a || String(b.created || "") > String(a.created || "") ? b : a, null)?.cfi || null;
+  const bookmarkTabs = () => {
+    if (!locationsReady) return [];
+    const latest = latestCfi();
+    return bookmarks.map(b => ({ cfi: b.cfi, label: b.label, at: book.locations.percentageFromCfi(b.cfi), latest: b.cfi === latest }))
+      .filter(t => Number.isFinite(t.at) && t.at >= 0);
+  };
+  const tabPop = document.createElement("div");
+  tabPop.className = "epub-popup epub-tab-pop"; tabPop.hidden = true;
+  tabPop.innerHTML = '<span class="epub-tab-name"></span><input class="epub-tab-input" maxlength="300" aria-label="Bookmark name" hidden />' +
+    '<button type="button" data-act="rename" aria-label="Rename" title="Rename"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg></button>' +
+    '<button type="button" data-act="delete" aria-label="Delete bookmark" title="Delete bookmark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>';
+  document.body.append(tabPop);
+  const tabName = tabPop.querySelector(".epub-tab-name"), tabInput = tabPop.querySelector(".epub-tab-input");
+  function closeTab() { tabPop.hidden = true; tabPop.dataset.cfi = ""; tabInput.hidden = true; tabName.hidden = false; }
+  function openTab(cfi, el, rename = false) {
+    const b = bookmarks.find(x => x.cfi === cfi);
+    if (!b) return;
+    if (!tabPop.hidden && tabPop.dataset.cfi === cfi && !rename) { closeTab(); navigate(() => rendition.display(cfi)); return; }
+    tabPop.dataset.cfi = cfi;
+    tabName.textContent = b.label || "Bookmark";
+    tabInput.hidden = true; tabName.hidden = false;
+    const r = el?.getBoundingClientRect?.() || el;
+    place(tabPop, { left: r.left, width: r.width || 0, top: r.top, bottom: (r.bottom ?? r.top) + 6 }, true);
+    if (rename) startRename();
+  }
+  function startRename() {
+    const b = bookmarks.find(x => x.cfi === tabPop.dataset.cfi);
+    if (!b) return;
+    tabInput.value = b.label || ""; tabName.hidden = true; tabInput.hidden = false;
+    tabInput.focus(); tabInput.select();
+  }
+  async function saveRename() {
+    const cfi = tabPop.dataset.cfi, label = tabInput.value.trim().slice(0, 300), b = bookmarks.find(x => x.cfi === cfi);
+    tabInput.hidden = true; tabName.hidden = false;
+    if (!b || !label || label === b.label) return;
+    tabName.textContent = label;
+    await changeBookmark({ type: "add", cfi, label });
+  }
+  tabPop.addEventListener("click", event => {
+    const act = event.target.closest("button")?.dataset.act;
+    if (act === "rename") startRename();
+    else if (act === "delete") { const cfi = tabPop.dataset.cfi; closeTab(); changeBookmark({ type: "remove", cfi }); }
+  });
+  tabInput.addEventListener("keydown", event => {
+    event.stopPropagation();
+    if (event.key === "Enter") { event.preventDefault(); saveRename(); }
+    if (event.key === "Escape") { tabInput.hidden = true; tabName.hidden = false; }
+  });
+  tabInput.addEventListener("blur", () => { if (!tabInput.hidden) saveRename(); });
+  document.addEventListener("pointerdown", event => {
+    if (!tabPop.hidden && !tabPop.contains(event.target) && !event.target.closest?.(".epub-tab")) closeTab();
+  }, true);
+  // A double tap on the top edge: this page bookmarked (or, if it is, its name).
+  async function quickBookmark() {
+    if (!current || !bookmarksReady) return;
+    const cfi = current.start.cfi;
+    if (!bookmarks.some(b => b.cfi === cfi)) await changeBookmark({ type: "add", cfi, label: newBookmarkLabel() });
+    if (!bookmarks.some(b => b.cfi === cfi)) return;
+    const tab = viewer.querySelector(`.spread.is-current .epub-tab[data-cfi="${CSS.escape(cfi)}"]`);
+    const page = viewer.querySelector(".spread.is-current .page.epub-face:not(.page--absent)")?.getBoundingClientRect();
+    openTab(cfi, tab || (page && { left: page.left + page.width / 2, width: 0, top: page.top, bottom: page.top + 8 }));
+  }
 
   // Highlights and notes. Shown at once, saved in order behind the scenes;
   // a failed save reloads what is actually stored.
@@ -877,7 +964,8 @@
     keep = await keptLayoutKey(bytes);
     rendition = window.createEpubView(book, viewer, row, keep);
     rendition.setHighlights(highlightsOf);
-    rendition.setBookmarks(() => bookmarks.map(b => b.cfi), async cfis => { for (const cfi of cfis) await changeBookmark({ type: "remove", cfi }); });
+    rendition.setBookmarks(() => bookmarks.map(b => b.cfi), async cfis => { for (const cfi of cfis) await changeBookmark({ type: "remove", cfi }); },
+      { tabs: bookmarkTabs, latest: latestCfi, open: (cfi, el) => openTab(cfi, el) });
     rendition.setInk(ink.paint);
     rendition.hooks.content.register(contents => bindInput(contents.document));
     bindInput(viewer);

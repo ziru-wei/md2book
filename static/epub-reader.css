@@ -146,7 +146,25 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
   background: linear-gradient(90deg, #7a2020, #9b2f2f 45%, #b44444 58%, #862525);
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 87%, 0 100%); }
 .epub-ribbon::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, transparent 1px 3px); }
+/* Not the newest bookmark: pale. */
+.epub-ribbon:not(.is-latest) { opacity: .38; }
 .epub-ribbon[data-side="left"] { left: 26px; }
+/* Bookmarks sticking out of the top of the book, each where its page is in it
+   (epub-view.js, setTabs): the newest red, the others pale. */
+.epub-tabs { position: absolute; left: 0; right: 0; top: 0; height: 0; z-index: 6; }
+.epub-tab { position: absolute; top: -16px; width: 12px; height: 24px; transform: translateX(-50%); cursor: pointer;
+  background: rgba(190, 72, 72, .38); border-radius: 2px 2px 0 0; box-shadow: 0 -1px 2px rgba(0, 0, 0, .12); }
+.epub-tab.is-latest { background: linear-gradient(90deg, #7a2020, #9b2f2f 45%, #b44444 58%, #862525); }
+/* A finger-sized target round the slim tab. */
+.epub-tab::before { content: ""; position: absolute; left: -12px; right: -12px; top: -10px; bottom: -6px; }
+.epub-tab-pop { display: flex; align-items: center; gap: 2px; padding: 2px 2px 2px 10px; max-width: min(420px, 90vw); }
+.epub-tab-pop[hidden] { display: none; }
+.epub-tab-name { flex: 1; padding: 4px 0; white-space: normal; }
+.epub-tab-input { flex: 1; min-width: 12em; font: inherit; color: inherit; background: rgba(255, 255, 255, .08); border: 0; border-radius: 2px; padding: 5px 6px; outline: none; }
+.epub-tab-input[hidden] { display: none; }
+.epub-tab-pop button { width: 30px; height: 28px; padding: 0; display: grid; place-items: center; color: rgba(241, 243, 244, .72); }
+.epub-tab-pop button[data-act="delete"] { color: #e08b7e; }
+.epub-tab-pop svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .epub-ribbon[data-side="right"] { right: 26px; }
 
 /* A highlight pressed through to the back: the marks of the page behind, mirrored and faint. */
@@ -223,10 +241,12 @@ html.is-touch #epub-viewer { touch-action: none; }
 #epub-ink-bar button { width: 34px; height: 30px; padding: 0; display: grid; place-items: center; color: rgba(30, 33, 38, .78); border-radius: 8px; }
 #epub-ink-bar button:hover { background: rgba(30, 33, 38, .06); }
 #epub-ink-bar button[aria-pressed="true"] { color: #15171b; background: rgba(30, 33, 38, .1); }
-#epub-ink-bar svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#epub-ink-bar svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+  /* A white rim: the dark icons read over the dark desk too. */
+  filter: drop-shadow(0 0 1px rgba(255, 255, 255, .95)) drop-shadow(0 0 .5px #fff); }
 #epub-ink-bar .epub-ink-colour { width: 26px; }
 #epub-ink-bar [data-act="bookmark"][aria-pressed="true"] svg { fill: currentColor; }
-#epub-ink-bar .epub-ink-colour i { display: block; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255, 255, 255, .7); }
+#epub-ink-bar .epub-ink-colour i { display: block; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .95); }
 #epub-ink-bar .epub-ink-colour[aria-pressed="true"] { background: none; }
 #epub-ink-bar .epub-ink-colour[aria-pressed="true"] i { box-shadow: 0 0 0 2px rgba(255, 255, 255, .9), 0 0 0 3.5px rgba(30, 33, 38, .7); }
 /* The lasso's selection: its strokes outlined, a dashed box to move it by. */
