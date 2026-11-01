@@ -212,11 +212,12 @@ html.is-touch #epub-viewer { touch-action: none; }
 #epub-ink-bar button[aria-pressed="true"] { color: #15171b; background: rgba(30, 33, 38, .1); }
 #epub-ink-bar svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 #epub-ink-bar .epub-ink-colour { width: 26px; }
+#epub-ink-bar [data-act="bookmark"][aria-pressed="true"] svg { fill: currentColor; }
 #epub-ink-bar .epub-ink-colour i { display: block; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255, 255, 255, .7); }
 #epub-ink-bar .epub-ink-colour[aria-pressed="true"] { background: none; }
 #epub-ink-bar .epub-ink-colour[aria-pressed="true"] i { box-shadow: 0 0 0 2px rgba(255, 255, 255, .9), 0 0 0 3.5px rgba(30, 33, 38, .7); }
 /* The lasso's selection: its strokes outlined, a dashed box to move it by. */
-.epub-handwriting path.is-selected { filter: drop-shadow(0 0 1.2px rgba(60, 110, 220, .95)); }
+.epub-handwriting .is-selected { filter: drop-shadow(0 0 1.2px rgba(60, 110, 220, .95)); }
 .epub-ink-selection { fill: rgba(60, 110, 220, .05); stroke: rgba(60, 110, 220, .75); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 /* Where the eraser reaches, round the pen or pointer. */
 .epub-eraser-ring { position: fixed; z-index: 36; box-sizing: border-box; border: 1.5px solid rgba(38, 50, 74, .7); border-radius: 50%;

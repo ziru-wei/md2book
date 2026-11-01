@@ -414,7 +414,12 @@
     rendition?.refreshBookmarks();
     renderTicks();
     addBookmark.disabled = !current || !bookmarksReady || bookmarkBusy;
-    addBookmark.textContent = bookmarks.some(b => b.cfi === current?.start.cfi) ? "Added" : "Add";
+    const marked = bookmarks.some(b => b.cfi === current?.start.cfi);
+    addBookmark.textContent = marked ? "Added" : "Add";
+    // The pen kit's bookmark: filled when this page has one.
+    const kitMark = inkBar.querySelector('[data-act="bookmark"]');
+    kitMark.setAttribute("aria-pressed", String(marked)); kitMark.disabled = addBookmark.disabled;
+    kitMark.title = kitMark.ariaLabel = marked ? "Remove this page's bookmark" : "Bookmark this page";
   }
   // Small ribbons on the progress line, where the bookmarks are in the book.
   function renderTicks() {
@@ -502,6 +507,12 @@
       syncNote.textContent = error.message || "Not saved."; syncNote.hidden = false;
     } finally { bookmarkBusy = false; renderBookmarks(); }
   }
+  // From the pen kit: a bookmark for this page, or off again.
+  inkBar.querySelector('[data-act="bookmark"]').addEventListener("click", () => {
+    if (!current) return;
+    if (bookmarks.some(b => b.cfi === current.start.cfi)) changeBookmark({ type: "remove", cfi: current.start.cfi });
+    else addBookmark.click();
+  });
   addBookmark.addEventListener("click", () => {
     if (!current || bookmarks.some(b => b.cfi === current.start.cfi)) return;
     const chapter = chapterAt(current.start.index)?.label || `Chapter ${current.start.index + 1}`;

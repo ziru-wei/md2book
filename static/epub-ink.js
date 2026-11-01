@@ -115,20 +115,6 @@
     return d + "Z";
   }
 
-  // A liner pen's line: a little fuller where the pen comes down and lifts
-  // (ink pools there), a little finer in between. Pressure is scaled by how
-  // near each point is to either end, over `reach` page px along the line.
-  function linerPressure(points, reach = 6, ends = 1.1, middle = .9) {
-    const along = [0];
-    for (let i = 1; i < points.length; i++) along.push(along[i - 1] + Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]));
-    const total = along[along.length - 1] || 0;
-    const near = d => { const t = Math.min(1, d / reach); return 1 - t * t * (3 - 2 * t); };   // 1 at the end, 0 from `reach` on
-    return points.map(([x, y, p], i) => {
-      const f = Math.max(near(along[i]), near(total - along[i]));
-      return [x, y, Math.min(1, p * (middle + (ends - middle) * f))];
-    });
-  }
-
   // Whether [x, y] is inside the polygon (even-odd rule).
   function inPolygon([x, y], poly) {
     let inside = false;
@@ -147,13 +133,17 @@
     return { ...stroke, id, pts, created: new Date().toISOString() };
   }
 
-  const api = { opKey, encodePoints, decodePoints, cleanPoints, linerPressure, freshSamples, penPressure, inPolygon, movedStroke, applyOps, stateOf, takeBatch, pathOf };
+  const api = { opKey, encodePoints, decodePoints, cleanPoints, freshSamples, penPressure, inPolygon, movedStroke, applyOps, stateOf, takeBatch, pathOf };
   if (typeof module !== "undefined" && module.exports) { module.exports = api; return; }
   root.epubInk = api;
 
   const SVG = "http://www.w3.org/2000/svg";
   // Black, blue and red ink; the last one chosen is kept in this browser.
   const INKS = { black: "#222222", blue: "#1f4fbf", red: "#c62f2f" }, SIZE = 1.4;
+  // A technical (needle) pen's line: one width all along, whatever the
+  // pressure, its body a little see-through, and a dot of ink of one fixed size
+  // (page px) where the pen comes down and where it lifts, opaque.
+  const BODY_OPACITY = .78, DOT = 1.6;
   // Only the start of a book's outbox needs to fit a keepalive request (64 KB in all).
   const KEEPALIVE = 56000;
 
@@ -164,7 +154,7 @@
     import(new URL(lib, document.baseURI).href).then(m => { getStroke = m.getStroke; repaintAll(); }).catch(() => {});
     // A mouse has no pressure (always .5): an even line.
     const outline = (points, size, last) => getStroke
-      ? getStroke(linerPressure(cleanPoints(points)), { size: size * 2.2, thinning: .4, smoothing: .6, streamline: .45, simulatePressure: false, last })
+      ? getStroke(cleanPoints(points), { size: size * 1.75, thinning: 0, smoothing: .6, streamline: .45, simulatePressure: false, last })
       : points.flatMap(([x, y]) => [[x - size / 2, y - size / 2], [x + size / 2, y + size / 2]]);
 
     // --- Where the strokes are kept --------------------------------------
@@ -399,10 +389,21 @@
       }
       return layer;
     }
-    function strokePath(d, color) {
-      const path = document.createElementNS(SVG, "path");
-      path.setAttribute("d", d); path.setAttribute("fill", color);
-      return path;
+    // One stroke: its body and its two ink dots, together (erased, selected
+    // and moved as one).
+    function strokeShape(points, size, color) {
+      const g = document.createElementNS(SVG, "g");
+      g.setAttribute("fill", color);
+      const body = document.createElementNS(SVG, "path");
+      body.setAttribute("d", pathOf(outline(points, size, true))); body.setAttribute("fill-opacity", BODY_OPACITY);
+      g.append(body);
+      const ends = cleanPoints(points);
+      for (const [x, y] of ends.length > 1 ? [ends[0], ends[ends.length - 1]] : ends.slice(0, 1)) {
+        const dot = document.createElementNS(SVG, "circle");
+        dot.setAttribute("cx", x); dot.setAttribute("cy", y); dot.setAttribute("r", DOT);
+        g.append(dot);
+      }
+      return g;
     }
     function paint(page) {
       if (!page.isConnected || page.dataset.section === undefined) return;
@@ -410,7 +411,7 @@
       if (!list.length && !page.querySelector(":scope > svg.epub-handwriting")) { page._ink = []; return; }
       const placed = list.map(stroke => {
         const points = decodePoints(stroke.pts).map(([x, y, p]) => [stroke.page.x + x, stroke.page.y + y, p]);
-        return { id: stroke.id, stroke, points, path: strokePath(pathOf(outline(points, stroke.size, true)), stroke.color), size: stroke.size };
+        return { id: stroke.id, stroke, points, path: strokeShape(points, stroke.size, stroke.color), size: stroke.size };
       });
       const layer = layerOf(page);
       layer.replaceChildren(...placed.map(p => p.path));
@@ -527,7 +528,13 @@
         }
         // Where the pen is about to be (Safari's guess) is drawn too, so the
         // line keeps up with a quick pen; it is never kept.
-        liveContext.fill(new Path2D(pathOf(outline([...drawing.points, ...drawing.ahead], SIZE, false))));
+        const points = [...drawing.points, ...drawing.ahead];
+        liveContext.globalAlpha = BODY_OPACITY;
+        liveContext.fill(new Path2D(pathOf(outline(points, SIZE, false))));
+        liveContext.globalAlpha = 1;
+        // The dot where the pen came down (the other comes as it lifts).
+        const [x0, y0] = drawing.points[0];
+        liveContext.beginPath(); liveContext.arc(x0, y0, DOT, 0, 2 * Math.PI); liveContext.fill();
         if (drawing.trace) { drawing.trace.frames++; drawing.trace.drawMs += performance.now() - t0; }
       });
     }
