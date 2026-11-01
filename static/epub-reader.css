@@ -151,29 +151,28 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
    where its page is in the book along the top edge, solid paper, the newest
    red and the others grey-white. Between other pages a note is behind them,
    only its top showing above the edge; on its own page it lies on the paper. */
-/* Bookmark notes (epub-view.js, setTabs). Layered as in a book: the notes
-   between other pages under the (opaque) edges, only their ends out beyond;
-   on the edges, where each lies in the stack, the sliver of it seen between
-   the pages; then the pages, a page shown with its own note stuck on it. */
-.epub-tabs { position: absolute; inset: 0; z-index: -3; pointer-events: none; }
-.epub-slivers { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
-.epub-sliver { position: absolute; width: 1.5px; height: 11px; background: #b9b4aa; }
-.epub-sliver.is-latest { background: #c4473d; }
+/* Bookmark notes (epub-view.js, setTabs), layered as in a book. The edge of
+   a stack (.book-edge) runs from the page shown (its top sheet) out to the
+   cover; a note between other pages is under the sheets above it and over
+   those below, so it shows from its own depth in the edge out beyond the
+   edge. A page shown carries its own note over everything. */
+.epub-tabs { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
 /* Only the spread on screen shows the notes between its pages; while a page
    turns, the one being uncovered does, not the one turning over it. */
-.spread:not(.is-current):not(.is-turn-under) :is(.epub-tabs--behind, .epub-slivers), .spread.is-turn-top :is(.epub-tabs--behind, .epub-slivers) { visibility: hidden; }
+.spread:not(.is-current):not(.is-turn-under) .epub-tabs--behind, .spread.is-turn-top .epub-tabs--behind { visibility: hidden; }
+/* A page's own note: only on the spread shown, and the two of a turn. */
+.spread:not(.is-current):not(.is-turn-under):not(.is-turn-top) .epub-tab.is-here { visibility: hidden; }
 /* A slim flag: as far down the edge as its place in the book (--at), from
    its page in the stack (--depth) through to past the stack's outer edge
    (--stack), sticking out --out beyond it. */
 .epub-tab { position: absolute; top: calc(var(--at) * (100% - 11px)); height: 11px; cursor: pointer; pointer-events: auto;
   width: calc(var(--stack, 0px) - var(--depth, 0px) + var(--out));
-  --tab: #fbfaf7; --hid: calc(var(--stack, 0px) - var(--depth, 0px));
-  box-shadow: 0 0 0 .5px rgba(0, 0, 0, .2); }
-/* Where it comes out from under the edge: a narrow shadow on it. */
+  --tab: #fbfaf7; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .2); }
+/* Where it comes out from under the sheets above it: a narrow shadow on it. */
 .epub-tab--left { right: calc(100% + var(--depth, 0px)); border-radius: 2px 0 0 2px;
-  background: linear-gradient(to left, transparent var(--hid), rgba(0, 0, 0, .22) var(--hid), transparent calc(var(--hid) + 3px)), var(--tab); }
+  background: linear-gradient(to left, rgba(0, 0, 0, .24), transparent 3px), var(--tab); }
 .epub-tab--right { left: calc(100% + var(--depth, 0px)); border-radius: 0 2px 2px 0;
-  background: linear-gradient(to right, transparent var(--hid), rgba(0, 0, 0, .22) var(--hid), transparent calc(var(--hid) + 3px)), var(--tab); }
+  background: linear-gradient(to right, rgba(0, 0, 0, .24), transparent 3px), var(--tab); }
 .epub-tab.is-latest { --tab: #c4473d; box-shadow: 0 0 0 .5px rgba(90, 20, 15, .4); }
 .epub-tab.is-open { --tab: #d6d3cb; }
 .epub-tab.is-latest.is-open { --tab: #a63a31; }
