@@ -158,7 +158,8 @@
     blocked: () => !rendition || menu.open || !$("epub-note-editor").hidden || (window.visualViewport?.scale || 1) > 1.05,
     direction: () => book?.package.metadata.direction === "rtl" ? -1 : 1
   });
-  // Pinch-zoom state: while zoomed a finger pans the page and never turns it.
+  // Pinch-zoom state. Zoomed in, one finger still turns the page; two fingers
+  // move it about (epub-reader.css).
   const rootEl = document.documentElement;
   const isZoomed = () => { const vv = window.visualViewport; return !!vv && (vv.scale > 1.02 || vv.width < rootEl.clientWidth - 2); };
   const updateZoom = () => rootEl.classList.toggle("is-zoomed", isZoomed());
@@ -174,12 +175,12 @@
       if (event.pointerType !== "touch") return;
       fingers.add(event.pointerId);
       if (fingers.size > 1) { if (drag?.active) rendition?.settleTurn(0); drag = null; return; }
-      if (drag || isZoomed() || !rendition || selectionActive() || event.timeStamp === dismissedStamp) return;
+      if (drag || !rendition || selectionActive() || event.timeStamp === dismissedStamp) return;
       drag = { id: event.pointerId, x: event.clientX, y: event.clientY, lastX: event.clientX, lastT: event.timeStamp, v: 0, active: false };
     });
     viewer.addEventListener("pointermove", event => {
       if (!drag || event.pointerId !== drag.id) return;
-      if (selecting || (!drag.active && isZoomed())) { drag = null; return; }
+      if (selecting) { drag = null; return; }
       if (!drag.active) {
         const dx = event.clientX - drag.x;
         if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(event.clientY - drag.y)) return;
