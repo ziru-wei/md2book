@@ -115,6 +115,42 @@ window.md2bookLayoutReport = async function (ctx) {
   }
   if (!layouts.size) out("(no chapters kept yet: leave the book open for a while, then make the report again)");
   const scratch = document.createElement("div");
+  // Each kept page laid out again here, unseen, to count its lines and the
+  // gaps between them: a line taller than the rest shows as an odd gap.
+  const stage = document.createElement("div");
+  stage.style.cssText = "position:absolute;left:-30000px;top:0;visibility:hidden;pointer-events:none";
+  document.body.append(stage);
+  const lineGaps = (sheet, cssText) => {
+    const host = document.createElement("div");
+    host.style.cssText = sheet.host;
+    const shadow = host.attachShadow({ mode: "open" });
+    const style = document.createElement("style"); style.textContent = cssText; shadow.append(style);
+    const html = document.createElement("html");
+    for (const [name, value] of sheet.attrs) html.setAttribute(name, value);
+    for (const part of sheet.parts) { const el = document.createElement(part.tag); for (const [n, v] of part.attrs) el.setAttribute(n, v); el.innerHTML = part.html; html.append(el); }
+    shadow.append(html); stage.replaceChildren(host);
+    const tops = new Map();   // text column -> line tops
+    const walker = document.createTreeWalker(html, NodeFilter.SHOW_TEXT), range = document.createRange();
+    for (let node; (node = walker.nextNode());) {
+      if (!node.data.trim()) continue;
+      range.selectNodeContents(node);
+      const column = node.parentElement.closest(".epub-static-column") || html;
+      for (const r of range.getClientRects()) {
+        if (!r.width) continue;
+        if (!tops.has(column)) tops.set(column, new Set());
+        tops.get(column).add(Math.round(r.top * 2) / 2);
+      }
+    }
+    let lines = 0;
+    const gaps = new Map();
+    for (const set of tops.values()) {
+      // Line fragments on one line differ by a pixel or two (sizes, fonts): one line.
+      const sorted = [...set].sort((a, b) => a - b).filter((top, i, all) => i === 0 || top - all[i - 1] > 4);
+      lines += sorted.length;
+      for (let i = 1; i < sorted.length; i++) { const gap = Math.round((sorted[i] - sorted[i - 1]) * 2) / 2; gaps.set(gap, (gaps.get(gap) || 0) + 1); }
+    }
+    return `${lines} lines, gaps ${[...gaps].sort((a, b) => b[1] - a[1]).map(([gap, n]) => `${gap}×${n}`).join(" ")}`;
+  };
   for (const [sig, chapters] of layouts) {
     chapters.sort((a, b) => a[0] - b[0]);
     out(`layout ${sig}: ${chapters.length} chapters kept, ${chapters.reduce((sum, [, c]) => sum + c.total, 0)} pages`);
@@ -124,8 +160,13 @@ window.md2bookLayoutReport = async function (ctx) {
         return clean(scratch.textContent);
       });
       out(`ch${index}: ${chapter.total} pages, ${fnv(pages.join("\u0000"))}`);
-      pages.forEach((text, i) => out(`  p${i + 1}: ${text.slice(0, 10)} … ${text.slice(-6)}`));
+      pages.forEach((text, i) => {
+        let metrics = "";
+        try { metrics = " | " + lineGaps(chapter.sheets[i], chapter.styles[chapter.sheets[i].css]); } catch { /* not measurable */ }
+        out(`  p${i + 1}: ${text.slice(0, 10)} … ${text.slice(-6)}${metrics}`);
+      });
     }
   }
+  stage.remove();
   return lines.join("\n");
 };

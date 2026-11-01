@@ -23,6 +23,23 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
   const joined = (a, b) => OPEN.has(a) || CLOSE.has(b) || (PAIRED.has(a) && a === b) || (isWord(a) && isWord(b)) || (a === "\u2019" && isWord(b));
   // Longer than this, a run is let break anywhere rather than overflow its line.
   const LONGEST = 40;
+  // Text raised or lowered with vertical-align (a publisher's note numbers are
+  // often spans set "super") can make its line taller, by as much as each
+  // browser version's line layout decides: the page then holds a line fewer
+  // on one device than on another. Every such element is lifted instead
+  // (position: relative), which never touches the line, as .body sup is.
+  function liftRaised(doc, body) {
+    const view = doc.defaultView;
+    for (const el of body.querySelectorAll("*")) {
+      if (el.closest("img,svg,math,video,audio,object,canvas,iframe,table")) continue;
+      const align = view.getComputedStyle(el).verticalAlign;
+      if (align === "baseline" || view.getComputedStyle(el).display !== "inline") continue;
+      const shift = align === "super" ? "-0.45em" : align === "sub" ? "0.25em" : /^-?[\d.]+(px|em)$/.test(align) ? `${-parseFloat(align)}${align.replace(/^-?[\d.]+/, "")}` : null;
+      el.style.setProperty("vertical-align", "baseline", "important");
+      el.style.setProperty("line-height", "0", "important");
+      if (shift) { el.style.setProperty("position", "relative", "important"); el.style.setProperty("top", shift, "important"); }
+    }
+  }
   function ownBreaks(doc, body) {
     body.classList.add("epub-own-breaks");
     const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT), texts = [];
@@ -219,6 +236,7 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
       if (target) (target.matches("a,span,sup") ? target.closest("p,li,aside,div") || target : target).dataset.epubNoteHidden = "";
     }
     ownBreaks(doc, body);
+    liftRaised(doc, body);
     // Settle fonts and images before reading column counts. No late page drift.
     // Flush the new style before observing FontFaceSet.ready: an idle set can
     // resolve before the browser has discovered this chapter's font subsets.
