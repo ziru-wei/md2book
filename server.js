@@ -110,6 +110,23 @@ const SETTINGS_PATH = SETTINGS_MODE && SETTINGS_BASE + "/settings";
 // (MD2BOOK_PWA=1 or 0 turns it on or off anywhere.)
 const PWA = process.env.MD2BOOK_PWA ? process.env.MD2BOOK_PWA === "1" : !LIVE;
 const HOME_BASE = config.site.homePath.replace(/\/$/, "");
+// The reader's own files as one version (a hash of static/, fonts aside): each
+// page carries the one it was served with, and asks /version whether a newer
+// one has been deployed (static/offline.js), since the home-screen app runs
+// on the copy kept on the device until it is told.
+function staticVersion() {
+  const hash = crypto.createHash("sha256");
+  const walk = dir => {
+    for (const dirent of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const full = path.join(dir, dirent.name);
+      if (dirent.isDirectory()) { if (dirent.name !== "fonts" && dirent.name !== "icons") walk(full); }
+      else hash.update(dirent.name).update(fs.readFileSync(full));
+    }
+  };
+  try { walk(path.join(__dirname, "static")); } catch { return "unknown"; }
+  return hash.digest("hex").slice(0, 16);
+}
+const STATIC_VERSION = staticVersion();
 const MANIFEST_PATH = HOME_BASE + "/manifest.webmanifest";
 const OFFLINE_PATH = HOME_BASE + "/offline.json";
 
@@ -123,7 +140,7 @@ setup({
   // Linked from the home page.
   settingsPath: SETTINGS_PATH,
   epubCloud: Boolean(REPO_SETTINGS || process.env.VERCEL || LOCAL_BOOKMARKS),
-  pwa: PWA ? { manifest: MANIFEST_PATH, list: OFFLINE_PATH } : null,
+  pwa: PWA ? { manifest: MANIFEST_PATH, list: OFFLINE_PATH, version: STATIC_VERSION } : null,
   imageToken: IMAGE_GITHUB_TOKEN,
   temmlVersion: createRequire(import.meta.url)("temml/package.json").version
 });
@@ -263,6 +280,11 @@ app.post("/api/epub-bookmarks/:id", bookmarkGuard, express.json({ limit: "32kb" 
 app.get("/sw.js", (_req, res) => {
   if (!PWA) return res.status(404).type("text").send("Not found");
   res.set("Cache-Control", "no-cache").type("application/javascript").sendFile(path.join(__dirname, "static", "sw.js"));
+});
+
+app.get("/version", (_req, res) => {
+  if (!PWA) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store").json({ version: STATIC_VERSION });
 });
 
 app.get(MANIFEST_PATH, (_req, res) => {

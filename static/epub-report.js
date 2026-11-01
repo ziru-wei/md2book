@@ -115,6 +115,10 @@ window.md2bookLayoutReport = async function (ctx) {
   }
   if (!layouts.size) out("(no chapters kept yet: leave the book open for a while, then make the report again)");
   const scratch = document.createElement("div");
+  // Lines are counted only in the chapter on screen: laying out every page of a
+  // book again here is more than a tablet's memory takes.
+  const measured = new Set([...document.querySelectorAll(".spread.is-current .page[data-section]")].map(page => Number(page.dataset.section)));
+  out(`(lines counted in chapter ${[...measured].map(i => "ch" + i).join(", ") || "on screen"}: open the chapter to compare, then make the report)`);
   // Each kept page laid out again here, unseen, to count its lines and the
   // gaps between them: a line taller than the rest shows as an odd gap.
   const stage = document.createElement("div");
@@ -137,19 +141,35 @@ window.md2bookLayoutReport = async function (ctx) {
       const column = node.parentElement.closest(".epub-static-column") || html;
       for (const r of range.getClientRects()) {
         if (!r.width) continue;
-        if (!tops.has(column)) tops.set(column, new Set());
-        tops.get(column).add(Math.round(r.top * 2) / 2);
+        if (!tops.has(column)) tops.set(column, new Map());
+        const top = Math.round(r.top * 2) / 2;
+        if (!tops.get(column).has(top)) tops.get(column).set(top, node.data.trim().slice(0, 8));
       }
     }
     let lines = 0;
     const gaps = new Map();
-    for (const set of tops.values()) {
+    const odd = [];
+    for (const map of tops.values()) {
       // Line fragments on one line differ by a pixel or two (sizes, fonts): one line.
-      const sorted = [...set].sort((a, b) => a - b).filter((top, i, all) => i === 0 || top - all[i - 1] > 4);
+      const sorted = [...map.keys()].sort((a, b) => a - b).filter((top, i, all) => i === 0 || top - all[i - 1] > 4);
       lines += sorted.length;
-      for (let i = 1; i < sorted.length; i++) { const gap = Math.round((sorted[i] - sorted[i - 1]) * 2) / 2; gaps.set(gap, (gaps.get(gap) || 0) + 1); }
+      const step = sorted.slice(1).map((top, i) => Math.round((top - sorted[i]) * 2) / 2);
+      step.forEach(gap => gaps.set(gap, (gaps.get(gap) || 0) + 1));
+      // A line set a pixel or two off (a glyph from another font) is followed by
+      // one off the other way; a line that is really taller is not.
+      let carry = 0;
+      step.forEach((gap, i) => {
+        const paragraph = gap > 44 && gap < 56;
+        const delta = paragraph ? gap - 49.75 : gap - 30;
+        if (Math.abs(delta) < 1 || gap > 60) { carry = 0; return; }
+        carry += delta;
+        if (Math.abs(carry) >= 1 && (i === step.length - 1 || Math.abs(carry + (step[i + 1] - (step[i + 1] > 44 && step[i + 1] < 56 ? 49.75 : 30))) >= 1)) {
+          odd.push(`+${carry.toFixed(1)}px at “${map.get(sorted[i + 1]) || ""}”`);
+          carry = 0;
+        }
+      });
     }
-    return `${lines} lines, gaps ${[...gaps].sort((a, b) => b[1] - a[1]).map(([gap, n]) => `${gap}×${n}`).join(" ")}`;
+    return `${lines} lines, gaps ${[...gaps].sort((a, b) => b[1] - a[1]).map(([gap, n]) => `${gap}×${n}`).join(" ")}${odd.length ? " | taller: " + odd.join(", ") : ""}`;
   };
   for (const [sig, chapters] of layouts) {
     chapters.sort((a, b) => a[0] - b[0]);
@@ -162,7 +182,9 @@ window.md2bookLayoutReport = async function (ctx) {
       out(`ch${index}: ${chapter.total} pages, ${fnv(pages.join("\u0000"))}`);
       pages.forEach((text, i) => {
         let metrics = "";
-        try { metrics = " | " + lineGaps(chapter.sheets[i], chapter.styles[chapter.sheets[i].css]); } catch { /* not measurable */ }
+        if (measured.has(index)) {
+          try { metrics = " | " + lineGaps(chapter.sheets[i], chapter.styles[chapter.sheets[i].css]); } catch { /* not measurable */ }
+        }
         out(`  p${i + 1}: ${text.slice(0, 10)} … ${text.slice(-6)}${metrics}`);
       });
     }

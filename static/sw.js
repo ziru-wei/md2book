@@ -531,6 +531,20 @@ self.addEventListener("message", event => {
   const reply = message => event.source?.postMessage(message);
   if (data.type === "download") event.waitUntil(download(data.list));
   else if (data.type === "flush") event.waitUntil(flush());
+  // A new version was deployed and the reader asked for it: the reader's kept
+  // files and pages go, so the reload that follows fetches them afresh (the
+  // books, their notes and the fonts stay).
+  else if (data.type === "update") {
+    event.waitUntil((async () => {
+      const cache = await caches.open(CACHE);
+      for (const req of await cache.keys()) {
+        const url = new URL(req.url);
+        if (sameOrigin(url) && (/^\/(static|epub)\//.test(url.pathname) || url.pathname === "/" || !/\/[^/]*\./.test(url.pathname)) &&
+            !/^\/(static\/fonts|static\/icons|epub-file|epub-cover|api|img|asset)\//.test(url.pathname)) await cache.delete(req);
+      }
+      reply({ type: "updated-ready" });
+    })());
+  }
   // A book's own page, online: keep the book (or bring it up to date) for
   // reading offline, whether or not the home page's download was ever used.
   else if (data.type === "keep" && /^[a-f0-9]{64}$/.test(data.id || "")) {

@@ -24,6 +24,38 @@
   document.addEventListener("visibilitychange", () => { if (!document.hidden) flush(); });
   flush();
 
+  // A new version of the reader deployed since this page's copy was kept: the
+  // page carries the version it was served with, the server says which is
+  // current. Offered, not forced (the kept copy is what reads offline); a
+  // home-screen app has no reload button of its own.
+  const ours = document.querySelector('meta[name="md2book-version"]')?.content;
+  if (ours && navigator.onLine !== false) {
+    fetch("/version", { cache: "no-store" }).then(res => res.ok ? res.json() : null).then(current => {
+      if (!current?.version || current.version === ours || document.getElementById("md2book-updated")) return;
+      let zh = false;
+      try { zh = (localStorage.getItem("md2book-settings-lang") || navigator.language).startsWith("zh"); } catch { /* storage unavailable */ }
+      const note = document.createElement("button");
+      note.id = "md2book-updated"; note.type = "button";
+      note.textContent = zh ? "阅读器已更新，点此刷新" : "A new version is ready: tap to reload";
+      note.style.cssText = "position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:2147483000;padding:9px 16px;border:0;border-radius:999px;background:#232527;color:#f6f8f9;font:13px system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.25);cursor:pointer";
+      note.addEventListener("click", async () => {
+        note.disabled = true;
+        // The kept reader files go first, so the reload fetches the new ones.
+        const reg = await navigator.serviceWorker.getRegistration().catch(() => null);
+        await reg?.update().catch(() => {});
+        const worker = reg?.active;
+        if (worker) await new Promise(resolve => {
+          const done = event => { if (event.data?.type === "updated-ready") { navigator.serviceWorker.removeEventListener("message", done); resolve(); } };
+          navigator.serviceWorker.addEventListener("message", done);
+          worker.postMessage({ type: "update" });
+          setTimeout(resolve, 4000);
+        });
+        location.reload();
+      });
+      document.body.append(note);
+    }).catch(() => {});
+  }
+
   const dataEl = document.getElementById("home-data");
   let data = null;
   try { data = dataEl && JSON.parse(dataEl.textContent); } catch { /* not the home page */ }
