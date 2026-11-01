@@ -418,12 +418,12 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     return range && cfi.startsWith(`epubcfi(${range.base}!`) && compareCfi(cfi, range.start) >= 0 && (!range.end || compareCfi(cfi, range.end) < 0);
   });
   // Each note sticks out its own little bit more or less (from its place, so always the same).
-  const jitter = cfi => { let h = 2166136261; for (let i = 0; i < cfi.length; i++) h = Math.imul(h ^ cfi.charCodeAt(i), 16777619); return ((h >>> 0) % 500) / 100; };
+  const jitter = cfi => { let h = 2166136261; for (let i = 0; i < cfi.length; i++) h = Math.imul(h ^ cfi.charCodeAt(i), 16777619); return ((h >>> 0) % 400) / 100; };
   function noteFor(tab, side) {
     const el = element(`epub-tab epub-tab--${side}` + (tab.latest ? " is-latest" : ""));
     el.dataset.cfi = tab.cfi;
     el.style.setProperty("--at", tab.at.toFixed(4));
-    el.style.setProperty("--out", (NOTE_OUT - 5 + jitter(tab.cfi)).toFixed(2) + "px");
+    el.style.setProperty("--out", (NOTE_OUT - 4 + jitter(tab.cfi)).toFixed(2) + "px");
     if (tab.short) { const name = element("epub-tab-name-short"); name.textContent = tab.short; el.append(name); }
     el.setAttribute("role", "button"); el.setAttribute("aria-label", tab.label || "Bookmark");
     el.addEventListener("click", event => { event.stopPropagation(); onTab?.(tab.cfi, el); });
@@ -438,6 +438,8 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     if (!behind) { behind = element("epub-tabs epub-tabs--behind"); spread.inner.prepend(behind); }
     const first = pagination(spread.first), last = pagination(spread.last || spread.first), total = first.total;
     const stack = bookEdges() ? thickness(total) : 0;
+    // How thick the stack is on either side of this spread.
+    const sides = { left: total ? stack * ((first.page ?? 1) - 1) / total : 0, right: total ? stack * (total - (last.page ?? total)) / total : 0 };
     const elsewhere = [];
     for (const tab of tabs) {
       const page = pageOf(spread, tab.cfi);
@@ -446,6 +448,8 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
         const right = perSpread === 2 ? page.classList.contains("page--right") : tab.at >= .5;
         const note = noteFor(tab, right ? "right" : "left");
         note.classList.add("is-here");
+        // The top sheet: the note lies across the whole stack beside it.
+        note.style.setProperty("--stack", sides[right ? "right" : "left"].toFixed(2) + "px");
         page.append(note);
         continue;
       }
@@ -455,7 +459,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       const depth = !total || !stack ? 0 : stack * (right ? at - (last.page ?? first.page) : (first.page ?? 1) - at) / total;
       const note = noteFor(tab, right ? "right" : "left");
       note.style.setProperty("--depth", depth.toFixed(2) + "px");
-      note.style.setProperty("--stack", (stack * (right ? total - (last.page ?? 0) : (first.page ?? 1) - 1) / (total || 1)).toFixed(2) + "px");
+      note.style.setProperty("--stack", sides[right ? "right" : "left"].toFixed(2) + "px");
       elsewhere.push(note);
     }
     behind.replaceChildren(...elsewhere);
