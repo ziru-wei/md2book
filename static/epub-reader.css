@@ -182,11 +182,10 @@ html { -webkit-text-size-adjust: none; text-size-adjust: none; }
 .epub-report button { font: 12px system-ui, sans-serif; padding: 5px 12px; border: 1px solid #232527; border-radius: 999px; background: none; color: #232527; cursor: pointer; }
 .epub-report button.main { background: #232527; color: #f6f8f9; }
 
-/* One finger on the page belongs to the page turn, however slowly or
-   unevenly it moves, zoomed in or not: the browser takes no pan from it (a
-   pan it took would cancel the turn half-way). Two fingers zoom and, zoomed
-   in, move the page about (pinch-zoom is multi-finger panning too). */
-html.is-touch #epub-viewer { touch-action: pinch-zoom; }
+/* A finger on the page is the reader's, never the browser's: one turns the
+   page (however slowly it moves, zoomed in or not), two zoom and move it
+   (the book's own zoom, epub-reader.js). */
+html.is-touch #epub-viewer { touch-action: none; }
 
 /* Handwriting: drawn over the page's text, under its ribbon. */
 .epub-handwriting { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; overflow: hidden; pointer-events: none; }
@@ -199,7 +198,7 @@ html.is-touch #epub-viewer { touch-action: pinch-zoom; }
    frosted glass over the page. */
 #epub-ink-bar { display: flex; align-items: center; gap: 1px; padding: 3px; left: 0; top: 0; transform-origin: 0 0;
   transform: translate(50vw, calc(100svh - 16px)) translate(-50%, -100%);
-  background: rgba(30, 32, 35, .5); -webkit-backdrop-filter: blur(18px) saturate(1.6); backdrop-filter: blur(18px) saturate(1.6);
+  background: rgba(30, 32, 35, .26); -webkit-backdrop-filter: blur(14px) saturate(1.5); backdrop-filter: blur(14px) saturate(1.5);
   border: 1px solid rgba(255, 255, 255, .16); border-radius: 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, .22); }
 #epub-ink-bar[hidden] { display: none; }
 #epub-ink-bar button { width: 34px; height: 30px; padding: 0; display: grid; place-items: center; color: rgba(241, 243, 244, .78); border-radius: 8px; }

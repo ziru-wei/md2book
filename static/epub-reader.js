@@ -136,13 +136,12 @@
     turn(forward !== (book.package.metadata.direction === "rtl"));
   }
 
-  // The part of the page on screen: all of it, or — pinch-zoomed and panned —
-  // the visible window, so a tap on its left or right edge still turns the page.
+  // The part of the page on screen: all of it, or — zoomed in and moved —
+  // the window onto it, so a tap on its left or right edge still turns the page.
   function visibleBox() {
-    const bounds = viewer.getBoundingClientRect(), vv = window.visualViewport;
-    if (!vv || vv.scale <= 1.02) return bounds;
-    return { left: Math.max(bounds.left, vv.offsetLeft), top: Math.max(bounds.top, vv.offsetTop),
-      width: vv.width, height: vv.height };
+    const b = viewer.getBoundingClientRect();
+    const left = Math.max(b.left, 0), top = Math.max(b.top, 0);
+    return { left, top, width: Math.min(b.right, innerWidth) - left, height: Math.min(b.bottom, innerHeight) - top };
   }
   function tapAt(x, y, touch = false) {
     // The tap that dismissed a selection only dismisses it.
@@ -163,22 +162,69 @@
     blocked: () => !rendition || menu.open || !$("epub-note-editor").hidden || (window.visualViewport?.scale || 1) > 1.05,
     direction: () => book?.package.metadata.direction === "rtl" ? -1 : 1
   });
-  // Pinch-zoom state. Zoomed in, one finger still turns the page; two fingers
-  // move it about (epub-reader.css).
+  // Zoom on a touch screen is the book's own, not the browser's: two fingers
+  // pinch and move the page, one finger turns it. The browser itself never
+  // zooms, so what is pinned to the screen (the pen kit) stays put; a page
+  // change cannot throw the view back to a corner; and the screen is not
+  // drawn again tile by tile (black patches) after every pinch.
   const rootEl = document.documentElement;
-  const isZoomed = () => { const vv = window.visualViewport; return !!vv && (vv.scale > 1.02 || vv.width < rootEl.clientWidth - 2); };
-  const updateZoom = () => rootEl.classList.toggle("is-zoomed", isZoomed());
-  window.visualViewport?.addEventListener("resize", updateZoom);
-  window.visualViewport?.addEventListener("scroll", updateZoom);
+  const touchScreen = rootEl.classList.contains("is-touch") || matchMedia("(pointer: coarse)").matches;
+  const zoom = { s: 1, x: 0, y: 0 };
+  const isZoomed = () => zoom.s > 1.02;
+  viewer.style.transformOrigin = "0 0";
+  function applyZoom() {
+    zoom.s = Math.min(5, Math.max(1, zoom.s));
+    if (zoom.s < 1.02) Object.assign(zoom, { s: 1, x: 0, y: 0 });
+    const w = viewer.offsetWidth, h = viewer.offsetHeight;
+    zoom.x = Math.min(0, Math.max(w - w * zoom.s, zoom.x));
+    zoom.y = Math.min(0, Math.max(h - h * zoom.s, zoom.y));
+    viewer.style.transform = zoom.s === 1 ? "" : `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.s})`;
+    rootEl.classList.toggle("is-zoomed", isZoomed());
+  }
+  window.addEventListener("resize", () => { if (isZoomed()) applyZoom(); });
+  // Safari's own pinch, should one start anyway.
+  for (const type of ["gesturestart", "gesturechange"]) document.addEventListener(type, event => event.preventDefault(), { passive: false });
   // A finger drags the page: right-to-left turns forward, left-to-right back.
   // Decided once the move is clearly horizontal; a second finger is a pinch.
   (() => {
     let drag = null;
     const fingers = new Set();
     const rtl = () => book?.package.metadata.direction === "rtl" ? -1 : 1;
+    // Two fingers: the point of the page between them stays between them.
+    const touches = new Map();
+    let pinch = null;
+    const between = () => { const [a, b] = [...touches.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) || 1 }; };
+    function startPinch() {
+      const m = between(), r = viewer.getBoundingClientRect();
+      pinch = { m, s: zoom.s, ox: r.left - zoom.x, oy: r.top - zoom.y, cx: (m.x - r.left) / zoom.s, cy: (m.y - r.top) / zoom.s };
+      viewer.style.willChange = "transform";
+    }
+    function endPinch() {
+      pinch = null;
+      // Drawn sharp again at the new size, once, when the fingers part.
+      viewer.style.willChange = "";
+    }
+    viewer.addEventListener("pointermove", event => {
+      if (!touchScreen || !touches.has(event.pointerId)) return;
+      touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (!pinch || touches.size < 2) return;
+      const m = between();
+      zoom.s = pinch.s * m.d / pinch.m.d;
+      const s = Math.min(5, Math.max(1, zoom.s));
+      zoom.x = m.x - pinch.ox - pinch.cx * s;
+      zoom.y = m.y - pinch.oy - pinch.cy * s;
+      applyZoom();
+    });
+    const lift = event => { touches.delete(event.pointerId); if (touches.size < 2 && pinch) endPinch(); };
+    viewer.addEventListener("pointerup", lift);
+    viewer.addEventListener("pointercancel", lift);
     viewer.addEventListener("pointerdown", event => {
       if (event.pointerType !== "touch") return;
       fingers.add(event.pointerId);
+      if (touchScreen) {
+        touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        if (touches.size === 2) startPinch();
+      }
       if (fingers.size > 1) { if (drag?.active) rendition?.settleTurn(0); drag = null; return; }
       if (drag || !rendition || selectionActive() || event.timeStamp === dismissedStamp) return;
       drag = { id: event.pointerId, x: event.clientX, y: event.clientY, lastX: event.clientX, lastT: event.timeStamp, v: 0, active: false };
@@ -196,7 +242,8 @@
       const dt = Math.max(1, event.timeStamp - drag.lastT);
       drag.v = .7 * drag.v + .3 * (step / dt);
       drag.lastX = event.clientX; drag.lastT = event.timeStamp;
-      if (step) rendition.dragTurn(step, "touch", event.clientY);
+      // Zoomed in, the finger's travel is shorter on the page itself.
+      if (step) rendition.dragTurn(step / zoom.s, "touch", event.clientY);
     });
     const release = event => {
       fingers.delete(event.pointerId);
@@ -588,7 +635,7 @@
       if (event.pointerType !== "touch") return;
       fingers.add(event.pointerId);
       cancel();
-      if (fingers.size > 1 || !rendition || isZoomed() || menu.open) return;
+      if (fingers.size > 1 || !rendition || menu.open) return;
       const { clientX: x, clientY: y } = event;
       press = { id: event.pointerId, x, y, timer: setTimeout(() => {
         press = null;
