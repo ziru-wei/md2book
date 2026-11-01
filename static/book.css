@@ -1340,8 +1340,12 @@ figure.md-figure.span-placed > figcaption {
 
 /* An image inside running text (not a figure of its own) still fits
    the column — a tight list item's text has no <p>. */
-.body p img,
-.body li > img {
+.body:not(.epub-ink) p img,
+.body:not(.epub-ink) li > img,
+/* In an EPUB, at no weight at all: the book's own sizes come first, such as
+   a rare character set as a picture one letter high (`height: 1em`). */
+:where(.body.epub-ink p) img,
+:where(.body.epub-ink li) > img {
   max-width: 100%;
   max-height: 320px;
   height: auto;
