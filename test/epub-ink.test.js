@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { applyInkOperations, createFileInkStore, createGitHubInkStore, formatInk, inkFileName, validateInkOperations } from "../lib/epub-ink.js";
 await import("../static/epub-ink.js");
-const { encodePoints, decodePoints, cleanPoints, applyOps, stateOf, takeBatch, opKey } = globalThis.epubInk;
+const { encodePoints, decodePoints, cleanPoints, freshSamples, penPressure, applyOps, stateOf, takeBatch, opKey } = globalThis.epubInk;
 
 const stroke = (id, extra = {}) => ({ id, section: 3, color: "#26324a", size: 2.4,
   page: { key: "[\"tablet\",720,1000,1]", sheet: 2, x: 40.25, y: 80 },
@@ -21,9 +21,23 @@ test("points survive encoding to small integers", () => {
 test("a pen's crowded points and dropped pressures are smoothed before drawing", () => {
   const raw = [[0, 0, .4], [0.05, 0, 0], [0.1, 0.02, .42], [1, 0, 0], [2, 0, .44], [3, 0, .9], [3.1, 0, .9]];
   const clean = cleanPoints(raw);
-  assert.deepEqual(clean.map(p => p[0]), [0, 1, 2, 3.1], "points under .6 px from the last kept are dropped; the end stays");
+  assert.equal(clean.length, 4, "points under .6 px from the last kept are dropped");
+  assert.deepEqual([clean[0][0], clean[3][0]], [0, 3.1], "the ends stay where they are");
   assert.ok(clean.every(p => p[2] > .3 && p[2] < .7), "a zero pressure never makes the line vanish, a spike is eased");
   for (let i = 1; i < clean.length; i++) assert.ok(Math.abs(clean[i][2] - clean[i - 1][2]) < .3);
+});
+
+test("samples a pointermove repeats are skipped; light pressure still draws", () => {
+  const at = t => ({ timeStamp: t });
+  assert.deepEqual(freshSamples([at(4), at(8), at(12)], 0).map(s => s.timeStamp), [4, 8, 12]);
+  assert.deepEqual(freshSamples([at(4), at(8), at(12)], 12), [], "the same batch handed over again");
+  assert.deepEqual(freshSamples([at(8), at(12), at(16)], 12).map(s => s.timeStamp), [16]);
+  assert.equal(penPressure(0), 0);
+  assert.ok(penPressure(.05) > .55 && penPressure(.15) > .75 && penPressure(.5) === 1);
+  // A whole-pixel staircase comes out as a gentle slope.
+  const stairs = Array.from({ length: 12 }, (_, i) => [i * 1.4, i < 6 ? 0 : 1.37, .5]);
+  const smooth = cleanPoints(stairs);
+  for (let i = 1; i < smooth.length; i++) assert.ok(smooth[i][1] - smooth[i - 1][1] < .6);
 });
 
 test("ink operations can be sent twice; an erased stroke never comes back", () => {

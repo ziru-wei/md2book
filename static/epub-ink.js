@@ -57,8 +57,24 @@
       }
       out.push([x, y, p]);
     });
-    return out;
+    // Its coordinates come in whole screen pixels, so a gently sloping line is
+    // a staircase: each point is averaged with its neighbours (two each side),
+    // the ends kept where they are.
+    return out.map(([x, y, p], i) => {
+      if (i === 0 || i === out.length - 1) return [x, y, p];
+      let sx = 0, sy = 0, n = 0;
+      for (let j = Math.max(0, i - 2); j <= Math.min(out.length - 1, i + 2); j++) { sx += out[j][0]; sy += out[j][1]; n++; }
+      return [sx / n, sy / n, p];
+    });
   }
+
+  // The samples of a pointermove not seen yet. iPad Safari can hand the same
+  // coalesced samples to two pointermoves: taken twice, the line would run back
+  // over each stretch and fold into spikes.
+  const freshSamples = (samples, after) => samples.filter(s => s.timeStamp > after);
+
+  // A Pencil writing lightly presses 0.03 to 0.2: spread over the width's range.
+  const penPressure = raw => raw > 0 ? Math.min(1, .35 + .65 * Math.sqrt(Math.min(1, raw / .35))) : 0;
 
   // The same rules as the server (lib/epub-ink.js): strokes are only added
   // or erased, and an erased id stays erased.
@@ -99,7 +115,7 @@
     return d + "Z";
   }
 
-  const api = { opKey, encodePoints, decodePoints, cleanPoints, applyOps, stateOf, takeBatch, pathOf };
+  const api = { opKey, encodePoints, decodePoints, cleanPoints, freshSamples, penPressure, applyOps, stateOf, takeBatch, pathOf };
   if (typeof module !== "undefined" && module.exports) { module.exports = api; return; }
   root.epubInk = api;
 
@@ -376,7 +392,7 @@
     // A pen's eraser end (or its barrel button held down) erases.
     const erasing = event => tool === "eraser" || event.button === 5 || (event.buttons & 32) === 32;
     const local = (event, frame) => [(event.clientX - frame.left) / frame.k, (event.clientY - frame.top) / frame.k,
-      event.pointerType === "pen" ? event.pressure : .5];
+      event.pointerType === "pen" ? penPressure(event.pressure) : .5];
 
     viewer.addEventListener("pointerdown", event => {
       // A palm resting while the pen writes moves nothing.
@@ -390,7 +406,7 @@
       event.preventDefault(); event.stopImmediatePropagation();
       if (event.pointerType === "pen") { lastPen = performance.now(); onActive?.(); }
       const frame = frameOf(page);
-      drawing = { id: event.pointerId, page, frame, points: [local(event, frame)], erase: erasing(event), hits: new Set(), live: null, trace: startTrace(event, frame) };
+      drawing = { id: event.pointerId, page, frame, points: [local(event, frame)], erase: erasing(event), hits: new Set(), live: null, trace: startTrace(event, frame), last: event.timeStamp };
       try { viewer.setPointerCapture(event.pointerId); } catch { /* gone already */ }
       if (drawing.erase) eraseAt(drawing.points[0]);
       else { drawing.live = strokePath("", INKS[ink]); layerOf(page).append(drawing.live); drawLive(); }
@@ -408,8 +424,11 @@
       event.preventDefault(); event.stopImmediatePropagation();
       if (event.pointerType === "pen") lastPen = performance.now();
       const samples = event.getCoalescedEvents?.() || [];
-      record(drawing.trace, event, samples);
-      for (const sample of samples.length ? samples : [event]) {
+      const fresh = freshSamples(samples.length ? samples : [event], drawing.last);
+      record(drawing.trace, event, samples, fresh.length);
+      if (!fresh.length) return;
+      drawing.last = fresh[fresh.length - 1].timeStamp;
+      for (const sample of fresh) {
         const point = local(sample, drawing.frame);
         if (drawing.erase) eraseAt(point); else drawing.points.push(point);
       }
@@ -476,14 +495,15 @@
       n2(e.tiltX), n2(e.tiltY), n2(e.altitudeAngle), n2(e.azimuthAngle), e.buttons, n2(e.width), n2(e.height)].join("\t");
     function startTrace(event, frame) {
       const trace = { at: new Date().toISOString(), t0: event.timeStamp, type: event.pointerType, erase: erasing(event), k: frame.k,
-        moves: 0, coalesced: 0, empty: 0, palms: 0, touches: {}, rows: [sampleOf(event, "down", event.timeStamp)] };
+        moves: 0, coalesced: 0, empty: 0, repeated: 0, palms: 0, touches: {}, rows: [sampleOf(event, "down", event.timeStamp)] };
       traces.push(trace);
       if (traces.length > 5) traces.shift();
       return trace;
     }
-    function record(trace, event, samples) {
+    function record(trace, event, samples, fresh) {
       if (!trace) return;
       trace.moves++; trace.coalesced += samples.length;
+      trace.repeated += (samples.length || 1) - fresh;
       if (!samples.length) trace.empty++;
       if (trace.rows.length > 3000) return;
       for (const sample of samples) trace.rows.push(sampleOf(sample, "c", trace.t0));
@@ -510,7 +530,7 @@
       ];
       traces.forEach((t, i) => {
         lines.push(`— stroke ${i + 1} · ${t.at} · ${t.type}${t.erase ? " (eraser)" : ""} · page scale ${n2(t.k)} · ended by ${t.end || "(still drawing)"}`,
-          `pointermove ${t.moves}, coalesced samples ${t.coalesced}, moves without samples ${t.empty}, palm touches ignored ${t.palms}`,
+          `pointermove ${t.moves}, coalesced samples ${t.coalesced}, moves without samples ${t.empty}, samples seen before (skipped) ${t.repeated}, palm touches ignored ${t.palms}`,
           `touch events: ${Object.entries(t.touches).map(([k, v]) => `${k} ${v}`).join(", ") || "none"}`,
           `points ${t.points ?? "?"}, with pressure 0 ${t.zero ?? "?"}, after cleaning ${t.clean ?? "?"}, outline points ${t.outline ?? "?"}`,
           "kind\tms\tx\ty\tpressure\ttiltX\ttiltY\taltitude\tazimuth\tbuttons\twidth\theight", ...t.rows, "");
