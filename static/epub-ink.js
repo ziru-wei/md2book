@@ -380,14 +380,17 @@
 
     viewer.addEventListener("pointerdown", event => {
       // A palm resting while the pen writes moves nothing.
-      if (event.pointerType === "touch" && (drawing || performance.now() - lastPen < 600)) { event.stopImmediatePropagation(); return; }
+      if (event.pointerType === "touch" && (drawing || performance.now() - lastPen < 600)) {
+        if (drawing?.trace) drawing.trace.palms++;
+        event.stopImmediatePropagation(); return;
+      }
       if (!writes(event) || drawing) return;
       const page = pageAt(event.clientX, event.clientY);
       if (!page || view()?.turn || !tablet()) return;
       event.preventDefault(); event.stopImmediatePropagation();
       if (event.pointerType === "pen") { lastPen = performance.now(); onActive?.(); }
       const frame = frameOf(page);
-      drawing = { id: event.pointerId, page, frame, points: [local(event, frame)], erase: erasing(event), hits: new Set(), live: null };
+      drawing = { id: event.pointerId, page, frame, points: [local(event, frame)], erase: erasing(event), hits: new Set(), live: null, trace: startTrace(event, frame) };
       try { viewer.setPointerCapture(event.pointerId); } catch { /* gone already */ }
       if (drawing.erase) eraseAt(drawing.points[0]);
       else { drawing.live = strokePath("", INKS[ink]); layerOf(page).append(drawing.live); drawLive(); }
@@ -405,6 +408,7 @@
       event.preventDefault(); event.stopImmediatePropagation();
       if (event.pointerType === "pen") lastPen = performance.now();
       const samples = event.getCoalescedEvents?.() || [];
+      record(drawing.trace, event, samples);
       for (const sample of samples.length ? samples : [event]) {
         const point = local(sample, drawing.frame);
         if (drawing.erase) eraseAt(point); else drawing.points.push(point);
@@ -428,6 +432,7 @@
       const d = drawing;
       drawing = null;
       try { viewer.releasePointerCapture(d.id); } catch { /* released */ }
+      endTrace(d, event);
       if (d.erase) {
         const gone = [...bySection.values()].flat().filter(s => d.hits.has(s.id));
         if (gone.length) { undo.push({ restore: gone }); commit(gone.map(s => ({ type: "erase", id: s.id }))); }
@@ -450,6 +455,10 @@
     for (const type of ["touchstart", "touchmove", "touchend", "touchcancel"]) {
       window.addEventListener(type, event => {
         if (!viewer.contains(event.target) && !event.composedPath().includes(viewer)) return;
+        if (drawing?.trace) {
+          const key = type + (pencilTouch(event) ? " stylus" : " finger") + (event.cancelable ? "" : " (not cancelable)");
+          drawing.trace.touches[key] = (drawing.trace.touches[key] || 0) + 1;
+        }
         if (pencilTouch(event)) { if (event.cancelable) event.preventDefault(); event.stopImmediatePropagation(); }
         else if (drawing || performance.now() - lastPen < 600) event.stopImmediatePropagation();
       }, { capture: true, passive: false });
@@ -457,6 +466,58 @@
     viewer.addEventListener("click", event => {
       if (mode || performance.now() - lastPen < 600) { event.preventDefault(); event.stopImmediatePropagation(); }
     }, true);
+
+    // --- What the pen sent: the menu's "Ink log", for a stroke that looks wrong --
+    // The last few strokes, every event as it came (the coalesced samples
+    // inside each pointermove too), in client pixels.
+    const traces = [];
+    const n2 = v => typeof v === "number" ? Math.round(v * 100) / 100 : "";
+    const sampleOf = (e, kind, t0) => [kind, n2(e.timeStamp - t0), n2(e.clientX), n2(e.clientY), n2(e.pressure),
+      n2(e.tiltX), n2(e.tiltY), n2(e.altitudeAngle), n2(e.azimuthAngle), e.buttons, n2(e.width), n2(e.height)].join("\t");
+    function startTrace(event, frame) {
+      const trace = { at: new Date().toISOString(), t0: event.timeStamp, type: event.pointerType, erase: erasing(event), k: frame.k,
+        moves: 0, coalesced: 0, empty: 0, palms: 0, touches: {}, rows: [sampleOf(event, "down", event.timeStamp)] };
+      traces.push(trace);
+      if (traces.length > 5) traces.shift();
+      return trace;
+    }
+    function record(trace, event, samples) {
+      if (!trace) return;
+      trace.moves++; trace.coalesced += samples.length;
+      if (!samples.length) trace.empty++;
+      if (trace.rows.length > 3000) return;
+      for (const sample of samples) trace.rows.push(sampleOf(sample, "c", trace.t0));
+      trace.rows.push(sampleOf(event, "move", trace.t0));
+    }
+    function endTrace(d, event) {
+      const trace = d.trace;
+      if (!trace) return;
+      trace.end = event ? event.type : "page hidden";
+      if (event) trace.rows.push(sampleOf(event, event.type, trace.t0));
+      const clean = cleanPoints(d.points);
+      trace.points = d.points.length; trace.clean = clean.length;
+      trace.zero = d.points.filter(p => !(p[2] > 0)).length;
+      trace.outline = getStroke ? outline(d.points, SIZE, true).length : "perfect-freehand not loaded";
+    }
+    function log() {
+      const vv = window.visualViewport;
+      const lines = [
+        `md2book ink log · ${new Date().toISOString()}`,
+        `browser: ${navigator.userAgent}`,
+        `screen: ${innerWidth}×${innerHeight} css px, devicePixelRatio ${devicePixelRatio}, zoom ${vv ? n2(vv.scale) : "?"}, touch points ${navigator.maxTouchPoints}`,
+        `layout: ${view()?.inkLayout || "?"} · perfect-freehand ${getStroke ? "loaded" : "NOT loaded"} · getCoalescedEvents ${"getCoalescedEvents" in PointerEvent.prototype ? "yes" : "no"} · getPredictedEvents ${"getPredictedEvents" in PointerEvent.prototype ? "yes" : "no"}`,
+        `strokes logged: ${traces.length} (the last 5)`, ""
+      ];
+      traces.forEach((t, i) => {
+        lines.push(`— stroke ${i + 1} · ${t.at} · ${t.type}${t.erase ? " (eraser)" : ""} · page scale ${n2(t.k)} · ended by ${t.end || "(still drawing)"}`,
+          `pointermove ${t.moves}, coalesced samples ${t.coalesced}, moves without samples ${t.empty}, palm touches ignored ${t.palms}`,
+          `touch events: ${Object.entries(t.touches).map(([k, v]) => `${k} ${v}`).join(", ") || "none"}`,
+          `points ${t.points ?? "?"}, with pressure 0 ${t.zero ?? "?"}, after cleaning ${t.clean ?? "?"}, outline points ${t.outline ?? "?"}`,
+          "kind\tms\tx\ty\tpressure\ttiltX\ttiltY\taltitude\tazimuth\tbuttons\twidth\theight", ...t.rows, "");
+      });
+      if (!traces.length) lines.push("Draw a stroke first, then open this log again.");
+      return lines.join("\n");
+    }
 
     function undoLast() {
       const last = undo.pop();
@@ -530,7 +591,7 @@
       toggle: () => setMode(!mode),
       get tablet() { return tablet(); },
       get active() { return mode; },
-      setTool, undo: undoLast, showBar,
+      setTool, undo: undoLast, showBar, log,
       eraserToggle: () => setTool(tool === "eraser" ? "pen" : "eraser"),
       // A page turn is a pause in writing: send what is waiting.
       turned: () => { if (pending.length) scheduleFlush(600); },

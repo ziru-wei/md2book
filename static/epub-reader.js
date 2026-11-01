@@ -730,22 +730,21 @@
   }
   loadBookmarks();
 
-  // The layout report (static/epub-report.js): for comparing where pages
-  // begin and end on two devices.
-  let keep = {};
-  $("epub-report-open")?.addEventListener("click", async () => {
-    if (!rendition || !window.md2bookLayoutReport) return;
+  // The layout report (static/epub-report.js), for comparing where pages
+  // begin and end on two devices, and the ink log (static/epub-ink.js), what
+  // the pen sent: shown to copy or save.
+  function showReport(label, name, make) {
     menu.close();
     const dialog = document.createElement("dialog");
     dialog.className = "epub-report";
-    dialog.innerHTML = '<textarea readonly aria-label="Layout report">Making the report…</textarea><div class="acts"><button type="button" data-act="save">Save as file</button><button type="button" class="main" data-act="copy">Copy</button><button type="button" data-act="close">Close</button></div>';
+    dialog.innerHTML = '<textarea readonly></textarea><div class="acts"><button type="button" data-act="save">Save as file</button><button type="button" class="main" data-act="copy">Copy</button><button type="button" data-act="close">Close</button></div>';
+    const area = dialog.querySelector("textarea");
+    area.setAttribute("aria-label", label); area.value = "Making the report…";
     document.body.append(dialog);
     dialog.showModal();
-    const area = dialog.querySelector("textarea");
     let text = "";
-    try { text = await window.md2bookLayoutReport({ title: document.title, row, rendition, keep, toc: chapters.map(c => ({ index: c.index, label: c.label })) }); }
-    catch (error) { text = `Could not make the report: ${error.message || error}`; }
-    area.value = text;
+    Promise.resolve().then(make).then(value => { text = value; }, error => { text = `Could not make the report: ${error.message || error}`; })
+      .then(() => { area.value = text; });
     dialog.addEventListener("click", async event => {
       const act = event.target.closest("button")?.dataset.act;
       if (act === "close") { dialog.close(); dialog.remove(); }
@@ -755,11 +754,17 @@
       } else if (act === "save") {
         const link = document.createElement("a");
         link.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
-        link.download = `${document.title || "book"} layout ${/iPad|iPhone/.test(navigator.userAgent) || navigator.maxTouchPoints > 1 ? "iPad" : "computer"}.txt`;
+        link.download = `${document.title || "book"} ${name} ${/iPad|iPhone/.test(navigator.userAgent) || navigator.maxTouchPoints > 1 ? "iPad" : "computer"}.txt`;
         link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
       }
     });
+  }
+  let keep = {};
+  $("epub-report-open")?.addEventListener("click", () => {
+    if (!rendition || !window.md2bookLayoutReport) return;
+    showReport("Layout report", "layout", () => window.md2bookLayoutReport({ title: document.title, row, rendition, keep, toc: chapters.map(c => ({ index: c.index, label: c.label })) }));
   });
+  $("epub-ink-log-open")?.addEventListener("click", () => showReport("Ink log", "ink log", () => ink.log()));
 
   try {
     // In ranges where the server honours them: a serverless response is capped.
