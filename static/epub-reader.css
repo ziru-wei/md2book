@@ -146,17 +146,21 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
   background: linear-gradient(90deg, #7a2020, #9b2f2f 45%, #b44444 58%, #862525);
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 87%, 0 100%); }
 .epub-ribbon::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, transparent 1px 3px); }
-/* Not the newest bookmark: pale. */
-.epub-ribbon:not(.is-latest) { opacity: .38; }
 .epub-ribbon[data-side="left"] { left: 26px; }
-/* Bookmarks sticking out of the top of the book, each where its page is in it
-   (epub-view.js, setTabs): the newest red, the others pale. */
-.epub-tabs { position: absolute; left: 0; right: 0; top: 0; height: 0; z-index: 6; }
-.epub-tab { position: absolute; top: -16px; width: 12px; height: 24px; transform: translateX(-50%); cursor: pointer;
-  background: rgba(190, 72, 72, .38); border-radius: 2px 2px 0 0; box-shadow: 0 -1px 2px rgba(0, 0, 0, .12); }
-.epub-tab.is-latest { background: linear-gradient(90deg, #7a2020, #9b2f2f 45%, #b44444 58%, #862525); }
-/* A finger-sized target round the slim tab. */
-.epub-tab::before { content: ""; position: absolute; left: -12px; right: -12px; top: -10px; bottom: -6px; }
+/* Bookmarks: sticky notes stuck in the book (epub-view.js, setTabs), each
+   where its page is in the book along the top edge, solid paper, the newest
+   red and the others grey-white. Between other pages a note is behind them,
+   only its top showing above the edge; on its own page it lies on the paper. */
+.epub-tabs { position: absolute; left: 0; right: 0; top: 0; height: 0; }
+.epub-tabs--front { z-index: 6; }
+.epub-tab { position: absolute; top: -17px; width: 16px; height: 40px; transform: translateX(-50%); cursor: pointer;
+  background: #ecebe6; border-radius: 1.5px 1.5px 0 0;
+  box-shadow: 0 0 0 .5px rgba(0, 0, 0, .14), 0 1px 2px rgba(0, 0, 0, .14); }
+.epub-tab.is-latest { background: #c4473d; box-shadow: 0 0 0 .5px rgba(90, 20, 15, .35), 0 1px 2px rgba(0, 0, 0, .18); }
+/* On its own page: the rest of the note, stuck on the paper. */
+.epub-tab.is-here { height: 78px; border-radius: 1.5px; }
+/* A finger-sized target round the slim note. */
+.epub-tab::before { content: ""; position: absolute; left: -10px; right: -10px; top: -10px; bottom: 0; }
 .epub-tab-pop { display: flex; align-items: center; gap: 2px; padding: 2px 2px 2px 10px; max-width: min(420px, 90vw); }
 .epub-tab-pop[hidden] { display: none; }
 .epub-tab-name { flex: 1; padding: 4px 0; white-space: normal; }
