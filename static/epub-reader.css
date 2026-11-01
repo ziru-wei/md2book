@@ -84,7 +84,9 @@ html:not(.is-touch) .epub-face > :is(.page-area,.page-bleed,.page-back) { will-c
 .epub-popup button:hover { background: rgba(241, 243, 244, .08); }
 #epub-note-editor { width: min(264px, 88vw); padding: 0; overflow: hidden; }
 #epub-note-text { display: block; width: 100%; box-sizing: border-box; resize: none; font: inherit; font-size: 13px; line-height: 1.5; color: inherit;
-  background: none; border: 0; border-radius: 0; padding: 9px 12px 8px; margin: 0; outline: none; min-height: 3.2em; }
+  background: none; border: 0; border-radius: 0; padding: 9px 12px 8px; margin: 0; outline: none; min-height: 3.2em;
+  /* As tall as its lines (static/epub-reader.js), up to this; then it scrolls. */
+  max-height: min(22em, 50vh); overflow-y: auto; }
 #epub-note-text::placeholder { color: rgba(241, 243, 244, .38); }
 /* A line from edge to edge, then the icons. */
 .epub-note-actions { display: flex; align-items: stretch; border-top: 1px solid rgba(241, 243, 244, .14); }
@@ -202,6 +204,8 @@ html.is-touch:not(.is-zoomed) #epub-viewer { touch-action: pinch-zoom; }
 #epub-ink-bar .epub-ink-colour i { display: block; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(241, 243, 244, .35); }
 #epub-ink-bar .epub-ink-colour[aria-pressed="true"] { background: none; }
 #epub-ink-bar .epub-ink-colour[aria-pressed="true"] i { box-shadow: 0 0 0 2px var(--entry-bg), 0 0 0 3.5px rgba(241, 243, 244, .9); }
-.epub-ink-status { min-width: 30px; padding: 0 6px; text-align: center; font-size: 11px; color: rgba(241, 243, 244, .5); }
-.epub-ink-status.is-waiting { color: #e3b97a; }
+/* Where the eraser reaches, round the pen or pointer. */
+.epub-eraser-ring { position: fixed; z-index: 36; box-sizing: border-box; border: 1.5px solid rgba(38, 50, 74, .7); border-radius: 50%;
+  background: rgba(255, 255, 255, .25); box-shadow: 0 0 0 1px rgba(255, 255, 255, .6); pointer-events: none; transform: translate(-50%, -50%); }
+.epub-eraser-ring[hidden] { display: none; }
 @media print { .epub-ink-bar, #epub-ink-bar { display: none !important; } }

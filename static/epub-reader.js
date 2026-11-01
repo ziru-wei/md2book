@@ -492,11 +492,21 @@
     if (pending && (pending.edit || wasDraft)) clearPending();
   }
   const coarse = () => matchMedia("(pointer: coarse)").matches;
+  // The note box is as tall as its lines, up to its max-height (it scrolls
+  // past that), and stays on screen as it grows.
+  let editorRect = null;
+  function fitNote() {
+    noteText.style.height = "auto";
+    noteText.style.height = noteText.scrollHeight + "px";
+    if (!editor.hidden && editorRect) place(editor, editorRect, true);
+  }
   function openEditor(h, rect = anchor, focus = !coarse()) {
     editing = h; bar.hidden = true;
     noteText.value = h.note || "";
     syncMarkerButton(h);
+    editorRect = rect;
     place(editor, rect, true);
+    fitNote();
     if (focus) noteText.focus({ preventScroll: true });
   }
   async function createHighlight(picked) {
@@ -656,7 +666,7 @@
     button.disabled = !noteText.value.trim();
     button.setAttribute("aria-pressed", String(h.marker === false && !button.disabled));
   }
-  noteText.addEventListener("input", () => { if (editing) syncMarkerButton(); });
+  noteText.addEventListener("input", () => { if (editing) syncMarkerButton(); fitNote(); });
   $("epub-note-marker").addEventListener("click", () => {
     if (!editing) return;
     const cur = current_(), note = noteText.value.trim();

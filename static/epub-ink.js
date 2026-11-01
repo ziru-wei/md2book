@@ -398,6 +398,24 @@
     const local = (event, frame) => [(event.clientX - frame.left) / frame.k, (event.clientY - frame.top) / frame.k,
       event.pointerType === "pen" ? penPressure(event.pressure) : .5];
 
+    // The eraser's reach, a circle round the pen (also while it hovers, on an
+    // iPad that can tell) or the mouse.
+    const ERASE = 12;   // page px
+    const ring = document.createElement("div");
+    ring.className = "epub-eraser-ring"; ring.hidden = true; ring.setAttribute("aria-hidden", "true");
+    document.body.append(ring);
+    function showRing(event, k) {
+      const d = 2 * ERASE * k;
+      Object.assign(ring.style, { left: event.clientX + "px", top: event.clientY + "px", width: d + "px", height: d + "px" });
+      ring.hidden = false;
+    }
+    viewer.addEventListener("pointermove", event => {
+      if (drawing) return;
+      const page = (event.pointerType === "pen" || (mode && event.pointerType === "mouse")) && tool === "eraser" && tablet() && pageAt(event.clientX, event.clientY);
+      if (page) showRing(event, frameOf(page).k); else ring.hidden = true;
+    });
+    viewer.addEventListener("pointerleave", () => { if (!drawing) ring.hidden = true; });
+
     viewer.addEventListener("pointerdown", event => {
       // A palm resting while the pen writes moves nothing.
       if (event.pointerType === "touch" && (drawing || performance.now() - lastPen < 600)) {
@@ -412,7 +430,7 @@
       const frame = frameOf(page);
       drawing = { id: event.pointerId, page, frame, points: [local(event, frame)], erase: erasing(event), hits: new Set(), ahead: [], trace: startTrace(event, frame), last: event.timeStamp };
       try { viewer.setPointerCapture(event.pointerId); } catch { /* gone already */ }
-      if (drawing.erase) eraseAt(drawing.points[0]);
+      if (drawing.erase) { showRing(event, frame.k); eraseAt(drawing.points[0]); }
       else { startLive(frame); drawLive(); }
     }, true);
     // The stroke being drawn is on a canvas of its own over the page: the page
@@ -460,13 +478,14 @@
         const point = local(sample, drawing.frame);
         if (drawing.erase) eraseAt(point); else drawing.points.push(point);
       }
+      if (drawing.erase) showRing(event, drawing.frame.k);
       drawLive();
       if (drawing.trace) drawing.trace.moveMs += performance.now() - t0;
     }, true);
     function eraseAt([x, y]) {
       for (const p of drawing.page._ink || []) {
         if (drawing.hits.has(p.id)) continue;
-        const reach = 7 + p.size;
+        const reach = ERASE + p.size * 1.1;   // to the stroke's edge
         if (p.points.some(([px, py]) => Math.abs(px - x) < reach && Math.abs(py - y) < reach && Math.hypot(px - x, py - y) < reach)) {
           drawing.hits.add(p.id); p.path.style.display = "none";
         }
@@ -482,6 +501,7 @@
       try { viewer.releasePointerCapture(d.id); } catch { /* released */ }
       endTrace(d, event);
       if (d.erase) {
+        ring.hidden = true;   // a hovering pen or the mouse shows it again
         const gone = [...bySection.values()].flat().filter(s => d.hits.has(s.id));
         if (gone.length) { undo.push({ restore: gone }); commit(gone.map(s => ({ type: "erase", id: s.id }))); }
         return;
@@ -560,6 +580,7 @@
         `browser: ${navigator.userAgent}`,
         `screen: ${innerWidth}×${innerHeight} css px, devicePixelRatio ${devicePixelRatio}, zoom ${vv ? n2(vv.scale) : "?"}, touch points ${navigator.maxTouchPoints}`,
         `layout: ${view()?.inkLayout || "?"} · perfect-freehand ${getStroke ? "loaded" : "NOT loaded"} · getCoalescedEvents ${"getCoalescedEvents" in PointerEvent.prototype ? "yes" : "no"} · getPredictedEvents ${"getPredictedEvents" in PointerEvent.prototype ? "yes" : "no"}`,
+        `saving: ${saveState_()}`,
         `strokes logged: ${traces.length} (the last 5)`, ""
       ];
       traces.forEach((t, i) => {
@@ -582,18 +603,14 @@
       else commit(last.restore.map(s => ({ type: "stroke", stroke: { ...s, id: newId() } })));
     }
 
-    // --- The bar: pen, eraser, undo, and whether everything is saved ------------
-    const status = bar.querySelector(".epub-ink-status");
-    function showStatus() {
-      const waiting = pending.length;
-      status.textContent = !cloud ? "" : waiting ? `${waiting} ↑` : problem ? "!" : "✓";
-      const title = !cloud ? "Saved in this browser" : waiting ? `${problem || "Sending…"} (${waiting} waiting on this device)` : problem || "Saved";
-      status.title = title; status.setAttribute("aria-label", title);
-      status.classList.toggle("is-waiting", Boolean(waiting || problem));
-    }
+    // --- The bar: pen, colours, eraser, undo -------------------------------------
+    // Whether everything is saved is in the ink log (the bar shows no count).
+    const saveState_ = () => !cloud ? "saved in this browser" : pending.length ? `${pending.length} waiting on this device${problem ? ` (${problem})` : ""}` : problem || "all saved";
+    function showStatus() { bar.dataset.saved = pending.length || problem ? "waiting" : "yes"; }
     function setTool(next) {
       tool = next;
       for (const button of bar.querySelectorAll("[data-tool]")) button.setAttribute("aria-pressed", String(button.dataset.tool === tool));
+      if (tool !== "eraser") ring.hidden = true;
     }
     // A colour is picked to write with: the pen again, not the eraser.
     function setInk(next) {
