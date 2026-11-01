@@ -72,6 +72,10 @@ html.epub-fixed-paper[data-layout="tablet"] .epub-face.page--notes {
 
 /* Retain bounded ink surfaces while the shared leaf clips and transforms them. */
 html:not(.is-touch) .epub-face > :is(.page-area,.page-bleed,.page-back) { will-change:transform; }
+/* On a tablet too when the paper effects are on, but only for the sheets on
+   screen and those about to turn in: their blurred and masked copies are then
+   drawn once and moved, instead of drawn again at every frame of a turn. */
+html.is-touch:is(.show-through, .ink-bleed, .letterpress) .spread:is(.is-current, .is-near) .epub-face > :is(.page-area, .page-bleed, .page-back) { will-change: transform; }
 #epub-toc .toc-item button { padding-left: calc(4px + var(--depth, 0) * 1.1em); }
 #epub-toc .toc-item.is-current .toc-title { color: #fff; }
 
@@ -198,16 +202,19 @@ html.is-touch #epub-viewer { touch-action: none; }
    frosted glass over the page. */
 #epub-ink-bar { display: flex; align-items: center; gap: 1px; padding: 3px; left: 0; top: 0; transform-origin: 0 0;
   transform: translate(50vw, calc(100svh - 16px)) translate(-50%, -100%);
-  background: rgba(30, 32, 35, .26); -webkit-backdrop-filter: blur(14px) saturate(1.5); backdrop-filter: blur(14px) saturate(1.5);
-  border: 1px solid rgba(255, 255, 255, .16); border-radius: 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, .22); }
+  background: rgba(128, 132, 138, .16); -webkit-backdrop-filter: blur(6px) saturate(1.3); backdrop-filter: blur(6px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, .22); border-radius: 12px; box-shadow: 0 4px 18px rgba(0, 0, 0, .1); }
 #epub-ink-bar[hidden] { display: none; }
-#epub-ink-bar button { width: 34px; height: 30px; padding: 0; display: grid; place-items: center; color: rgba(241, 243, 244, .78); border-radius: 8px; }
-#epub-ink-bar button[aria-pressed="true"] { color: #fff; background: rgba(241, 243, 244, .14); }
-#epub-ink-bar svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#epub-ink-bar button { width: 34px; height: 30px; padding: 0; display: grid; place-items: center; color: rgba(255, 255, 255, .92); border-radius: 8px; }
+#epub-ink-bar button:hover { background: rgba(255, 255, 255, .12); }
+#epub-ink-bar button[aria-pressed="true"] { color: #fff; background: rgba(255, 255, 255, .24); }
+#epub-ink-bar svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+  /* White with a dark rim: the icons read over paper and over the dark desk. */
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, .7)) drop-shadow(0 0 .5px rgba(0, 0, 0, .6)); }
 #epub-ink-bar .epub-ink-colour { width: 26px; }
-#epub-ink-bar .epub-ink-colour i { display: block; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(241, 243, 244, .35); }
+#epub-ink-bar .epub-ink-colour i { display: block; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255, 255, 255, .7); }
 #epub-ink-bar .epub-ink-colour[aria-pressed="true"] { background: none; }
-#epub-ink-bar .epub-ink-colour[aria-pressed="true"] i { box-shadow: 0 0 0 2px var(--entry-bg), 0 0 0 3.5px rgba(241, 243, 244, .9); }
+#epub-ink-bar .epub-ink-colour[aria-pressed="true"] i { box-shadow: 0 0 0 2px rgba(255, 255, 255, .95), 0 0 0 3.5px rgba(0, 0, 0, .55); }
 /* The lasso's selection: its strokes outlined, a dashed box to move it by. */
 .epub-handwriting path.is-selected { filter: drop-shadow(0 0 1.2px rgba(60, 110, 220, .95)); }
 .epub-ink-selection { fill: rgba(60, 110, 220, .05); stroke: rgba(60, 110, 220, .75); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
