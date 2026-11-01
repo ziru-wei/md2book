@@ -57,7 +57,7 @@ window.md2bookLayoutReport = async function (ctx) {
   }
 
   // --- Line breaking -------------------------------------------------------
-  out("\n[line breaking]  (lines in a box two characters wide)");
+  out("\n[line breaking]  (the browser's own rules, in a box two characters wide; the reader no longer uses them: it breaks lines by its own rules, see ownBreaks in epub-content.js)");
   const supports = ["text-spacing-trim: space-all", "text-autospace: no-autospace", "line-break: strict", "word-break: auto-phrase", "hanging-punctuation: allow-end", "text-wrap: pretty"];
   out("supports:", supports.map(rule => `${rule.split(":")[0]}=${CSS.supports(rule) ? "y" : "n"}`).join(" "));
   const box = document.createElement("div");

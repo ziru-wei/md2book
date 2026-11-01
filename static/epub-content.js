@@ -1,43 +1,50 @@
 // Adapt EPUB XHTML inside its own document. Preserve node order for saved CFIs.
 window.createEpubContent = function(book, root, row, fixedLayout) {
-  // Firefox follows an older UAX #14 than Safari and Chrome: it never breaks
-  // beside a curly quote, even between CJK characters, so its lines (and so its
-  // page numbers) drift from theirs. An empty <wbr> restores the break; CFIs
-  // skip it (SOFT_BREAK), so saved positions are the same in every browser.
+  // Where a line may break is decided here, by one fixed set of rules, never
+  // by the browser: browsers break lines by the Unicode line-breaking rules
+  // of their own engine and system (Safari 18 and Safari 26 on different
+  // sides of a curly quote or a dash, Firefox and older Chromium differently
+  // again), so the same chapter would end its pages on different characters.
+  // The body allows a break between any two characters (line-break:
+  // anywhere, which follows no rules at all); every run of characters that
+  // must stay together is wrapped in a span that doesn't wrap. Those spans
+  // carry SOFT_BREAK, which CFIs skip, so saved positions are unchanged.
   const SOFT_BREAK = "epub-brk";
-  // Not only Firefox: Obsidian's Chromium 130 binds a curly quote to the next
-  // character the same way (a line that fits wrapped a character early and the
-  // book drifted a page). Ask the engine rather than read its name: set 国”国
-  // in a box too narrow for all of it; if it may break after the quote the
-  // quote stays on the first line, otherwise nothing can break and it is one line.
-  let oldQuoteRules = null;
-  function bindsQuotes() {
-    if (oldQuoteRules === null) {
-      if (/Firefox\//.test(navigator.userAgent)) oldQuoteRules = true;
-      else {
-        const box = document.createElement("div");
-        box.style.cssText = "position:absolute;visibility:hidden;left:0;top:0;width:1.8em;font:20px/30px var(--serif),serif;line-break:strict;overflow-wrap:normal";
-        box.textContent = "\u56fd\u201d\u56fd"; document.body.append(box);
-        oldQuoteRules = box.getBoundingClientRect().height < 45;
-        box.remove();
-      }
-    }
-    return oldQuoteRules;
-  }
-  const CJK = "\\u3040-\\u30ff\\u3400-\\u9fff\\uf900-\\ufaff";
-  const afterQuote = new RegExp(`(?<=[\u201d\u2019])(?=[${CJK}\u201c\u2018\u300a\u3008\u300c\u300e\uff08\u3010\u3014\uff3b\uff5b])`, "gu");
-  const beforeQuote = new RegExp(`(?<=[${CJK}\uff0c\u3002\u3001\uff1b\uff1a\uff01\uff1f\uff09\u300b\u3009\u300d\u300f\u3011\u3015\uff3d\uff5d\u2026\u2014\u201d\u2019])(?=[\u201c\u2018])`, "gu");
-  function softBreaks(doc, body) {
-    if (!bindsQuotes()) return;
+  // Closing marks never start a line; opening marks never end one.
+  const OPEN = new Set("“‘（《〈「『【〔［｛([{«");
+  const CLOSE = new Set("”’）》〉」』】〕］｝)]}»，。、；：！？．,.;:!?%％·・…‥々ーゝゞヽヾぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ");
+  // A dash or ellipsis is never split: —— and …… are one mark.
+  const PAIRED = new Set("—…‥");
+  const CJK = /[⺀-鿿가-힯豈-﫿＀-￯]/;
+  const SPACE = /\s/;
+  // Letters and digits that aren't CJK make words, which never break.
+  const isWord = c => !SPACE.test(c) && !CJK.test(c) && !OPEN.has(c) && !CLOSE.has(c) && !PAIRED.has(c);
+  // (An apostrophe inside a word — don’t — keeps the word whole.)
+  const joined = (a, b) => OPEN.has(a) || CLOSE.has(b) || (PAIRED.has(a) && a === b) || (isWord(a) && isWord(b)) || (a === "\u2019" && isWord(b));
+  // Longer than this, a run is let break anywhere rather than overflow its line.
+  const LONGEST = 40;
+  function ownBreaks(doc, body) {
+    body.classList.add("epub-own-breaks");
     const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT), texts = [];
-    for (let node; (node = walker.nextNode());) if (/[\u2018\u2019\u201c\u201d]/.test(node.data)) texts.push(node);
+    for (let node; (node = walker.nextNode());) {
+      if (node.length > 1 && !node.parentElement.closest(`pre,code,kbd,samp,script,style,svg,math,.${SOFT_BREAK}`)) texts.push(node);
+    }
     for (const node of texts) {
-      const at = new Set();
-      for (const re of [afterQuote, beforeQuote]) for (const m of node.data.matchAll(re)) if (m.index > 0 && m.index < node.length) at.add(m.index);
-      for (const index of [...at].sort((a, b) => b - a)) {
-        const tail = node.splitText(index), mark = doc.createElementNS("http://www.w3.org/1999/xhtml", "wbr");
-        mark.className = SOFT_BREAK;
-        tail.before(mark);
+      const data = node.data, runs = [];
+      for (let start = 0; start < data.length;) {
+        let end = start + 1;
+        while (end < data.length && !SPACE.test(data[end]) && !SPACE.test(data[end - 1]) && joined(data[end - 1], data[end])) end++;
+        if (end - start > 1 && end - start <= LONGEST) runs.push([start, end]);
+        start = end;
+      }
+      // From the end, so earlier offsets stay where they are.
+      for (const [start, end] of runs.reverse()) {
+        const tail = node.splitText(start);
+        tail.splitText(end - start);
+        const span = doc.createElementNS("http://www.w3.org/1999/xhtml", "span");
+        span.className = SOFT_BREAK;
+        tail.replaceWith(span);
+        span.append(tail);
       }
     }
   }
@@ -173,9 +180,11 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
          engine-specific column widow/orphan defaults. */
       body.body { -webkit-line-box-contain:initial !important; }
       body.body * { orphans:1 !important; widows:1 !important;
-        line-break:strict; text-spacing-trim:space-all; text-autospace:no-autospace;
+        line-break:anywhere; word-break:normal; overflow-wrap:normal; text-spacing-trim:space-all; text-autospace:no-autospace;
         font-kerning:none; font-variant-ligatures:none; text-rendering:geometricPrecision; font-synthesis:none; hyphens:manual; -webkit-hyphens:manual; }
       body.body :is(sup,sub,.math-super) { line-height:0 !important; }
+      body.body { line-break:anywhere !important; word-break:normal !important; overflow-wrap:normal !important; }
+      span.epub-brk { white-space:nowrap; }
       body.body { min-height:0 !important; margin:0 !important; padding-top:0 !important; padding-bottom:0 !important; column-count:auto !important;
         font-family:var(--serif) !important; font-size:var(--body-size) !important; line-height:var(--body-leading) !important; }
       body.body :is(p,li,blockquote) { font-family:inherit !important; font-size:inherit !important; line-height:inherit !important; }
@@ -209,7 +218,7 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
       const target = doc.getElementById(ref.id);
       if (target) (target.matches("a,span,sup") ? target.closest("p,li,aside,div") || target : target).dataset.epubNoteHidden = "";
     }
-    softBreaks(doc, body);
+    ownBreaks(doc, body);
     // Settle fonts and images before reading column counts. No late page drift.
     // Flush the new style before observing FontFaceSet.ready: an idle set can
     // resolve before the browser has discovered this chapter's font subsets.
