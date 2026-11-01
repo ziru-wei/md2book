@@ -196,6 +196,15 @@ html.show-through .page-back * {
   mix-blend-mode: normal !important;
 }
 
+/* On an iPad, without the blur and the paper's mask: Safari drew them on the
+   CPU, a full page at a time, whenever a turning page needed it. At this
+   faintness the plain mirrored ink looks nearly the same. */
+html.is-tablet.show-through .page-back {
+  filter: none;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
 /* A colour picture seen through the paper is mostly its darks, not its
    colours. */
 html.show-through .page-back img {
@@ -254,6 +263,14 @@ html.ink-bleed :is(#book, #epub-viewer) .page > .page-bleed {
 
 html.ink-bleed .page-bleed .page-area {
   background: none;
+}
+
+/* On an iPad, not blurred (see the show-through above): the copy sits a hair
+   off the letters instead, as ink spread a little. */
+html.is-tablet.ink-bleed :is(#book, #epub-viewer) .page > .page-bleed {
+  filter: none;
+  transform: translate(.35px, .3px);
+  opacity: calc(.05 + .16 * var(--ink-bleed));
 }
 
 html.ink-bleed .page-bleed :is(.page-area, .page-foot, .page-number, .page-comments) {
