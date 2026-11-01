@@ -11,7 +11,15 @@
    - The pages themselves, from the chapters laid out and kept on this device
      (static/epub-view.js): each page's first and last characters. */
 window.md2bookLayoutReport = async function (ctx) {
-  const { title, row, rendition, keep } = ctx;
+  const { title, row, rendition, keep, toc = [] } = ctx;
+  // A chapter as the reader sees it: its title(s) in the book's contents, or
+  // the one before it (continued), never the file's place in the EPUB.
+  const tocLabel = index => {
+    const own = toc.filter(t => t.index === index).map(t => t.label);
+    if (own.length) return own.join(" · ");
+    const before = toc.filter(t => t.index < index).pop();
+    return before ? `${before.label} (cont.)` : "(before the contents)";
+  };
   const root = document.documentElement, css = getComputedStyle(root);
   const lines = [];
   const out = (...parts) => lines.push(parts.join(" "));
@@ -78,7 +86,7 @@ window.md2bookLayoutReport = async function (ctx) {
   box.remove(); probe.remove();
 
   // --- Pages -------------------------------------------------------------
-  out("\n[pages]  (chapter: pages | each page: first 10 … last 6 characters)");
+  out("\n[pages]  (each chapter by its title in the contents; each page by its page number in the book: first 10 … last 6 characters)");
   const current = rendition?.currentLocation?.();
   if (current) out("now at:", current.start?.cfi, "| page", current.pagination?.page ?? "?", "of", current.pagination?.total ?? "?");
   const spreadText = [...document.querySelectorAll(".spread.is-current .page[data-section]")].map(page => {
@@ -118,7 +126,7 @@ window.md2bookLayoutReport = async function (ctx) {
   // Lines are counted only in the chapter on screen: laying out every page of a
   // book again here is more than a tablet's memory takes.
   const measured = new Set([...document.querySelectorAll(".spread.is-current .page[data-section]")].map(page => Number(page.dataset.section)));
-  out(`(lines counted in chapter ${[...measured].map(i => "ch" + i).join(", ") || "on screen"}: open the chapter to compare, then make the report)`);
+  out(`(lines counted in ${[...measured].map(i => `“${tocLabel(i)}” (file ${i})`).join(", ") || "the chapter on screen"})`);
   // Each kept page laid out again here, unseen, to count its lines and the
   // gaps between them: a line taller than the rest shows as an odd gap.
   const stage = document.createElement("div");
@@ -174,19 +182,26 @@ window.md2bookLayoutReport = async function (ctx) {
   for (const [sig, chapters] of layouts) {
     chapters.sort((a, b) => a[0] - b[0]);
     out(`layout ${sig}: ${chapters.length} chapters kept, ${chapters.reduce((sum, [, c]) => sum + c.total, 0)} pages`);
+    // Page numbers run on through the book while every chapter before is kept.
+    let first = 1, previous = -1;
     for (const [index, chapter] of chapters) {
+      // A chapter not kept yet leaves a gap: the numbers after it are unknown.
+      if (index !== previous + 1) first = null;
+      previous = index;
       const pages = chapter.sheets.map(sheet => {
         scratch.innerHTML = sheet.parts.map(part => part.html).join("");
         return clean(scratch.textContent);
       });
-      out(`ch${index}: ${chapter.total} pages, ${fnv(pages.join("\u0000"))}`);
+      const numbered = first !== null;
+      out(`${tocLabel(index)}  [${chapter.total} pages${numbered ? `, p. ${first}–${first + chapter.total - 1}` : ""}, ${fnv(pages.join("\u0000"))}, file ${index}]`);
       pages.forEach((text, i) => {
         let metrics = "";
         if (measured.has(index)) {
           try { metrics = " | " + lineGaps(chapter.sheets[i], chapter.styles[chapter.sheets[i].css]); } catch { /* not measurable */ }
         }
-        out(`  p${i + 1}: ${text.slice(0, 10)} … ${text.slice(-6)}${metrics}`);
+        out(`  ${numbered ? "p. " + (first + i) : "+" + (i + 1)}: ${text.slice(0, 10)} … ${text.slice(-6)}${metrics}`);
       });
+      if (numbered) first += chapter.total;
     }
   }
   stage.remove();

@@ -725,7 +725,7 @@
     dialog.showModal();
     const area = dialog.querySelector("textarea");
     let text = "";
-    try { text = await window.md2bookLayoutReport({ title: document.title, row, rendition, keep }); }
+    try { text = await window.md2bookLayoutReport({ title: document.title, row, rendition, keep, toc: chapters.map(c => ({ index: c.index, label: c.label })) }); }
     catch (error) { text = `Could not make the report: ${error.message || error}`; }
     area.value = text;
     dialog.addEventListener("click", async event => {
