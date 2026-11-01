@@ -55,8 +55,18 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   // page the edges of the pages read, beside the right one those still to
   // read, each as thick as its share of the book (a long book is thicker).
   // Only with two single-column sheets side by side, once the book is counted.
-  const EDGE_MAX = 26, EDGE_PER_PAGE = .04;
+  // Every page is as thick as every other (page px): a book of a thousand
+  // pages is a thick book. Past EDGE_MAX it would crowd the pages out.
+  const EDGE_MAX = 64, EDGE_PER_PAGE = .055;
   const bookEdges = () => !fixedLayout && root.dataset.layout === "tablet" && perSpread === 2;
+  const bookTotal = () => chapters.length ? pagination({ index: chapters[0].index, sheet: 0 }).total : null;
+  const thickness = total => total ? Math.min(EDGE_MAX, total * EDGE_PER_PAGE) : 0;
+  // The spread's scale, with room for the edges as thick as this book's.
+  let edgeRoom = 0;
+  function fitScale() {
+    edgeRoom = bookEdges() ? 2 * thickness(bookTotal()) + 8 : 0;
+    return root.dataset.layout !== "phone" ? Math.min(geometry.viewportWidth() / (width * perSpread + edgeRoom), geometry.viewportHeight() / height) : 1;
+  }
   function setEdges(spread) {
     if (!spread.first || !spread.inner.isConnected) return;
     const first = pagination(spread.first), last = pagination(spread.last || spread.first);
@@ -64,16 +74,23 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     for (const side of ["left", "right"]) {
       let edge = spread.inner.querySelector(`:scope > .book-edge--${side}`);
       if (!show) { edge?.remove(); continue; }
-      const thick = Math.min(EDGE_MAX, Math.max(4, first.total * EDGE_PER_PAGE));
       const pages = side === "left" ? first.page - 1 : first.total - last.page;
-      const w = Math.round(thick * pages / first.total * 4) / 4;
+      const w = Math.round(thickness(first.total) * pages / first.total * 4) / 4;
       if (!edge) { edge = element(`book-edge book-edge--${side}`); edge.setAttribute("aria-hidden", "true"); spread.inner.append(edge); }
       edge.style.width = w + "px";
+      // The stack is seen a little from the side: lower toward its outer edge.
+      edge.style.setProperty("--slope", (w * .3).toFixed(2) + "px");
       edge.hidden = w < .5;
     }
   }
 
   function updatePageNumbers() {
+    // The book counted (or its count changed): room for its edges.
+    if (perSpread && bookEdges() && 2 * thickness(bookTotal()) + 8 !== edgeRoom) {
+      scale = fitScale();
+      turns.viewScale = scale;
+      for (const spread of spreads) spread.inner.style.transform = `scale(${scale})`;
+    }
     for (const spread of spreads) setEdges(spread);
     for (const spread of spreads) {
       for (const page of spread.pages.flatMap(page => [page, ...page.querySelectorAll(':scope > .page-back')])) {
@@ -132,8 +149,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     viewportKey = `${geometry.viewportWidth()}x${geometry.viewportHeight()}`;
     // Two sheets side by side on the tablet page: room on either side for the
     // edges of the pages read and still to read (see setEdges).
-    const edgeRoom = bookEdges() ? 2 * EDGE_MAX + 8 : 0;
-    scale = root.dataset.layout !== "phone" ? Math.min(geometry.viewportWidth() / (width * perSpread + edgeRoom), geometry.viewportHeight() / height) : 1;
+    scale = fitScale();
     Object.assign(turns, { pageWidth: width, pageHeight: height, viewScale: scale, perSpread });
     mount.style.setProperty("--plane", engine.planeSize() + "px");
   }
