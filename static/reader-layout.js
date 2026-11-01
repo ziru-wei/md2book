@@ -12,6 +12,7 @@ window.createReaderLayout = function createReaderLayout(root, { tabletAspectRati
   // print.css).
   root.classList.toggle("is-webkit-print", navigator.vendor === "Apple Computer, Inc.");
   root.classList.toggle("is-touch", isTouch);
+  root.classList.toggle("is-tablet", isTablet);
 
   // Which page geometry to cut for (see book.css):
   // - "book": the fixed two-column page, scaled to fit — desktop, and a

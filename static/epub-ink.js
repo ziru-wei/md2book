@@ -641,7 +641,8 @@
         `screen: ${innerWidth}×${innerHeight} css px, devicePixelRatio ${devicePixelRatio}, zoom ${vv ? n2(vv.scale) : "?"}, touch points ${navigator.maxTouchPoints}`,
         `layout: ${view()?.inkLayout || "?"} · perfect-freehand ${getStroke ? "loaded" : "NOT loaded"} · getCoalescedEvents ${"getCoalescedEvents" in PointerEvent.prototype ? "yes" : "no"} · getPredictedEvents ${"getPredictedEvents" in PointerEvent.prototype ? "yes" : "no"}`,
         `saving: ${saveState_()}`,
-        `page turns (last ${(window.md2bookTurns || []).length}): ${(window.md2bookTurns || []).map(t => `${t.ms} ms, ${t.frames} frames, slowest ${t.worst} ms`).join(" · ") || "none yet"}`,
+        `paper effects: ${["show-through", "ink-bleed", "letterpress"].filter(c => document.documentElement.classList.contains(c)).join(", ") || "off"} · iPad rules ${document.documentElement.classList.contains("is-tablet") ? "on" : "off"}`,
+        `page turns (last ${(window.md2bookTurns || []).length}): ${(window.md2bookTurns || []).map(t => `${t.ms} ms, ${t.frames} frames, slowest ${t.worst} ms at frame ${t.worstAt}, landing ${t.land} ms`).join(" · ") || "none yet"}`,
         `strokes logged: ${traces.length} (the last 5)`, ""
       ];
       traces.forEach((t, i) => {

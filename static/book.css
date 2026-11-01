@@ -231,6 +231,10 @@ html.letterpress #book .page > :is(.page-area, .page-foot, .page-number, .page-c
   text-shadow: var(--letterpress-shadow);
   -webkit-text-stroke: calc(.45px * var(--letterpress)) rgba(0, 0, 0, calc(.22 * var(--letterpress)));
 }
+/* Not the hairline outline on an iPad: Safari outlines every character one by
+   one, and a page of CJK text took it a large part of a second each time a
+   turning page was drawn. The rim and the shadow stay. */
+html.is-tablet.letterpress .epub-ink { -webkit-text-stroke: 0; }
 
 /* Ink bleed (a setting of its own, --ink-bleed its strength, 0–1): the
    ink soaks into the paper around each letter — a blurred copy of the

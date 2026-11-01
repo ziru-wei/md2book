@@ -203,7 +203,7 @@ window.createPageTurn = function createPageTurn(state) {
       progress: 0,
       yBias: 0,
       anim: null,
-      t0: performance.now(), lastFrame: performance.now(), frames: 0, worst: 0
+      t0: performance.now(), lastFrame: performance.now(), frames: 0, worst: 0, worstAt: 0
     };
     // Styles may lighten what a turning page carries (epub-reader.css).
     document.documentElement.classList.add("is-turning");
@@ -214,7 +214,7 @@ window.createPageTurn = function createPageTurn(state) {
   function drawTurn(progress) {
     const t = turn;
     const now = performance.now();
-    if (t.frames++) t.worst = Math.max(t.worst, now - t.lastFrame);
+    if (t.frames++ && now - t.lastFrame > t.worst) { t.worst = now - t.lastFrame; t.worstAt = t.frames - 1; }
     t.lastFrame = now;
     t.progress = Math.min(1, Math.max(0, progress));
     const p = t.reversed ? 1 - t.progress : t.progress;
@@ -295,7 +295,10 @@ window.createPageTurn = function createPageTurn(state) {
     window.md2bookLanding = setTimeout(() => root.classList.remove("is-landing"), 320);
     // How smoothly it went, for the EPUB ink log: the last few turns.
     const stats = window.md2bookTurns ||= [];
-    stats.push({ ms: Math.round(performance.now() - t.t0), frames: t.frames, worst: Math.round(t.worst) });
+    // The slowest frame and where it fell (1: the first after the fold was built),
+    // and the time from the last frame to the page being set down.
+    const landed = performance.now();
+    stats.push({ ms: Math.round(landed - t.t0), frames: t.frames, worst: Math.round(t.worst), worstAt: t.worstAt, land: Math.round(landed - t.lastFrame) });
     if (stats.length > 8) stats.shift();
     if (t.anim) cancelAnimationFrame(t.anim);
     if (t.follow) cancelAnimationFrame(t.follow);

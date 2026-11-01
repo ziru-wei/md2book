@@ -189,6 +189,7 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
     body.classList.add("body", "epub-ink");
     doc.documentElement.classList.toggle("no-drop-cap", !row.dropCap);
     doc.documentElement.classList.toggle("letterpress", !!row.letterpress);
+    doc.documentElement.classList.toggle("is-tablet", root.classList.contains("is-tablet"));
     doc.documentElement.classList.toggle("ink-bleed", !!row.inkBleed);
     const style = doc.createElement("style");
     style.textContent = `:root { ${["--serif", "--title-serif", "--body-size", "--body-leading", "--column-gap", "--paper", "--ink", "--letterpress", "--ink-bleed"].map(key => `${key}:${vars.getPropertyValue(key) || '.5'};`).join("")} }
