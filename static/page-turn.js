@@ -205,8 +205,6 @@ window.createPageTurn = function createPageTurn(state) {
       anim: null,
       t0: performance.now(), lastFrame: performance.now(), frames: 0, worst: 0, worstAt: 0
     };
-    // Styles may lighten what a turning page carries (epub-reader.css).
-    document.documentElement.classList.add("is-turning");
     drawTurn(0);
     return turn;
   }
@@ -287,12 +285,6 @@ window.createPageTurn = function createPageTurn(state) {
   function endTurn(index) {
     const t = turn;
     turn = null;
-    // …and bring it back gently once the page has landed.
-    const root = document.documentElement;
-    root.classList.remove("is-turning");
-    root.classList.add("is-landing");
-    clearTimeout(window.md2bookLanding);
-    window.md2bookLanding = setTimeout(() => root.classList.remove("is-landing"), 320);
     // How smoothly it went, for the EPUB ink log: the last few turns.
     const stats = window.md2bookTurns ||= [];
     // The slowest frame and where it fell (1: the first after the fold was built),
