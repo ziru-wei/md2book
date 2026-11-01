@@ -165,10 +165,10 @@ window.createPageTurn = function createPageTurn(state) {
     const frontShade = overlay("turn-front-shade", [frontBand], leafOf(frontPage).parentElement);
     const castBand = band(W * 0.3, `linear-gradient(to bottom, ${dark(0.32)}, ${dark(0)})`);
     const cast = overlay("turn-cast", [castBand], topInner);
-    // The flap's light (and a lone page's plain back): on a sheet the
-    // size of the page, folded over with it.
-    const backBand = band(W * 0.45,
-      `linear-gradient(to bottom, rgba(255, 255, 255, .5), ${dark(0.1)} 22%, ${dark(0)} 70%)`);
+    // The flap's shade (and a lone page's plain back): on a sheet the
+    // size of the page, folded over with it. Matte paper: no shine, only
+    // a faint shadow where it bends.
+    const backBand = band(W * 0.3, `linear-gradient(to bottom, ${dark(0.06)}, ${dark(0)})`);
     const backSheet = div("turn-back-sheet" + (backPage ? "" : " turn-paper"));
     backSheet.style.width = W + "px";
     backSheet.style.height = H + "px";
