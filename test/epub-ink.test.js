@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { applyInkOperations, createFileInkStore, createGitHubInkStore, formatInk, inkFileName, validateInkOperations } from "../lib/epub-ink.js";
 await import("../static/epub-ink.js");
-const { encodePoints, decodePoints, applyOps, stateOf, takeBatch, opKey } = globalThis.epubInk;
+const { encodePoints, decodePoints, cleanPoints, applyOps, stateOf, takeBatch, opKey } = globalThis.epubInk;
 
 const stroke = (id, extra = {}) => ({ id, section: 3, color: "#26324a", size: 2.4,
   page: { key: "[\"tablet\",720,1000,1]", sheet: 2, x: 40.25, y: 80 },
@@ -16,6 +16,14 @@ test("points survive encoding to small integers", () => {
   const points = [[10.25, -3.5, .42], [11, -2.75, .5], [30.5, 7, 1]];
   assert.deepEqual(decodePoints(encodePoints(points)), points);
   assert.ok(encodePoints(points).every(Number.isInteger));
+});
+
+test("a pen's crowded points and dropped pressures are smoothed before drawing", () => {
+  const raw = [[0, 0, .4], [0.05, 0, 0], [0.1, 0.02, .42], [1, 0, 0], [2, 0, .44], [3, 0, .9], [3.1, 0, .9]];
+  const clean = cleanPoints(raw);
+  assert.deepEqual(clean.map(p => p[0]), [0, 1, 2, 3.1], "points under .6 px from the last kept are dropped; the end stays");
+  assert.ok(clean.every(p => p[2] > .3 && p[2] < .7), "a zero pressure never makes the line vanish, a spike is eased");
+  for (let i = 1; i < clean.length; i++) assert.ok(Math.abs(clean[i][2] - clean[i - 1][2]) < .3);
 });
 
 test("ink operations can be sent twice; an erased stroke never comes back", () => {

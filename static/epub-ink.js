@@ -38,6 +38,28 @@
     return out;
   }
 
+  // What a pen sends, made fit to draw. An iPad's Pencil sends many points a
+  // few hundredths of a pixel apart, and now and then a pressure of 0 among
+  // real ones: drawn as they come, the outline turns back on itself in tiny
+  // spikes and its width jumps. Points closer than `gap` to the last one kept
+  // are dropped (the final point always stays), a missing pressure takes the
+  // one before it, and pressure is eased so the line swells and thins smoothly.
+  function cleanPoints(points, gap = .6) {
+    const out = [];
+    let p = null;
+    points.forEach(([x, y, raw], i) => {
+      const given = raw > 0 && raw <= 1 ? raw : null;
+      p = p === null ? (given ?? .5) : p + ((given ?? p) - p) * .35;
+      const last = out[out.length - 1];
+      if (last && Math.hypot(x - last[0], y - last[1]) < gap) {
+        if (i === points.length - 1 && out.length > 1) out[out.length - 1] = [x, y, p];
+        return;
+      }
+      out.push([x, y, p]);
+    });
+    return out;
+  }
+
   // The same rules as the server (lib/epub-ink.js): strokes are only added
   // or erased, and an erased id stays erased.
   function applyOps(state, ops) {
@@ -77,7 +99,7 @@
     return d + "Z";
   }
 
-  const api = { opKey, encodePoints, decodePoints, applyOps, stateOf, takeBatch, pathOf };
+  const api = { opKey, encodePoints, decodePoints, cleanPoints, applyOps, stateOf, takeBatch, pathOf };
   if (typeof module !== "undefined" && module.exports) { module.exports = api; return; }
   root.epubInk = api;
 
@@ -94,7 +116,7 @@
     import(new URL(lib, document.baseURI).href).then(m => { getStroke = m.getStroke; repaintAll(); }).catch(() => {});
     // A mouse has no pressure (always .5): an even line.
     const outline = (points, size, last) => getStroke
-      ? getStroke(points, { size: size * 2.2, thinning: .62, smoothing: .55, streamline: .4, simulatePressure: false, last })
+      ? getStroke(cleanPoints(points), { size: size * 2.2, thinning: .4, smoothing: .6, streamline: .45, simulatePressure: false, last })
       : points.flatMap(([x, y]) => [[x - size / 2, y - size / 2], [x + size / 2, y + size / 2]]);
 
     // --- Where the strokes are kept --------------------------------------
@@ -354,7 +376,7 @@
     // A pen's eraser end (or its barrel button held down) erases.
     const erasing = event => tool === "eraser" || event.button === 5 || (event.buttons & 32) === 32;
     const local = (event, frame) => [(event.clientX - frame.left) / frame.k, (event.clientY - frame.top) / frame.k,
-      event.pointerType === "pen" ? (event.pressure || .5) : .5];
+      event.pointerType === "pen" ? event.pressure : .5];
 
     viewer.addEventListener("pointerdown", event => {
       // A palm resting while the pen writes moves nothing.
@@ -415,7 +437,7 @@
       if (!d.points.length) return;
       const stroke = { id: newId(), section: +d.page.dataset.section, color: INKS[ink], size: SIZE,
         page: { key: view()?.inkLayout || "", sheet: +d.page.dataset.sheet, x: 0, y: 0 },
-        pts: encodePoints(d.points.slice(0, 4000)), created: new Date().toISOString() };
+        pts: encodePoints(cleanPoints(d.points).slice(0, 4000)), created: new Date().toISOString() };
       undo.push({ ids: [stroke.id] });
       commit([{ type: "stroke", stroke }]);
     }
