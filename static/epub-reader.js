@@ -17,6 +17,8 @@
   const selectionActive = () => Boolean(pending || document.getSelection()?.toString() || rendition?.selection());
   let book, rendition, current, disposed = false, locationsReady = false;
   let bookmarks = [], highlights = [], bookmarksReady = false, bookmarkBusy = false, lastSync = 0;
+  // The bookmark note whose name is being written on it (see editTab).
+  let naming = null;
   let navigationQueue = Promise.resolve(), queued = 0, lastTouch = -Infinity;
   // Handwriting: the pen always writes; P makes the mouse a pen (see epub-ink.js).
   const ink = window.createEpubInk({ viewer, key: stateKey, url: `/api/epub-ink/${id}`, cloud, lib: inkLib, view: () => rendition, bar: inkBar,
@@ -140,21 +142,25 @@
     const left = Math.max(b.left, 0), top = Math.max(b.top, 0);
     return { left, top, width: Math.min(b.right, innerWidth) - left, height: Math.min(b.bottom, innerHeight) - top };
   }
-  // The top edge of the page is the bookmarks': a double tap (or click) there
-  // bookmarks the page; a single one does nothing, not even turn the page.
-  let lastTopTap = -Infinity;
-  function inTopStrip(y) {
-    const page = viewer.querySelector(".spread.is-current .page.epub-face:not(.page--absent)");
-    if (!page) return false;
-    const r = page.getBoundingClientRect();
-    return y >= r.top - 30 && y <= r.top + r.height * .09;
+  // The book's left and right edges are the bookmarks': a double tap (or
+  // click) on one bookmarks the page on that side; a single one does nothing,
+  // not even turn the page.
+  let lastSideTap = { side: null, at: -Infinity };
+  function sideStrip(x, y) {
+    const pages = [...viewer.querySelectorAll(".spread.is-current .page.epub-face:not(.page--absent)")];
+    if (!pages.length) return null;
+    const first = pages[0].getBoundingClientRect(), last = pages[pages.length - 1].getBoundingClientRect();
+    if (y < first.top || y > first.bottom) return null;
+    const inset = Math.min(24, first.width * .06);
+    return x <= first.left + inset ? "left" : x >= last.right - inset ? "right" : null;
   }
   function tapAt(x, y, touch = false) {
     // The tap that dismissed a selection only dismisses it.
     if (performance.now() - dismissedAt < 700) return;
-    if (inTopStrip(y)) {
-      if (performance.now() - lastTopTap < 450) { lastTopTap = -Infinity; quickBookmark(); }
-      else lastTopTap = performance.now();
+    const side = sideStrip(x, y);
+    if (side) {
+      if (lastSideTap.side === side && performance.now() - lastSideTap.at < 450) { lastSideTap = { side: null, at: -Infinity }; quickBookmark(side); }
+      else lastSideTap = { side, at: performance.now() };
       return;
     }
     const box = visibleBox();
@@ -428,9 +434,10 @@
       remove.addEventListener("click", () => changeBookmark({ type: "remove", cfi: bookmark.cfi }));
       li.className = "toc-item"; li.append(jump, remove); list.append(li);
     }
-    rendition?.refreshBookmarks();
+    // (Not while a note's name is being written on it.)
+    if (!naming) rendition?.refreshBookmarks();
     renderTicks();
-    addBookmark.disabled = !current || !bookmarksReady || bookmarkBusy;
+    addBookmark.disabled = !current || !bookmarksReady;
     const marked = bookmarks.some(b => b.cfi === current?.start.cfi);
     addBookmark.textContent = marked ? "Added" : "Add";
     // The pen kit's bookmark: filled when this page has one.
@@ -507,124 +514,151 @@
       syncNote.textContent = error.message || "Could not load notes."; syncNote.hidden = false;
     } finally { bookmarkBusy = false; renderBookmarks(); rendition?.refreshHighlights(); }
   }
-  async function changeBookmark(operation) {
-    if (!bookmarksReady || bookmarkBusy) return;
-    bookmarkBusy = true;
+  // A bookmark changes on screen at once and is saved behind the scenes, in
+  // order: one just made can be named straight away (on a touch screen, while
+  // the tap that made it still lets the keyboard come up).
+  let bookmarkSaves = Promise.resolve(), bookmarkPending = 0;
+  function changeBookmark(operation) {
+    if (!bookmarksReady) return bookmarkSaves;
+    const result = bookmarks.filter(b => b.cfi !== operation.cfi);
+    // Renamed, a bookmark keeps its date (and so whether it is the newest).
+    const kept = bookmarks.find(b => b.cfi === operation.cfi);
+    const meta = {};
+    for (const key of ["excerpt", "page", "percent"]) if ((operation[key] ?? kept?.[key]) !== undefined) meta[key] = operation[key] ?? kept[key];
+    if (operation.type === "add") result.push({ cfi: operation.cfi, label: operation.label, ...meta, created: kept?.created || new Date().toISOString() });
+    bookmarks = result;
+    bookmarkPending++; bookmarkBusy = true;
     renderBookmarks();
-    try {
-      if (cloud) bookmarks = (await cloudRequest(operation)).bookmarks;
-      else {
-        const result = bookmarks.filter(b => b.cfi !== operation.cfi);
-        // Renamed, a bookmark keeps its date (and so whether it is the newest).
-        const kept = bookmarks.find(b => b.cfi === operation.cfi);
-        const meta = {};
-        for (const key of ["excerpt", "page", "percent"]) if ((operation[key] ?? kept?.[key]) !== undefined) meta[key] = operation[key] ?? kept[key];
-        if (operation.type === "add") result.push({ cfi: operation.cfi, label: operation.label, ...meta, created: kept?.created || new Date().toISOString() });
-        bookmarks = result;
-        await saveLocal({ bookmarks, highlights });
+    return bookmarkSaves = bookmarkSaves.then(async () => {
+      let failed = false;
+      try {
+        if (cloud) {
+          const stored = (await cloudRequest(operation)).bookmarks;
+          // (A later change still to be sent: what is shown already has it.)
+          if (bookmarkPending === 1) bookmarks = stored;
+        } else await saveLocal({ bookmarks, highlights });
+        lastSync = Date.now();
+      } catch (error) {
+        failed = true;
+        syncNote.textContent = error.message || "Not saved."; syncNote.hidden = false;
+      } finally {
+        bookmarkPending--; bookmarkBusy = bookmarkPending > 0;
+        renderBookmarks();
+        // What is shown was not saved: show what is.
+        if (failed && !bookmarkBusy) loadBookmarks();
       }
-      lastSync = Date.now();
-    } catch (error) {
-      syncNote.textContent = error.message || "Not saved."; syncNote.hidden = false;
-    } finally { bookmarkBusy = false; renderBookmarks(); }
+    });
   }
   // From the pen kit: a bookmark for this page, or off again.
   inkBar.querySelector('[data-act="bookmark"]').addEventListener("click", () => {
     if (!current) return;
     if (bookmarks.some(b => b.cfi === current.start.cfi)) changeBookmark({ type: "remove", cfi: current.start.cfi });
-    else addBookmark.click();
+    else quickBookmark("left");
   });
   // A bookmark is made with what stays true of it, as its date does: the page
   // it was on, how far into the book that is, and how the page begins (its
   // name until it is given one).
-  function bookmarkMeta() {
-    const shown = viewer.querySelector(".spread.is-current .page.epub-face:not(.page--absent) .epub-page-content");
+  // (`mark`: the page, from rendition.pageMark.)
+  function bookmarkMeta(mark) {
+    const shown = mark.el.querySelector(".epub-page-content");
     const text = (shown?.shadowRoot?.querySelector("body")?.textContent || "").replace(/\s+/g, " ").trim();
-    const page = current?.pagination?.page ?? null, total = current?.pagination?.total ?? null;
+    const page = mark.page ?? null, total = current?.pagination?.total ?? null;
     const spine = book.spine.spineItems.filter(s => s.linear), at = spine.findIndex(s => s.index === current.start.index);
     const percent = page && total ? (page - 1) / total
-      : locationsReady ? book.locations.percentageFromCfi(current.start.cfi)
+      : locationsReady ? book.locations.percentageFromCfi(mark.cfi)
       : Math.max(0, at) / Math.max(1, spine.length);
     return { ...(text ? { excerpt: text.slice(0, 24) } : {}), ...(page ? { page } : {}), percent: Math.round(Math.min(1, Math.max(0, percent)) * 10000) / 10000 };
   }
   const nameOf = b => b.label || `${b.page ?? "—"} | ${b.excerpt || ""}`.trim();
-  addBookmark.addEventListener("click", () => {
-    if (!current || bookmarks.some(b => b.cfi === current.start.cfi)) return;
-    changeBookmark({ type: "add", cfi: current.start.cfi, label: "", ...bookmarkMeta() });
-  });
+  addBookmark.addEventListener("click", () => { menu.close(); quickBookmark("left"); });
 
-  // --- Bookmark tabs on the top edge -----------------------------------------
-  // The newest bookmark is red, the others pale. A tab tapped shows the
-  // bookmark's whole name (to rename or delete it); tapped again, goes there.
+  // --- Bookmark notes in the book's edges --------------------------------------
+  // The newest bookmark is red, the others pale.
   const latestCfi = () => bookmarks.reduce((a, b) => !a || String(b.created || "") > String(a.created || "") ? b : a, null)?.cfi || null;
   const bookmarkTabs = () => {
     const latest = latestCfi();
-    // A name given by hand shows its first two characters on the note. Where
+    // A name given by hand shows on the note, as much as fits. Where
     // it is down the edge and how deep in it: from the place it was made at.
     return bookmarks.filter(b => Number.isFinite(b.percent) && Number.isInteger(b.page))
-      .map(b => ({ cfi: b.cfi, label: nameOf(b), short: b.label ? [...b.label.trim()].slice(0, 2).join("") : "", at: b.percent, page: b.page, latest: b.cfi === latest }));
+      .map(b => ({ cfi: b.cfi, label: nameOf(b), name: b.label.trim(), at: b.percent, page: b.page, latest: b.cfi === latest }));
   };
-  const tabPop = document.createElement("div");
-  tabPop.className = "epub-popup epub-tab-pop"; tabPop.hidden = true;
-  tabPop.innerHTML = '<span class="epub-tab-name"></span><input class="epub-tab-input" maxlength="300" aria-label="Bookmark name" hidden />' +
-    '<button type="button" data-act="rename" aria-label="Rename" title="Rename"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg></button>' +
-    '<button type="button" data-act="delete" aria-label="Delete bookmark" title="Delete bookmark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>';
-  document.body.append(tabPop);
-  const tabName = tabPop.querySelector(".epub-tab-name"), tabInput = tabPop.querySelector(".epub-tab-input");
-  // The note whose name is shown looks pressed (greyer).
-  const markOpen = cfi => viewer.querySelectorAll(".epub-tab").forEach(el => el.classList.toggle("is-open", el.dataset.cfi === cfi));
-  function closeTab() { tabPop.hidden = true; tabPop.dataset.cfi = ""; tabInput.hidden = true; tabName.hidden = false; markOpen(null); }
-  function openTab(cfi, el, rename = false) {
+  // The note open (its name in full, or being named) looks pressed (greyer).
+  const markOpen = cfi => viewer.querySelectorAll(".epub-tab").forEach(el => {
+    el.classList.toggle("is-open", el.dataset.cfi === cfi);
+    if (el.dataset.cfi !== cfi) el.classList.remove("is-expanded");
+  });
+  const closeTab = () => markOpen(null);
+  // `how` (epub-view.js): "jump" (a tap or click), "edit" (a double one),
+  // "preview" (the pointer resting on it, a finger held): the note opens out
+  // to show its whole name (one with no name is only pressed), "unpreview".
+  function openTab(cfi, el, how) {
     const b = bookmarks.find(x => x.cfi === cfi);
-    if (!b) return;
-    if (!tabPop.hidden && tabPop.dataset.cfi === cfi && !rename) { closeTab(); navigate(() => rendition.display(cfi)); return; }
-    tabPop.dataset.cfi = cfi;
+    if (!b || naming) return;
+    if (how === "jump") { closeTab(); navigate(() => rendition.display(cfi)); return; }
+    if (how === "edit") { editTab(cfi); return; }
+    if (how === "unpreview") { closeTab(); return; }
     markOpen(cfi);
-    tabName.textContent = nameOf(b);
-    tabName.classList.toggle("is-placeholder", !b.label);
-    tabInput.hidden = true; tabName.hidden = false;
-    const r = el?.getBoundingClientRect?.() || el;
-    place(tabPop, { left: r.left, width: r.width || 0, top: r.top, bottom: (r.bottom ?? r.top) + 6 }, true);
-    if (rename) startRename();
+    el.classList.toggle("is-expanded", !!b.label);
   }
-  function startRename() {
-    const b = bookmarks.find(x => x.cfi === tabPop.dataset.cfi);
-    if (!b) return;
-    tabInput.value = b.label || ""; tabInput.placeholder = nameOf({ ...b, label: "" });
-    tabName.hidden = true; tabInput.hidden = false;
-    tabInput.focus(); tabInput.select();
+  document.addEventListener("pointerdown", event => { if (!naming && !event.target.closest?.(".epub-tab")) closeTab(); }, true);
+  // A note's name is written on the note itself (drawn out over the page a
+  // little, for room): Enter or a press elsewhere keeps it, Escape doesn't; left
+  // empty, the bookmark has no name again (in the menu: "page | text").
+  function editTab(cfi) {
+    closeTab();
+    const b = bookmarks.find(x => x.cfi === cfi);
+    const el = viewer.querySelector(`.spread.is-current .epub-tab[data-cfi="${CSS.escape(cfi)}"]`);
+    const text = el?.querySelector(".epub-tab-text");
+    if (!b || !text) return;
+    if (naming) endEdit(true);
+    el.classList.remove("is-expanded");
+    // (Coloured as when it is open.)
+    el.classList.add("is-open");
+    naming = { cfi, el, text };
+    el.classList.add("is-editing");
+    text.contentEditable = "true";
+    text.textContent = b.label || "";
+    text.addEventListener("keydown", event => {
+      event.stopPropagation();
+      if (event.key === "Enter") { event.preventDefault(); endEdit(true); }
+      else if (event.key === "Escape") { event.preventDefault(); endEdit(false); }
+    });
+    text.addEventListener("paste", event => {
+      event.preventDefault();
+      document.execCommand("insertText", false, event.clipboardData.getData("text/plain").replace(/\s+/g, " "));
+    });
+    text.addEventListener("blur", () => endEdit(true));
+    // Beside it while it is named: delete it (at the press, before the
+    // writing loses its focus and the name is kept).
+    const remove = document.createElement("button");
+    remove.type = "button"; remove.className = "epub-tab-delete"; remove.title = remove.ariaLabel = "Delete bookmark";
+    remove.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
+    remove.addEventListener("pointerdown", event => { event.preventDefault(); event.stopPropagation(); endEdit(false); changeBookmark({ type: "remove", cfi }); });
+    text.parentElement.append(remove);
+    text.focus();
+    const range = document.createRange(); range.selectNodeContents(text);
+    const selection = document.getSelection(); selection.removeAllRanges(); selection.addRange(range);
   }
-  async function saveRename() {
-    const cfi = tabPop.dataset.cfi, label = tabInput.value.trim().slice(0, 300), b = bookmarks.find(x => x.cfi === cfi);
-    tabInput.hidden = true; tabName.hidden = false;
-    // An empty name gives the bookmark back its "page | text" one.
-    if (!b || label === (b.label || "")) return;
-    tabName.textContent = nameOf({ ...b, label }); tabName.classList.toggle("is-placeholder", !label);
-    await changeBookmark({ type: "add", cfi, label });
+  function endEdit(save) {
+    if (!naming) return;
+    const { cfi, el, text } = naming;
+    naming = null;
+    const label = text.textContent.replace(/\s+/g, " ").trim().slice(0, 300), b = bookmarks.find(x => x.cfi === cfi);
+    text.contentEditable = "false"; el.classList.remove("is-editing");
+    el.querySelector(".epub-tab-delete")?.remove();
+    document.getSelection()?.removeAllRanges();
+    if (save && b && label !== (b.label || "")) changeBookmark({ type: "add", cfi, label });
+    else rendition?.refreshBookmarks();
   }
-  tabPop.addEventListener("click", event => {
-    const act = event.target.closest("button")?.dataset.act;
-    if (act === "rename") startRename();
-    else if (act === "delete") { const cfi = tabPop.dataset.cfi; closeTab(); changeBookmark({ type: "remove", cfi }); }
-  });
-  tabInput.addEventListener("keydown", event => {
-    event.stopPropagation();
-    if (event.key === "Enter") { event.preventDefault(); saveRename(); }
-    if (event.key === "Escape") { tabInput.hidden = true; tabName.hidden = false; }
-  });
-  tabInput.addEventListener("blur", () => { if (!tabInput.hidden) saveRename(); });
-  document.addEventListener("pointerdown", event => {
-    if (!tabPop.hidden && !tabPop.contains(event.target) && !event.target.closest?.(".epub-tab")) closeTab();
-  }, true);
-  // A double tap on the top edge: this page bookmarked (or, if it is, its name).
-  async function quickBookmark() {
-    if (!current || !bookmarksReady) return;
-    const cfi = current.start.cfi;
-    if (!bookmarks.some(b => b.cfi === cfi)) await changeBookmark({ type: "add", cfi, label: "", ...bookmarkMeta() });
-    if (!bookmarks.some(b => b.cfi === cfi)) return;
-    const tab = viewer.querySelector(`.spread.is-current .epub-tab[data-cfi="${CSS.escape(cfi)}"]`);
-    const page = viewer.querySelector(".spread.is-current .page.epub-face:not(.page--absent)")?.getBoundingClientRect();
-    openTab(cfi, tab || (page && { left: page.left + page.width / 2, width: 0, top: page.top, bottom: page.top + 8 }));
+  // A bookmark for the page on one side (a double tap on that edge, the
+  // menu's Add, the pen kit's), its name ready to be written; if the page
+  // has one, its name.
+  function quickBookmark(side) {
+    const mark = rendition?.pageMark(side);
+    if (!mark || !bookmarksReady) return;
+    const cfi = mark.el.querySelector(":scope > .epub-tab.is-here")?.dataset.cfi
+      || (changeBookmark({ type: "add", cfi: mark.cfi, label: "", ...bookmarkMeta(mark) }), mark.cfi);
+    editTab(cfi);
   }
 
   // Highlights and notes. Shown at once, saved in order behind the scenes;
@@ -986,7 +1020,7 @@
     rendition = window.createEpubView(book, viewer, row, keep);
     rendition.setHighlights(highlightsOf);
     rendition.setBookmarks(() => bookmarks.map(b => b.cfi), async cfis => { for (const cfi of cfis) await changeBookmark({ type: "remove", cfi }); },
-      { tabs: bookmarkTabs, latest: latestCfi, open: (cfi, el) => openTab(cfi, el) });
+      { tabs: bookmarkTabs, latest: latestCfi, open: openTab });
     rendition.setInk(ink.paint);
     rendition.hooks.content.register(contents => bindInput(contents.document));
     bindInput(viewer);

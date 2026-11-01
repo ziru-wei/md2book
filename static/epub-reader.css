@@ -167,7 +167,8 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
 /* A slim flag: as far down the edge as its place in the book (--at), from
    its page in the stack (--depth) through to past the stack's outer edge
    (--stack), sticking out --out beyond it. */
-.epub-tab { position: absolute; top: calc(var(--at) * (100% - 16px)); height: 16px; cursor: pointer; pointer-events: auto;
+.epub-tab { position: absolute; top: calc(var(--at) * (100% - 28px)); height: 28px; cursor: pointer; pointer-events: auto;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
   width: calc(var(--stack, 0px) - var(--depth, 0px) + var(--out));
   --tab: #fbfaf7; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .2); }
 /* Where it comes out from under the sheets above it: a narrow shadow on it. */
@@ -186,28 +187,42 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
 .epub-tab--right.is-here { left: calc(100% - 28px); }
 /* A finger-sized target round the slim flag. */
 .epub-tab::before { content: ""; position: absolute; inset: -3px 0; }
-/* A name given by hand: its first two characters, small, on the end that
-   sticks out. */
-.epub-tab-name-short { position: absolute; top: 0; bottom: 0; width: var(--out); display: flex; align-items: center; justify-content: center;
-  font: 600 8px/1 var(--serif); letter-spacing: -.3px; color: #4a463f; white-space: nowrap; pointer-events: none; }
-.epub-tab--left .epub-tab-name-short { left: 0; }
-.epub-tab--right .epub-tab-name-short { right: 0; }
+.epub-tab.is-unnamed { height: 10px; }
+.epub-tab.is-unnamed::before { inset: -4px 0; }
+/* A name given by hand: small, on the end that sticks out, in two lines, as
+   much of it as fits (a little clear of the flag's outer end). */
+.epub-tab-name-short { position: absolute; top: 0; bottom: 0; width: var(--out); box-sizing: border-box; overflow: hidden;
+  display: flex; align-items: center; justify-content: center; padding: 2px 1px;
+  font: 600 8px/11px var(--serif); text-align: center; color: #4a463f; word-break: break-all; pointer-events: none; }
+.epub-tab--left .epub-tab-name-short { left: 0; padding-left: 3px; }
+.epub-tab--right .epub-tab-name-short { right: 0; padding-right: 3px; }
+.epub-tab-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; max-width: 100%; }
+/* Tapped (its whole name shown) or its name being written: the note drawn out
+   over the page a little and as tall as the name, the name in full inside it,
+   in the same small type. */
+.epub-tab:is(.is-expanded, .is-editing), .epub-tabs:has(.is-expanded, .is-editing) { z-index: 12; }
+.epub-tab:is(.is-expanded, .is-editing) .epub-tab-name-short { bottom: auto; min-height: 28px; width: max(var(--out), 132px);
+  justify-content: flex-start; text-align: left; padding: 3px 6px; overflow: visible; pointer-events: auto;
+  background: var(--tab); box-shadow: 0 1px 4px rgba(0, 0, 0, .35); border-radius: 2px; }
+.epub-tab.is-unnamed.is-editing .epub-tab-name-short { margin-top: -9px; }
+.epub-tab:is(.is-expanded, .is-editing) .epub-tab-text { display: block; -webkit-line-clamp: none; width: 100%; outline: none; }
+.epub-tab.is-editing .epub-tab-name-short { cursor: text; -webkit-user-select: text; user-select: text; }
+/* Delete, floating just beside the note being named, on the page's side: a
+   round button of the pen kit's frosted glass. */
+.epub-tab-delete { position: absolute; top: 0; width: 28px; height: 28px; padding: 0; border-radius: 50%; cursor: pointer;
+  display: grid; place-items: center; color: rgba(30, 33, 38, .78);
+  background: rgba(128, 132, 138, .07); -webkit-backdrop-filter: blur(3px) saturate(1.2); backdrop-filter: blur(3px) saturate(1.2);
+  border: 1px solid rgba(40, 44, 50, .12); box-shadow: 0 4px 18px rgba(0, 0, 0, .1); }
+.epub-tab-delete:hover { background: rgba(30, 33, 38, .06); }
+.epub-tab--left .epub-tab-delete { left: calc(100% + 4px); }
+.epub-tab--right .epub-tab-delete { right: calc(100% + 4px); }
+.epub-tab-delete svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .epub-tab.is-latest .epub-tab-name-short { color: #fff; }
-.epub-tab-pop { display: flex; align-items: center; gap: 2px; padding: 2px 2px 2px 10px; max-width: min(420px, 90vw); }
-.epub-tab-pop[hidden] { display: none; }
-.epub-tab-name.is-placeholder { color: rgba(241, 243, 244, .55); }
-.epub-tab-input::placeholder { color: rgba(241, 243, 244, .38); }
 /* The menu's bookmarks: the name, and how far into the book on the right. */
 #epub-bookmarks .epub-bookmark-jump { display: flex; align-items: center; }
 #epub-bookmarks .epub-bookmark-jump .toc-title { flex: 1; min-width: 0; }
 #epub-bookmarks .toc-title.is-placeholder { opacity: .55; }
 .epub-bookmark-pct { margin-left: 10px; font-variant-numeric: tabular-nums; opacity: .6; white-space: nowrap; }
-.epub-tab-name { flex: 1; padding: 4px 0; white-space: normal; }
-.epub-tab-input { flex: 1; min-width: 12em; font: inherit; color: inherit; background: rgba(255, 255, 255, .08); border: 0; border-radius: 2px; padding: 5px 6px; outline: none; }
-.epub-tab-input[hidden] { display: none; }
-.epub-tab-pop button { width: 30px; height: 28px; padding: 0; display: grid; place-items: center; color: rgba(241, 243, 244, .72); }
-.epub-tab-pop button[data-act="delete"] { color: #e08b7e; }
-.epub-tab-pop svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .epub-ribbon[data-side="right"] { right: 26px; }
 
 /* A highlight pressed through to the back: the marks of the page behind, mirrored and faint. */

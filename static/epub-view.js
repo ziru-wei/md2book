@@ -59,7 +59,9 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   // Only with two single-column sheets side by side, once the book is counted.
   // Every page is as thick as every other (page px): a book of a thousand
   // pages is a thick book. Past EDGE_MAX it would crowd the pages out.
-  const EDGE_MAX = 64, EDGE_PER_PAGE = .055, NOTE_OUT = 16;
+  const EDGE_MAX = 64, EDGE_PER_PAGE = .055, NOTE_OUT = 24, NOTE_OUT_MAX = 84;
+  // A note's height: two lines of its name, or with none a sliver.
+  const FLAG = 28, SLIVER = 10, GAP = 1;
   const bookEdges = () => !fixedLayout && root.dataset.layout === "tablet" && perSpread === 2;
   const bookTotal = () => chapters.length ? pagination({ index: chapters[0].index, sheet: 0 }).total : null;
   const thickness = total => total ? Math.min(EDGE_MAX, total * EDGE_PER_PAGE) : 0;
@@ -69,7 +71,10 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   const roomBeside = () => 2 * ((bookEdges() ? thickness(bookTotal()) : 0) + NOTE_OUT + 4);
   function fitScale() {
     edgeRoom = roomBeside();
-    return root.dataset.layout !== "phone" ? Math.min(geometry.viewportWidth() / (width * perSpread + edgeRoom), geometry.viewportHeight() / height) : 1;
+    const fit = root.dataset.layout !== "phone" ? Math.min(geometry.viewportWidth() / (width * perSpread + edgeRoom), geometry.viewportHeight() / height) : 1;
+    // The room beside the pages, for the edges and the notes out of them.
+    mount.style.setProperty("--beside", ((geometry.viewportWidth() / fit - width * perSpread) / 2).toFixed(2) + "px");
+    return fit;
   }
   function setEdges(spread) {
     if (!spread.first || !spread.inner.isConnected) return;
@@ -118,6 +123,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       if (spread.first) spread.location.pagination = pagination(spread.first);
     }
     if (current) emit("pagination", current.location.pagination);
+    keepCounts();
   }
   const emit = (name, ...args) => (listeners.get(name) || []).forEach(fn => fn(...args));
   const enqueue = fn => {
@@ -265,10 +271,27 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     for (let i = 0; i < text.length; i++) { const c = text.charCodeAt(i); a = Math.imul(a ^ c, 16777619); b = Math.imul(b ^ c, 2246822519); }
     return (a >>> 0).toString(16).padStart(8, "0") + (b >>> 0).toString(16).padStart(8, "0");
   };
-  function keepKey(section) {
+  function keepKey(part) {
     const css = getComputedStyle(root);
     const fonts = [css.getPropertyValue("--serif"), css.getPropertyValue("--title-serif"), css.getPropertyValue("--body-size"), css.getPropertyValue("--body-leading")];
-    return `${options.bookKey}|${hashText(JSON.stringify([layoutKey, row, lastTheme, devicePixelRatio, fonts]))}|${section.index}`;
+    return `${options.bookKey}|${hashText(JSON.stringify([layoutKey, row, lastTheme, devicePixelRatio, fonts]))}|${part}`;
+  }
+  // The whole book's count, every chapter's pages, kept as one record once
+  // counted: read before the first page is shown, so its edges (and the
+  // bookmarks in them) come with it, not chapter by chapter afterwards.
+  const keptCounts = new Set();
+  async function readCounts() {
+    if (!options.bookKey || chapters.every(section => chapterPages.has(section.index))) return;
+    const counts = await keepStore("readonly", "totals", store => store.get(keepKey("book")));
+    if (!counts || !chapters.every(section => counts[section.index] > 0)) return;
+    for (const section of chapters) chapterPages.set(section.index, counts[section.index]);
+    keptCounts.add(layoutKey);
+  }
+  function keepCounts() {
+    if (!options.bookKey || keptCounts.has(layoutKey) || !chapters.every(section => chapterPages.has(section.index))) return;
+    keptCounts.add(layoutKey);
+    const counts = Object.fromEntries(chapters.map(section => [section.index, chapterPages.get(section.index)]));
+    keepStore("readwrite", "totals", store => store.put(counts, keepKey("book")));
   }
   // Pictures and fonts inside a book are blob: addresses made afresh each time
   // it opens: kept as their paths in the book, made current again when read.
@@ -300,7 +323,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       if (!data || css === null || fontText === null || parts.some(part => part.html === null)) return;
       sheets.push({ host: data.host, attrs: data.attrs, parts, css: index(styles, css), fonts: index(fonts, fontText) });
     }
-    const key = keepKey(section);
+    const key = keepKey(section.index);
     await keepStore("readwrite", "chapters", store => store.put({ total: entry.total, locations: entry.locations, anchors: [...entry.anchors], notes: entry.notes, styles, fonts, sheets }, key));
     await keepStore("readwrite", "totals", store => store.put(entry.total, key));
     // This book as it was before (another file, or older reader code): gone.
@@ -316,7 +339,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   }
   async function keptChapter(section, transient) {
     if (!options.bookKey) return null;
-    const key = keepKey(section);
+    const key = keepKey(section.index);
     if (transient) {
       const total = await keepStore("readonly", "totals", store => store.get(key));
       return total ? { pages: [], locations: [], total, notes: [], anchors: new Map() } : null;
@@ -458,13 +481,38 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   // Each note sticks out its own little bit more or less (from its place, so always the same).
   const jitter = cfi => { let h = 2166136261; for (let i = 0; i < cfi.length; i++) h = Math.imul(h ^ cfi.charCodeAt(i), 16777619); return ((h >>> 0) % 400) / 100; };
   function noteFor(tab, side) {
-    const el = element(`epub-tab epub-tab--${side}` + (tab.latest ? " is-latest" : ""));
+    // A note with no name given is a mere sliver.
+    const el = element(`epub-tab epub-tab--${side}` + (tab.latest ? " is-latest" : "") + (tab.name ? "" : " is-unnamed"));
     el.dataset.cfi = tab.cfi;
     el.style.setProperty("--at", tab.at.toFixed(4));
-    el.style.setProperty("--out", (NOTE_OUT - 4 + jitter(tab.cfi)).toFixed(2) + "px");
-    if (tab.short) { const name = element("epub-tab-name-short"); name.textContent = tab.short; el.append(name); }
+    // As far out as the screen leaves room beyond its side's edges (a name
+    // shows more of itself), within reason.
+    el.style.setProperty("--out", `calc(clamp(${NOTE_OUT}px, var(--beside) - var(--stack, 0px) - 6px, ${NOTE_OUT_MAX}px) - ${(4 - jitter(tab.cfi)).toFixed(2)}px)`);
+    const name = element("epub-tab-name-short"), text = element("epub-tab-text");
+    text.textContent = tab.name; name.append(text); el.append(name);
     el.setAttribute("role", "button"); el.setAttribute("aria-label", tab.label || "Bookmark");
-    el.addEventListener("click", event => { event.stopPropagation(); onTab?.(tab.cfi, el); });
+    // A tap or click goes there, a double one names it; the pointer resting
+    // on it (or a finger held on it) shows its whole name. (Not while its
+    // name is being written: then a press is in the writing.)
+    let held = null, lastUp = null;
+    const naming = () => el.classList.contains("is-editing");
+    el.addEventListener("click", event => event.stopPropagation());
+    el.addEventListener("mouseenter", () => onTab?.(tab.cfi, el, "preview"));
+    el.addEventListener("mouseleave", () => onTab?.(tab.cfi, el, "unpreview"));
+    el.addEventListener("pointerdown", event => {
+      clearTimeout(held?.timer); held = null;
+      if (naming() || event.button > 0) return;
+      held = { x: event.clientX, y: event.clientY, timer: event.pointerType === "mouse" ? 0
+        : setTimeout(() => { held = null; onTab?.(tab.cfi, el, "preview"); }, 500) };
+    });
+    el.addEventListener("pointermove", event => { if (held && Math.hypot(event.clientX - held.x, event.clientY - held.y) > 8) { clearTimeout(held.timer); held = null; } });
+    el.addEventListener("pointercancel", () => { clearTimeout(held?.timer); held = null; });
+    el.addEventListener("pointerup", () => {
+      if (!held || naming()) return;   // held long, moved away, or in the writing
+      clearTimeout(held.timer); held = null;
+      if (lastUp) { clearTimeout(lastUp); lastUp = null; onTab?.(tab.cfi, el, "edit"); return; }
+      lastUp = setTimeout(() => { lastUp = null; onTab?.(tab.cfi, el, "jump"); }, 300);
+    });
     return el;
   }
   function setTabs(spread) {
@@ -489,7 +537,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
         // The top sheet: the note lies across the whole stack beside it.
         note.style.setProperty("--stack", sides[right ? "right" : "left"].toFixed(2) + "px");
         page.append(note);
-        placed.push({ el: note, side: right ? "right" : "left", at: tab.at });
+        placed.push({ el: note, side: right ? "right" : "left", at: tab.at, h: tab.name ? FLAG : SLIVER });
         continue;
       }
       // Between other pages: before this spread on the left, after it on the
@@ -504,19 +552,18 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       note.style.setProperty("--depth", depth.toFixed(2) + "px");
       note.style.setProperty("--stack", sides[right ? "right" : "left"].toFixed(2) + "px");
       elsewhere.push(note);
-      placed.push({ el: note, side: right ? "right" : "left", at: tab.at });
+      placed.push({ el: note, side: right ? "right" : "left", at: tab.at, h: tab.name ? FLAG : SLIVER });
     }
     behind.replaceChildren(...elsewhere);
     // Down each side as far as its place in the book, but never on top of
     // another (a name must stay readable): from the top down, each at least a
     // flag below the one above; what runs off the bottom goes back up.
-    const FLAG = 16, GAP = 1, room = height - FLAG;
     for (const side of ["left", "right"]) {
       const list = placed.filter(p => p.side === side).sort((a, b) => a.at - b.at);
-      let y = -Infinity;
-      for (const p of list) { p.y = Math.max(p.at * room, y + FLAG + GAP); y = p.y; }
-      y = Infinity;
-      for (const p of list.slice().reverse()) { p.y = Math.max(0, Math.min(p.y, room, y - FLAG - GAP)); y = p.y; }
+      let below = -Infinity;
+      for (const p of list) { p.y = Math.max(p.at * (height - p.h), below + GAP); below = p.y + p.h; }
+      let above = Infinity;
+      for (const p of list.slice().reverse()) { p.y = Math.max(0, Math.min(p.y, height - p.h, above - p.h - GAP)); above = p.y; }
       for (const p of list) p.el.style.top = p.y.toFixed(2) + "px";
     }
   }
@@ -777,6 +824,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     await styleReady;
     await checkCover();
     if (!perSpread) configure();
+    await readCounts();
     target ??= { index: book.spine.first().index, sheet: 0 };
     const section = book.spine.get(target.index ?? target);
     // The global folio, never the navigation entry point, determines the hand.
@@ -911,6 +959,14 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     setInk(paint) { inkPaint = paint; },
     // The page geometry a stroke was drawn in: where a page without text keeps it.
     get inkLayout() { return layoutKey; },
+    // The page on one side of the spread shown (a lone page: that one): where it
+    // starts, its page number, and the page itself.
+    pageMark(side) {
+      const page = current?.pages.filter(p => !p.classList.contains("page--absent") && p.dataset.section !== undefined)
+        .find((p, i, list) => list.length === 1 || p.classList.contains(`page--${side}`));
+      const range = page && pageRange.get(page);
+      return range ? { cfi: range.start, page: pagination({ index: +page.dataset.section, sheet: +page.dataset.sheet }).page, el: page } : null;
+    },
     refreshBookmarks() { for (const entry of spreads) { for (const page of entry.pages) setRibbon(page); setTabs(entry); } },
     // A painted highlight, as a selection to adjust: its page text offsets.
     editInfo(mark) {
