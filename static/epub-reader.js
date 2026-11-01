@@ -546,7 +546,10 @@
   const bookmarkTabs = () => {
     if (!locationsReady) return [];
     const latest = latestCfi();
-    return bookmarks.map(b => ({ cfi: b.cfi, label: b.label, at: book.locations.percentageFromCfi(b.cfi), latest: b.cfi === latest }))
+    // A name given by hand (not the "chapter · percent" a bookmark starts with)
+    // shows its first two characters on the note.
+    const named = label => label && !/ · [\d.]+%$/.test(label) ? [...label.trim()].slice(0, 2).join("") : "";
+    return bookmarks.map(b => ({ cfi: b.cfi, label: b.label, short: named(b.label), at: book.locations.percentageFromCfi(b.cfi), latest: b.cfi === latest }))
       .filter(t => Number.isFinite(t.at) && t.at >= 0);
   };
   const tabPop = document.createElement("div");
@@ -556,12 +559,15 @@
     '<button type="button" data-act="delete" aria-label="Delete bookmark" title="Delete bookmark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>';
   document.body.append(tabPop);
   const tabName = tabPop.querySelector(".epub-tab-name"), tabInput = tabPop.querySelector(".epub-tab-input");
-  function closeTab() { tabPop.hidden = true; tabPop.dataset.cfi = ""; tabInput.hidden = true; tabName.hidden = false; }
+  // The note whose name is shown looks pressed (greyer).
+  const markOpen = cfi => viewer.querySelectorAll(".epub-tab").forEach(el => el.classList.toggle("is-open", el.dataset.cfi === cfi));
+  function closeTab() { tabPop.hidden = true; tabPop.dataset.cfi = ""; tabInput.hidden = true; tabName.hidden = false; markOpen(null); }
   function openTab(cfi, el, rename = false) {
     const b = bookmarks.find(x => x.cfi === cfi);
     if (!b) return;
     if (!tabPop.hidden && tabPop.dataset.cfi === cfi && !rename) { closeTab(); navigate(() => rendition.display(cfi)); return; }
     tabPop.dataset.cfi = cfi;
+    markOpen(cfi);
     tabName.textContent = b.label || "Bookmark";
     tabInput.hidden = true; tabName.hidden = false;
     const r = el?.getBoundingClientRect?.() || el;

@@ -408,31 +408,44 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   // Bookmarks are sticky notes stuck in the book, sticking out of its top: the
   // whole top edge of the spread is the whole book, each note where its page
   // is in it. A note between other pages is behind these (only its top shows);
-  // the note of a page shown lies on that page, all of it seen.
-  const onSpread = (spread, cfi) => spread.pages.some(page => {
+  // the note of a page shown is on that very sheet, all of it seen, and turns
+  // with it. Each note sticks out a little more or less than the next (its
+  // own, from its place in the book), and a named one shows the name's first
+  // two characters on its top.
+  const pageOf = (spread, cfi) => spread.pages.find(page => {
     const range = pageRange.get(page);
     return range && cfi.startsWith(`epubcfi(${range.base}!`) && compareCfi(cfi, range.start) >= 0 && (!range.end || compareCfi(cfi, range.end) < 0);
   });
+  const jitter = cfi => { let h = 2166136261; for (let i = 0; i < cfi.length; i++) h = Math.imul(h ^ cfi.charCodeAt(i), 16777619); return ((h >>> 0) % 800) / 100; };
+  function noteFor(tab, left) {
+    const el = element("epub-tab" + (tab.latest ? " is-latest" : ""));
+    el.dataset.cfi = tab.cfi;
+    el.style.left = left;
+    el.style.setProperty("--lift", jitter(tab.cfi).toFixed(2) + "px");
+    if (tab.short) { const name = element("epub-tab-name-short"); name.textContent = tab.short; el.append(name); }
+    el.setAttribute("role", "button"); el.setAttribute("aria-label", tab.label || "Bookmark");
+    el.addEventListener("click", event => { event.stopPropagation(); onTab?.(tab.cfi, el); });
+    return el;
+  }
   function setTabs(spread) {
     if (!spread.inner.isConnected) return;
     const tabs = bookmarkTabs();
-    let behind = spread.inner.querySelector(":scope > .epub-tabs--behind"), front = spread.inner.querySelector(":scope > .epub-tabs--front");
-    if (!tabs.length) { behind?.remove(); front?.remove(); return; }
-    // Behind: before the pages, so they cover it. In front: after them.
+    for (const page of spread.pages) page.querySelectorAll(":scope > .epub-tab").forEach(el => el.remove());
+    let behind = spread.inner.querySelector(":scope > .epub-tabs--behind");
+    if (!tabs.length) { behind?.remove(); return; }
+    // Before the pages, so they cover it.
     if (!behind) { behind = element("epub-tabs epub-tabs--behind"); spread.inner.prepend(behind); }
-    if (!front) { front = element("epub-tabs epub-tabs--front"); spread.inner.append(front); }
-    const here = [], elsewhere = [];
+    const elsewhere = [], innerWidth = spread.inner.offsetWidth;
     for (const tab of tabs) {
-      const mine = onSpread(spread, tab.cfi);
-      const el = element("epub-tab" + (tab.latest ? " is-latest" : "") + (mine ? " is-here" : ""));
-      el.dataset.cfi = tab.cfi;
-      el.style.left = (tab.at * 100).toFixed(3) + "%";
-      el.setAttribute("role", "button"); el.setAttribute("aria-label", tab.label || "Bookmark");
-      el.addEventListener("click", event => { event.stopPropagation(); onTab?.(tab.cfi, el); });
-      (mine ? here : elsewhere).push(el);
+      const page = pageOf(spread, tab.cfi);
+      if (!page) { elsewhere.push(noteFor(tab, (tab.at * 100).toFixed(3) + "%")); continue; }
+      // On its sheet, where along the spread's top edge it belongs.
+      const offset = perSpread === 2 && page.classList.contains("page--right") ? page.offsetWidth : 0;
+      const note = noteFor(tab, (tab.at * innerWidth - offset).toFixed(2) + "px");
+      note.classList.add("is-here");
+      page.append(note);
     }
     behind.replaceChildren(...elsewhere);
-    front.replaceChildren(...here);
   }
   // A highlight is pressed hard enough to show on the back of the sheet: the
   // marks of the page behind this one, mirrored, faint, under this page's text.

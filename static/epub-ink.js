@@ -832,7 +832,7 @@
       if (button.dataset.tool) setTool(button.dataset.tool);
       else if (button.dataset.ink) setInk(button.dataset.ink);
       else if (button.dataset.act === "undo") undoLast();
-      else if (button.dataset.act === "close") { setMode(false); bar.hidden = true; }
+      else if (button.dataset.act === "close") { setMode(false); bar.hidden = true; clearSelection(); }
     });
     bar.addEventListener("pointerdown", event => event.stopPropagation());
     // Its buttons never take the keyboard (P, E and ⌘Z keep working).
@@ -842,7 +842,7 @@
       document.documentElement.classList.toggle("epub-inking", on);
       if (on) bar.hidden = false;
       else if (!matchMedia("(pointer: coarse)").matches) bar.hidden = true;
-      if (!on) flush();
+      if (!on) { clearSelection(); flush(); }
     }
     function showBar() { bar.hidden = false; placeBar(); }
     // The bar stays put on the screen, the same size, however the page is

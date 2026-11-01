@@ -186,6 +186,9 @@ window.createPageTurn = function createPageTurn(state) {
     state.spreads[from].classList.add("is-near");
     state.spreads[to].classList.add("is-near");
     state.spreads[top].style.zIndex = 4;
+    // Which spread turns on top and which lies under it (styles may tell them apart).
+    state.spreads[top].classList.add("is-turn-top");
+    state.spreads[top === from ? to : from].classList.add("is-turn-under");
     state.spreads[top === from ? to : from].style.zIndex = 3;
 
     turn = {
@@ -296,7 +299,7 @@ window.createPageTurn = function createPageTurn(state) {
     if (t.follow) cancelAnimationFrame(t.follow);
     state.current = index;
     state.markSpreads();
-    for (const i of [t.from, t.to]) state.spreads[i].style.zIndex = "";
+    for (const i of [t.from, t.to]) { state.spreads[i].style.zIndex = ""; state.spreads[i].classList.remove("is-turn-top", "is-turn-under"); }
     for (const el of [t.frontLeaf, t.backLeaf, t.underLeaf]) {
       if (!el) continue;
       uncut(el);
