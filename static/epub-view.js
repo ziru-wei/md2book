@@ -51,7 +51,30 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       ? chapters.reduce((sum, section) => sum + chapterPages.get(section.index), 0) : null;
     return { page: offset === null ? null : offset + point.sheet + 1, total, error: paginationError, counted: chapters.filter(section => chapterPages.has(section.index)).length, chapters: chapters.length };
   }
+  // The book's thickness, as a printed book shows it open: beside the left
+  // page the edges of the pages read, beside the right one those still to
+  // read, each as thick as its share of the book (a long book is thicker).
+  // Only with two single-column sheets side by side, once the book is counted.
+  const EDGE_MAX = 26, EDGE_PER_PAGE = .04;
+  const bookEdges = () => !fixedLayout && root.dataset.layout === "tablet" && perSpread === 2;
+  function setEdges(spread) {
+    if (!spread.first || !spread.inner.isConnected) return;
+    const first = pagination(spread.first), last = pagination(spread.last || spread.first);
+    const show = bookEdges() && first.total && first.page !== null && last.page !== null;
+    for (const side of ["left", "right"]) {
+      let edge = spread.inner.querySelector(`:scope > .book-edge--${side}`);
+      if (!show) { edge?.remove(); continue; }
+      const thick = Math.min(EDGE_MAX, Math.max(4, first.total * EDGE_PER_PAGE));
+      const pages = side === "left" ? first.page - 1 : first.total - last.page;
+      const w = Math.round(thick * pages / first.total * 4) / 4;
+      if (!edge) { edge = element(`book-edge book-edge--${side}`); edge.setAttribute("aria-hidden", "true"); spread.inner.append(edge); }
+      edge.style.width = w + "px";
+      edge.hidden = w < .5;
+    }
+  }
+
   function updatePageNumbers() {
+    for (const spread of spreads) setEdges(spread);
     for (const spread of spreads) {
       for (const page of spread.pages.flatMap(page => [page, ...page.querySelectorAll(':scope > .page-back')])) {
         if (!page.dataset.section) continue;
@@ -107,7 +130,10 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       if (pageIndexes.size > 4) pageIndexes.delete(pageIndexes.keys().next().value);
     }
     viewportKey = `${geometry.viewportWidth()}x${geometry.viewportHeight()}`;
-    scale = root.dataset.layout !== "phone" ? Math.min(geometry.viewportWidth() / (width * perSpread), geometry.viewportHeight() / height) : 1;
+    // Two sheets side by side on the tablet page: room on either side for the
+    // edges of the pages read and still to read (see setEdges).
+    const edgeRoom = bookEdges() ? 2 * EDGE_MAX + 8 : 0;
+    scale = root.dataset.layout !== "phone" ? Math.min(geometry.viewportWidth() / (width * perSpread + edgeRoom), geometry.viewportHeight() / height) : 1;
     Object.assign(turns, { pageWidth: width, pageHeight: height, viewScale: scale, perSpread });
     mount.style.setProperty("--plane", engine.planeSize() + "px");
   }
@@ -510,6 +536,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       spread.first = first.point; spread.last = last.point;
       spread.location = { start: first.location.start, end: last.location.end,
         atStart: !adjacent(first.point, false), atEnd: !adjacent(last.point, true), pagination: pagination(first.point) };
+      setEdges(spread);
       if (row.showThrough && root.dataset.layout !== "phone") {
         // Prepare both outward faces before a spread can become visible.
         // This also covers reverse navigation and opening in mid-book.

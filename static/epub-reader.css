@@ -12,6 +12,17 @@
 /* The cover: its picture fills the sheet, as on a printed book (see epub-view.js). */
 .epub-cover > :is(.page-area, .page-number) { visibility: hidden; }
 .epub-cover-art { position: absolute; inset: 0; background: center / cover no-repeat; }
+/* The book's thickness beside an open spread (epub-view.js, setEdges): the
+   pages' edges, many fine lines, darker toward the outside, the block a hair
+   shorter than the page at top and bottom as in a bound book. */
+.book-edge { position: absolute; top: 2px; bottom: 2px; pointer-events: none; z-index: 0;
+  background:
+    linear-gradient(var(--edge-dir), rgba(0, 0, 0, .02), rgba(0, 0, 0, .16)),
+    repeating-linear-gradient(90deg, var(--paper) 0 1.1px, rgba(120, 112, 100, .32) 1.1px 1.5px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+.book-edge[hidden] { display: none; }
+.book-edge--left { right: 100%; --edge-dir: to left; border-radius: 2px 0 0 2px; }
+.book-edge--right { left: 100%; --edge-dir: to right; border-radius: 0 2px 2px 0; }
 /* Shown only when the book cannot be read; loading uses the shared #reader-loader. */
 #epub-status { position: fixed; z-index: 20; top: 1rem; left: 50%; transform: translateX(-50%); max-width: 90vw; background: var(--paper); padding: .8rem 1rem; }
 .epub-access-menu { position: fixed; top: 8px; left: 8px; z-index: 30; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; }
