@@ -440,7 +440,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     const stack = bookEdges() ? thickness(total) : 0;
     // How thick the stack is on either side of this spread.
     const sides = { left: total ? stack * ((first.page ?? 1) - 1) / total : 0, right: total ? stack * (total - (last.page ?? total)) / total : 0 };
-    const elsewhere = [];
+    const elsewhere = [], placed = [];
     for (const tab of tabs) {
       const page = pageOf(spread, tab.cfi);
       if (page) {
@@ -451,6 +451,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
         // The top sheet: the note lies across the whole stack beside it.
         note.style.setProperty("--stack", sides[right ? "right" : "left"].toFixed(2) + "px");
         page.append(note);
+        placed.push({ el: note, side: right ? "right" : "left", at: tab.at });
         continue;
       }
       // Between other pages: before this spread on the left, after it on the right.
@@ -461,8 +462,21 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       note.style.setProperty("--depth", depth.toFixed(2) + "px");
       note.style.setProperty("--stack", sides[right ? "right" : "left"].toFixed(2) + "px");
       elsewhere.push(note);
+      placed.push({ el: note, side: right ? "right" : "left", at: tab.at });
     }
     behind.replaceChildren(...elsewhere);
+    // Down each side as far as its place in the book, but never on top of
+    // another (a name must stay readable): from the top down, each at least a
+    // flag below the one above; what runs off the bottom goes back up.
+    const FLAG = 11, GAP = 1, room = height - FLAG;
+    for (const side of ["left", "right"]) {
+      const list = placed.filter(p => p.side === side).sort((a, b) => a.at - b.at);
+      let y = -Infinity;
+      for (const p of list) { p.y = Math.max(p.at * room, y + FLAG + GAP); y = p.y; }
+      y = Infinity;
+      for (const p of list.slice().reverse()) { p.y = Math.max(0, Math.min(p.y, room, y - FLAG - GAP)); y = p.y; }
+      for (const p of list) p.el.style.top = p.y.toFixed(2) + "px";
+    }
   }
 
   // A highlight is pressed hard enough to show on the back of the sheet: the
