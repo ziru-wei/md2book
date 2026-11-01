@@ -79,6 +79,10 @@ html:not(.is-touch) .epub-face > :is(.page-area,.page-bleed,.page-back) { will-c
    are faint, and the page is moving: they come back as it lands. */
 html.is-touch:is(.show-through, .ink-bleed, .letterpress) .spread:is(.is-current, .is-near) .epub-face > .page-area { will-change: transform; }
 html.is-touch.is-turning .epub-face > :is(.page-back, .page-bleed, .epub-bleed) { visibility: hidden; }
+/* Faded back in over a quarter of a second, each at its own strength; only
+   its opacity changes, so it is not drawn again meanwhile. */
+html.is-touch.is-landing .epub-face > :is(.page-back, .page-bleed, .epub-bleed) { animation: epub-effects-in 260ms ease-out; will-change: opacity; }
+@keyframes epub-effects-in { from { opacity: 0; } }
 #epub-toc .toc-item button { padding-left: calc(4px + var(--depth, 0) * 1.1em); }
 #epub-toc .toc-item.is-current .toc-title { color: #fff; }
 

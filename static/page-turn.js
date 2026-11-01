@@ -287,7 +287,12 @@ window.createPageTurn = function createPageTurn(state) {
   function endTurn(index) {
     const t = turn;
     turn = null;
-    document.documentElement.classList.remove("is-turning");
+    // …and bring it back gently once the page has landed.
+    const root = document.documentElement;
+    root.classList.remove("is-turning");
+    root.classList.add("is-landing");
+    clearTimeout(window.md2bookLanding);
+    window.md2bookLanding = setTimeout(() => root.classList.remove("is-landing"), 320);
     // How smoothly it went, for the EPUB ink log: the last few turns.
     const stats = window.md2bookTurns ||= [];
     stats.push({ ms: Math.round(performance.now() - t.t0), frames: t.frames, worst: Math.round(t.worst) });
