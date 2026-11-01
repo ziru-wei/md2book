@@ -179,3 +179,21 @@ html { -webkit-text-size-adjust: none; text-size-adjust: none; }
 .epub-report .acts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
 .epub-report button { font: 12px system-ui, sans-serif; padding: 5px 12px; border: 1px solid #232527; border-radius: 999px; background: none; color: #232527; cursor: pointer; }
 .epub-report button.main { background: #232527; color: #f6f8f9; }
+
+/* Handwriting: drawn over the page's text, under its ribbon. */
+.epub-handwriting { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; overflow: hidden; pointer-events: none; }
+.epub-inking #epub-viewer { cursor: crosshair; -webkit-user-select: none; user-select: none; }
+/* Pencil strokes are ours: no Scribble, no callout. */
+#epub-viewer { -webkit-touch-callout: none; }
+#epub-ink-bar { display: flex; align-items: center; gap: 1px; padding: 2px; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%); }
+#epub-ink-bar[hidden] { display: none; }
+#epub-ink-bar button { width: 34px; height: 30px; padding: 0; display: grid; place-items: center; color: rgba(241, 243, 244, .66); }
+#epub-ink-bar button[aria-pressed="true"] { color: #fff; background: rgba(241, 243, 244, .14); }
+#epub-ink-bar svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#epub-ink-bar .epub-ink-colour { width: 26px; }
+#epub-ink-bar .epub-ink-colour i { display: block; width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(241, 243, 244, .35); }
+#epub-ink-bar .epub-ink-colour[aria-pressed="true"] { background: none; }
+#epub-ink-bar .epub-ink-colour[aria-pressed="true"] i { box-shadow: 0 0 0 2px var(--entry-bg), 0 0 0 3.5px rgba(241, 243, 244, .9); }
+.epub-ink-status { min-width: 30px; padding: 0 6px; text-align: center; font-size: 11px; color: rgba(241, 243, 244, .5); }
+.epub-ink-status.is-waiting { color: #e3b97a; }
+@media print { .epub-ink-bar, #epub-ink-bar { display: none !important; } }

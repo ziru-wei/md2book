@@ -28,6 +28,7 @@
     "markdown-it": "^14.1.0",
     "markdown-it-deflist": "^4.0.0",
     "markdown-it-mark": "^4.0.0",
+    "perfect-freehand": "^1.2.3",
     "temml": "^0.13.5"
   },
   "devDependencies": {

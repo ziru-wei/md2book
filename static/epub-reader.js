@@ -1,7 +1,7 @@
 /* EPUB only: position is local; personal cloud bookmarks use the server API. */
 (async () => {
   const options = JSON.parse(document.getElementById("epub-config").textContent);
-  const { url, row, id, library, cloud } = options;
+  const { url, row, id, library, cloud, inkLib } = options;
   const $ = id => document.getElementById(id);
   const viewer = $("epub-viewer"), status = $("epub-status"), toc = $("epub-toc");
   const menu = $("epub-menu"), progress = $("epub-progress"), percent = $("epub-percent");
@@ -10,6 +10,7 @@
   const bookmarkKey = stateKey + ":bookmarks";
   const highlightKey = stateKey + ":highlights";
   const bookmarkUrl = `/api/epub-bookmarks/${id}`;
+  const inkBar = $("epub-ink-bar");
   // Touch screens select text by our own long press (no native overlay, handles
   // or menu): `pending` is that selection, offsets into a page's text.
   let selecting = false, pending = null, dismissedAt = -Infinity, dismissedStamp = -1;
@@ -17,6 +18,9 @@
   let book, rendition, current, disposed = false, locationsReady = false;
   let bookmarks = [], highlights = [], bookmarksReady = false, bookmarkBusy = false, lastSync = 0;
   let navigationQueue = Promise.resolve(), queued = 0, lastTouch = -Infinity;
+  // Handwriting: the pen always writes; P makes the mouse a pen (see epub-ink.js).
+  const ink = window.createEpubInk({ viewer, key: stateKey, url: `/api/epub-ink/${id}`, cloud, lib: inkLib, view: () => rendition, bar: inkBar,
+    onActive: () => { inkBar.hidden = false; } });
   const readLocal = (key, fallback) => {
     try { return JSON.parse(localStorage.getItem(key)) || fallback; }
     catch { return fallback; }
@@ -102,11 +106,23 @@
         !(/TEXTAREA/.test(event.target?.tagName) || (event.target?.tagName === "INPUT" && event.target.type !== "range"))) {
       event.preventDefault(); menu.close(); return;
     }
-    if (event.altKey || event.ctrlKey || event.metaKey ||
-        /INPUT|TEXTAREA|SELECT|BUTTON/.test(event.target?.tagName) || event.target?.isContentEditable) return;
+    const typing = /INPUT|TEXTAREA|SELECT/.test(event.target?.tagName) || event.target?.isContentEditable;
+    if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.code === "KeyZ" && !typing && !inkBar.hidden) {
+      event.preventDefault(); ink.undo(); return;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey || typing || event.target?.tagName === "BUTTON") return;
+    // P: the mouse writes (and again: it reads); E: the eraser while writing.
+    // Handwriting is on the single-column (iPad) pages only: P goes there first.
+    if (event.code === "KeyP" && !menu.open) {
+      event.preventDefault();
+      if (!ink.active && !ink.tablet && rendition?.canSwitchColumns) navigate(() => rendition.toggleColumns());
+      ink.toggle(); return;
+    }
+    if (event.code === "KeyE" && ink.active) { event.preventDefault(); ink.eraserToggle(); return; }
+    if (event.key === "Escape" && ink.active) { ink.toggle(); return; }
     if (event.key === " ") { event.preventDefault(); toggleMenu(); return; }
     if (menu.open) return;
-    if (event.code === "Backslash" || event.key === "\\") { event.preventDefault(); navigate(() => rendition.toggleColumns()); return; }
+    if (event.code === "Backslash" || event.key === "\\") { event.preventDefault(); if (ink.active) ink.toggle(); navigate(() => rendition.toggleColumns()); return; }
     if (event.code === "Slash" || event.key === "/") { event.preventDefault(); navigate(() => rendition.toggleSpread()); return; }
     const back = ["a", "A", "ArrowLeft"].includes(event.key) || event.code === "ShiftLeft";
     const forward = ["d", "D", "ArrowRight"].includes(event.key) || event.code === "ShiftRight";
@@ -690,7 +706,7 @@
   if (!cloud) {
     $("epub-backup").hidden = false;
     $("epub-export").addEventListener("click", () => {
-      const file = new Blob([JSON.stringify({ bookmarks, highlights }, null, 2)], { type: "application/json" });
+      const file = new Blob([JSON.stringify({ bookmarks, highlights, ink: ink.exportData() }, null, 2)], { type: "application/json" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(file); link.download = `${document.title || "book"}-notes.json`;
       link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000);
@@ -706,6 +722,7 @@
         for (const h of arrayOf(data.highlights)) if (typeof h?.id === "string" && typeof h.quote === "string" && Number.isInteger(h.section) && !mergedHighlights.some(x => x.id === h.id)) mergedHighlights.push(h);
         bookmarks = mergedBookmarks; highlights = mergedHighlights;
         await saveLocal({ bookmarks, highlights });
+        if (data.ink) ink.importData(data.ink);
         renderBookmarks(); rendition?.refreshHighlights();
       } catch { /* Not a notes file. */ }
     });
@@ -773,6 +790,7 @@
     rendition = window.createEpubView(book, viewer, row, keep);
     rendition.setHighlights(highlightsOf);
     rendition.setBookmarks(() => bookmarks.map(b => b.cfi), async cfis => { for (const cfi of cfis) await changeBookmark({ type: "remove", cfi }); });
+    rendition.setInk(ink.paint);
     rendition.hooks.content.register(contents => bindInput(contents.document));
     bindInput(viewer);
     const shell = getComputedStyle(document.documentElement);
@@ -792,7 +810,7 @@
       const href = location.start.href.split("#")[0];
       const here = chapterAt(location.start.index);
       for (const item of toc.children) item.classList.toggle("is-current", item === here?.li);
-      updateProgress(); renderBookmarks();
+      updateProgress(); renderBookmarks(); ink.turned();
     });
     rendition.on("displayError", fail);
     toc.addEventListener("click", event => {

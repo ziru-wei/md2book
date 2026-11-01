@@ -57,3 +57,6 @@ for (const [pkg, file, license] of [["epubjs", "epub.min.js", "license"], ["jszi
   fs.copyFileSync(path.join(root, "node_modules", pkg, "dist", file), path.join(out, "vendor", pkg, file));
   fs.copyFileSync(path.join(root, "node_modules", pkg, license), path.join(out, "vendor", pkg, "LICENSE"));
 }
+fs.mkdirSync(path.join(out, "vendor/perfect-freehand"), { recursive: true });
+fs.copyFileSync(path.join(root, "node_modules/perfect-freehand/dist/esm/index.mjs"), path.join(out, "vendor/perfect-freehand/index.mjs"));
+fs.copyFileSync(path.join(root, "node_modules/perfect-freehand/LICENSE"), path.join(out, "vendor/perfect-freehand/LICENSE"));

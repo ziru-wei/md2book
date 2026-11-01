@@ -1,4 +1,5 @@
 import { DEFAULT_NOTES_DIR, notesFileName } from "./lib/epub-bookmarks.js";
+import { inkFileName, validateInkOperations } from "./lib/epub-ink.js";
 import { IGNORED_DIR_RE } from "./lib/vault-files.js";
 import express from "express";
 import chokidar from "chokidar";
@@ -165,6 +166,7 @@ app.get("/vendor/justif/LICENSE", (req, res) => res.type("text/plain").sendFile(
 app.use("/vendor/epubjs", express.static(path.join(__dirname, "node_modules/epubjs/dist")));
 
 app.use("/vendor/jszip", express.static(path.join(__dirname, "node_modules/jszip/dist")));
+app.use("/vendor/perfect-freehand", express.static(path.join(__dirname, "node_modules/perfect-freehand/dist/esm")));
 
 app.get(["/epub/:id", "/epub-file/:id"], async (req, res) => {
   try {
@@ -272,6 +274,20 @@ app.get("/api/epub-bookmarks/:id", bookmarkGuard, async (req, res) => {
 app.post("/api/epub-bookmarks/:id", bookmarkGuard, express.json({ limit: "32kb" }), async (req, res) => {
   try { res.json(await entrySource.bookmarks.update(req.params.id, req.body, req.notesName)); }
   catch { res.status(400).json({ error: LOCAL_BOOKMARKS ? "Bookmark was not saved to this book's notes file." : "Bookmark was not saved. Check GitHub write access and retry." }); }
+});
+// Handwriting: the same guard, a file of its own beside the book's notes.
+// A batch that is not valid is refused for good (400); one that could not be
+// written now is worth sending again (502).
+app.get("/api/epub-ink/:id", bookmarkGuard, async (req, res) => {
+  try { res.json(await entrySource.ink.read(inkFileName(req.notesName))); }
+  catch { res.status(502).json({ error: LOCAL_BOOKMARKS ? "Could not read this book's handwriting file." : "Could not load handwriting. Check GitHub access and try again." }); }
+});
+app.post("/api/epub-ink/:id", bookmarkGuard, express.json({ limit: "1mb" }), async (req, res) => {
+  let ops;
+  try { ops = validateInkOperations(req.body); }
+  catch (error) { return res.status(400).json({ error: error.message }); }
+  try { res.json(await entrySource.ink.update(inkFileName(req.notesName), { ops })); }
+  catch { res.status(502).json({ error: LOCAL_BOOKMARKS ? "Handwriting was not saved to this book's file yet." : "Handwriting was not saved yet. Check GitHub write access." }); }
 });
 
 // --- Offline (the home-screen app) -----------------------------------------

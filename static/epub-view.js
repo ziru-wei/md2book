@@ -350,7 +350,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     }
   }
   // --- Bookmarks (a ribbon on the sheet) and highlight bleed-through -------
-  let bookmarkCfis = () => [], onRibbon = null;
+  let bookmarkCfis = () => [], onRibbon = null, inkPaint = null;
   const pageRange = new WeakMap();
   const compareCfi = (a, b) => { try { return new ePub.CFI().compare(a, b); } catch { return 0; } };
   const ribbonHits = page => {
@@ -479,6 +479,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     content.placeNotes(page,[{document:host.shadowRoot}],entry.notes);
     pageRange.set(page, { start: entry.locations[sheet].start.cfi, end: entry.locations[sheet + 1]?.start.cfi, base: section.cfiBase });
     setRibbon(page);
+    inkPaint?.(page);
     laterBleed(page);
     if (effects && row.inkBleed) content.addBleed(page);
     return {point,location};
@@ -738,6 +739,10 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     },
     // `cfis()`: the bookmarks' positions; `remove(cfis)`: a tap on a ribbon.
     setBookmarks(cfis, remove) { bookmarkCfis = cfis; onRibbon = remove; },
+    // Handwriting is drawn onto each page as it is made (`paint(page)`).
+    setInk(paint) { inkPaint = paint; },
+    // The page geometry a stroke was drawn in: where a page without text keeps it.
+    get inkLayout() { return layoutKey; },
     refreshBookmarks() { for (const entry of spreads) for (const page of entry.pages) setRibbon(page); },
     // A painted highlight, as a selection to adjust: its page text offsets.
     editInfo(mark) {
