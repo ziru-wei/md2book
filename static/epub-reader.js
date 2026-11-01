@@ -20,7 +20,10 @@
   let navigationQueue = Promise.resolve(), queued = 0, lastTouch = -Infinity;
   // Handwriting: the pen always writes; P makes the mouse a pen (see epub-ink.js).
   const ink = window.createEpubInk({ viewer, key: stateKey, url: `/api/epub-ink/${id}`, cloud, lib: inkLib, view: () => rendition, bar: inkBar,
-    onActive: () => { inkBar.hidden = false; } });
+    onActive: () => { inkBar.hidden = false; }, onPenDown: () => palmCancels.forEach(cancel => cancel()) });
+  // What a hand on the screen began (a page drag, a long press, a selection)
+  // stops when the pen comes down: it was a palm.
+  const palmCancels = [];
   const readLocal = (key, fallback) => {
     try { return JSON.parse(localStorage.getItem(key)) || fallback; }
     catch { return fallback; }
@@ -202,6 +205,10 @@
     };
     viewer.addEventListener("pointerup", release);
     viewer.addEventListener("pointercancel", release);
+    palmCancels.push(() => {
+      if (drag?.active) rendition?.settleTurn(0);
+      drag = null;
+    });
   })();
   function bindInput(documentOrElement) {
     documentOrElement.addEventListener("wheel", wheel, { passive: false });
@@ -597,6 +604,10 @@
     };
     viewer.addEventListener("pointerup", up);
     viewer.addEventListener("pointercancel", up);
+    palmCancels.push(() => {
+      cancel();
+      if (selecting) { selecting = false; clearPending(); }
+    });
     viewer.addEventListener("contextmenu", event => { if (coarse()) event.preventDefault(); });
   })();
   handles.forEach((handle, which) => {

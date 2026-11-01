@@ -127,7 +127,7 @@
 
   // `view()`: the reader's rendition (made later than this). `key`: this
   // browser's name for the book (localStorage and IndexedDB).
-  root.createEpubInk = function createEpubInk({ viewer, key, url, cloud, lib, view, bar, onActive }) {
+  root.createEpubInk = function createEpubInk({ viewer, key, url, cloud, lib, view, bar, onActive, onPenDown }) {
     let getStroke = null;
     import(new URL(lib, document.baseURI).href).then(m => { getStroke = m.getStroke; repaintAll(); }).catch(() => {});
     // A mouse has no pressure (always .5): an even line.
@@ -386,7 +386,12 @@
     // --- Writing -------------------------------------------------------------
     let ink = "black";
     try { if (INKS[localStorage.getItem("md2book.epub.ink")]) ink = localStorage.getItem("md2book.epub.ink"); } catch { /* no storage */ }
-    let mode = false, tool = "pen", drawing = null, lastPen = -Infinity, undo = [];
+    let mode = false, tool = "pen", drawing = null, lastPen = -Infinity, penNear = -Infinity, undo = [];
+    // Palm rejection, as a pen app does it: a hand on the screen while the pen
+    // writes, hovers (an iPad that can tell) or has just lifted is a palm, and
+    // does nothing at all.
+    const PALM_AFTER_PEN = 1000;
+    const penAbout = () => Boolean(drawing) || performance.now() - lastPen < PALM_AFTER_PEN || performance.now() - penNear < 300;
     const newId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
     const pageAt = (x, y) => [...viewer.querySelectorAll(".spread.is-current .page.epub-face[data-section]")].find(page => {
       const r = page.getBoundingClientRect();
@@ -410,6 +415,7 @@
       ring.hidden = false;
     }
     viewer.addEventListener("pointermove", event => {
+      if (event.pointerType === "pen" && !event.buttons) penNear = performance.now();
       if (drawing) return;
       const page = (event.pointerType === "pen" || (mode && event.pointerType === "mouse")) && tool === "eraser" && tablet() && pageAt(event.clientX, event.clientY);
       if (page) showRing(event, frameOf(page).k); else ring.hidden = true;
@@ -418,12 +424,13 @@
 
     viewer.addEventListener("pointerdown", event => {
       // A palm resting while the pen writes moves nothing.
-      if (event.pointerType === "touch" && (drawing || performance.now() - lastPen < 600)) {
+      if (event.pointerType === "touch" && penAbout()) {
         if (drawing?.trace) drawing.trace.palms++;
         event.stopImmediatePropagation(); return;
       }
       if (!writes(event) || drawing) return;
       const page = pageAt(event.clientX, event.clientY);
+      if (event.pointerType === "pen") onPenDown?.();   // what a palm already began (a turn, a long press) stops
       if (!page || view()?.turn || !tablet()) return;
       event.preventDefault(); event.stopImmediatePropagation();
       if (event.pointerType === "pen") { lastPen = performance.now(); onActive?.(); }
@@ -522,8 +529,11 @@
     viewer.addEventListener("pointercancel", event => { if (drawing && event.pointerId === drawing.id) { event.stopImmediatePropagation(); finish(event); } }, true);
     // The touches a pencil also makes, and the clicks after a stroke, are the
     // pen's own: no page turn, no selection, no Scribble (iPadOS turns pencil
-    // writing into text unless its touches are taken).
+    // writing into text unless its touches are taken). While the pencil is on
+    // the screen no touch may start a browser gesture either: a palm and the
+    // pen together look like a pinch, and Safari would take the pen away.
     const pencilTouch = event => [...event.changedTouches].some(t => t.touchType === "stylus");
+    const pencilOn = event => pencilTouch(event) || [...event.touches].some(t => t.touchType === "stylus");
     for (const type of ["touchstart", "touchmove", "touchend", "touchcancel"]) {
       window.addEventListener(type, event => {
         if (!viewer.contains(event.target) && !event.composedPath().includes(viewer)) return;
@@ -531,12 +541,12 @@
           const key = type + (pencilTouch(event) ? " stylus" : " finger") + (event.cancelable ? "" : " (not cancelable)");
           drawing.trace.touches[key] = (drawing.trace.touches[key] || 0) + 1;
         }
-        if (pencilTouch(event)) { if (event.cancelable) event.preventDefault(); event.stopImmediatePropagation(); }
-        else if (drawing || performance.now() - lastPen < 600) event.stopImmediatePropagation();
+        if (pencilOn(event) || drawing) { if (event.cancelable) event.preventDefault(); event.stopImmediatePropagation(); }
+        else if (penAbout()) event.stopImmediatePropagation();
       }, { capture: true, passive: false });
     }
     viewer.addEventListener("click", event => {
-      if (mode || performance.now() - lastPen < 600) { event.preventDefault(); event.stopImmediatePropagation(); }
+      if (mode || performance.now() - lastPen < PALM_AFTER_PEN) { event.preventDefault(); event.stopImmediatePropagation(); }
     }, true);
 
     // --- What the pen sent: the menu's "Ink log", for a stroke that looks wrong --
