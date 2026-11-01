@@ -177,7 +177,9 @@
       });
     }
     const saveState = () => tx(["state"], "readwrite", t => { t.objectStore("state").put({ strokes: [...base.strokes.values()], erased: [...base.erased], held }, key); });
-    function rebuild() {
+    // `sections`: the chapters that changed (a stroke drawn or erased here):
+    // only their pages are drawn again. Without it, every page shown.
+    function rebuild(sections) {
       const state = stateOf(null);
       state.strokes = new Map(base.strokes); state.erased = new Set(base.erased);
       applyOps(state, held);
@@ -187,17 +189,20 @@
         if (!bySection.has(s.section)) bySection.set(s.section, []);
         bySection.get(s.section).push(s);
       }
-      repaintAll();
+      if (sections) { for (const page of pagesShown()) if (sections.has(+page.dataset.section)) paint(page); }
+      else repaintAll();
       showStatus();
     }
+    const sectionsOf = ops => new Set(ops.map(op => op.stroke ? op.stroke.section : [...bySection.values()].flat().find(s => s.id === op.id)?.section));
 
     // Ops drawn here: kept first, shown at once, sent later.
     function commit(ops) {
       if (!ops.length) return;
       walWrite([...walRead(), ...ops]);
       const entries = ops.map(op => ({ op, seq: null }));
+      const sections = sectionsOf(ops);
       pending.push(...entries);
-      rebuild();
+      rebuild(sections);
       if (!cloud) {
         // This browser is the only store: straight into its state.
         applyOps(base, ops);
@@ -375,7 +380,6 @@
       });
       const layer = layerOf(page);
       layer.replaceChildren(...placed.map(p => p.path));
-      if (drawing?.page === page && drawing.live) layer.append(drawing.live);
       page._ink = placed;
     }
 
@@ -406,25 +410,49 @@
       event.preventDefault(); event.stopImmediatePropagation();
       if (event.pointerType === "pen") { lastPen = performance.now(); onActive?.(); }
       const frame = frameOf(page);
-      drawing = { id: event.pointerId, page, frame, points: [local(event, frame)], erase: erasing(event), hits: new Set(), live: null, trace: startTrace(event, frame), last: event.timeStamp };
+      drawing = { id: event.pointerId, page, frame, points: [local(event, frame)], erase: erasing(event), hits: new Set(), ahead: [], trace: startTrace(event, frame), last: event.timeStamp };
       try { viewer.setPointerCapture(event.pointerId); } catch { /* gone already */ }
       if (drawing.erase) eraseAt(drawing.points[0]);
-      else { drawing.live = strokePath("", INKS[ink]); layerOf(page).append(drawing.live); drawLive(); }
+      else { startLive(frame); drawLive(); }
     }, true);
+    // The stroke being drawn is on a canvas of its own over the page: the page
+    // (its text, show-through and ink bleed) is painted again only once, when
+    // the stroke is put on it. Changing the page at every frame made iPad
+    // Safari fall behind the pen by a tenth of a second or more.
+    const live = document.createElement("canvas");
+    live.className = "epub-ink-live"; live.setAttribute("aria-hidden", "true");
+    document.body.append(live);
+    const liveContext = live.getContext("2d");
+    function startLive(frame) {
+      const dpr = devicePixelRatio || 1, w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
+      if (live.width !== w || live.height !== h) { live.width = w; live.height = h; }
+      // Drawn in page pixels, like the page's own strokes.
+      liveContext.setTransform(dpr * frame.k, 0, 0, dpr * frame.k, dpr * frame.left, dpr * frame.top);
+      liveContext.fillStyle = INKS[ink];
+    }
+    const clearLive = () => { liveContext.save(); liveContext.setTransform(1, 0, 0, 1, 0, 0); liveContext.clearRect(0, 0, live.width, live.height); liveContext.restore(); };
     let frameRequest = 0;
     function drawLive() {
-      if (frameRequest || !drawing?.live) return;
+      if (frameRequest || !drawing || drawing.erase) return;
       frameRequest = requestAnimationFrame(() => {
         frameRequest = 0;
-        if (drawing?.live) drawing.live.setAttribute("d", pathOf(outline(drawing.points, SIZE, false)));
+        if (!drawing || drawing.erase) return;
+        const t0 = performance.now();
+        clearLive();
+        // Where the pen is about to be (Safari's guess) is drawn too, so the
+        // line keeps up with a quick pen; it is never kept.
+        liveContext.fill(new Path2D(pathOf(outline([...drawing.points, ...drawing.ahead], SIZE, false))));
+        if (drawing.trace) { drawing.trace.frames++; drawing.trace.drawMs += performance.now() - t0; }
       });
     }
     viewer.addEventListener("pointermove", event => {
       if (!drawing || event.pointerId !== drawing.id) return;
       event.preventDefault(); event.stopImmediatePropagation();
       if (event.pointerType === "pen") lastPen = performance.now();
+      const t0 = performance.now();
       const samples = event.getCoalescedEvents?.() || [];
       const fresh = freshSamples(samples.length ? samples : [event], drawing.last);
+      drawing.ahead = drawing.erase ? [] : (event.getPredictedEvents?.() || []).map(sample => local(sample, drawing.frame));
       record(drawing.trace, event, samples, fresh.length);
       if (!fresh.length) return;
       drawing.last = fresh[fresh.length - 1].timeStamp;
@@ -433,6 +461,7 @@
         if (drawing.erase) eraseAt(point); else drawing.points.push(point);
       }
       drawLive();
+      if (drawing.trace) drawing.trace.moveMs += performance.now() - t0;
     }, true);
     function eraseAt([x, y]) {
       for (const p of drawing.page._ink || []) {
@@ -457,13 +486,17 @@
         if (gone.length) { undo.push({ restore: gone }); commit(gone.map(s => ({ type: "erase", id: s.id }))); }
         return;
       }
-      d.live?.remove();
-      if (!d.points.length) return;
+      if (!d.points.length) { clearLive(); return; }
       const stroke = { id: newId(), section: +d.page.dataset.section, color: INKS[ink], size: SIZE,
         page: { key: view()?.inkLayout || "", sheet: +d.page.dataset.sheet, x: 0, y: 0 },
         pts: encodePoints(cleanPoints(d.points).slice(0, 4000)), created: new Date().toISOString() };
       undo.push({ ids: [stroke.id] });
+      const t0 = performance.now();
       commit([{ type: "stroke", stroke }]);
+      if (d.trace) d.trace.commitMs = performance.now() - t0;
+      // The page has it now (drawn in commit): the overlay's copy goes.
+      cancelAnimationFrame(frameRequest); frameRequest = 0;
+      clearLive();
     }
     viewer.addEventListener("pointerup", event => { if (drawing && event.pointerId === drawing.id) { event.stopImmediatePropagation(); finish(event); } }, true);
     viewer.addEventListener("pointercancel", event => { if (drawing && event.pointerId === drawing.id) { event.stopImmediatePropagation(); finish(event); } }, true);
@@ -495,7 +528,7 @@
       n2(e.tiltX), n2(e.tiltY), n2(e.altitudeAngle), n2(e.azimuthAngle), e.buttons, n2(e.width), n2(e.height)].join("\t");
     function startTrace(event, frame) {
       const trace = { at: new Date().toISOString(), t0: event.timeStamp, type: event.pointerType, erase: erasing(event), k: frame.k,
-        moves: 0, coalesced: 0, empty: 0, repeated: 0, palms: 0, touches: {}, rows: [sampleOf(event, "down", event.timeStamp)] };
+        moves: 0, coalesced: 0, empty: 0, repeated: 0, palms: 0, lastMove: event.timeStamp, gaps: [], moveMs: 0, frames: 0, drawMs: 0, touches: {}, rows: [sampleOf(event, "down", event.timeStamp)] };
       traces.push(trace);
       if (traces.length > 5) traces.shift();
       return trace;
@@ -504,6 +537,7 @@
       if (!trace) return;
       trace.moves++; trace.coalesced += samples.length;
       trace.repeated += (samples.length || 1) - fresh;
+      trace.gaps.push(event.timeStamp - trace.lastMove); trace.lastMove = event.timeStamp;
       if (!samples.length) trace.empty++;
       if (trace.rows.length > 3000) return;
       for (const sample of samples) trace.rows.push(sampleOf(sample, "c", trace.t0));
@@ -531,6 +565,7 @@
       traces.forEach((t, i) => {
         lines.push(`— stroke ${i + 1} · ${t.at} · ${t.type}${t.erase ? " (eraser)" : ""} · page scale ${n2(t.k)} · ended by ${t.end || "(still drawing)"}`,
           `pointermove ${t.moves}, coalesced samples ${t.coalesced}, moves without samples ${t.empty}, samples seen before (skipped) ${t.repeated}, palm touches ignored ${t.palms}`,
+          `gaps between pointermoves (ms): longest ${n2(Math.max(0, ...t.gaps))}, median ${n2([...t.gaps].sort((a, b) => a - b)[t.gaps.length >> 1] || 0)}, over 50 ms ${t.gaps.filter(g => g > 50).length} · time in our pointermove ${n2(t.moveMs)} ms · live frames ${t.frames}, drawing them ${n2(t.drawMs)} ms · stroke put on the page ${n2(t.commitMs ?? 0)} ms`,
           `touch events: ${Object.entries(t.touches).map(([k, v]) => `${k} ${v}`).join(", ") || "none"}`,
           `points ${t.points ?? "?"}, with pressure 0 ${t.zero ?? "?"}, after cleaning ${t.clean ?? "?"}, outline points ${t.outline ?? "?"}`,
           "kind\tms\tx\ty\tpressure\ttiltX\ttiltY\taltitude\tazimuth\tbuttons\twidth\theight", ...t.rows, "");
