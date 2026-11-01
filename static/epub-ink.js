@@ -359,7 +359,9 @@
     }
 
     // --- Pages -------------------------------------------------------------
-    const pagesShown = () => viewer.querySelectorAll(".spread .page.epub-face[data-section]");
+    // The pages shown, and the copies of pages showing through the paper
+    // (they keep the page's chapter and sheet): handwriting shows through too.
+    const pagesShown = () => viewer.querySelectorAll(".spread .page.epub-face[data-section], .spread .page-back[data-section]");
     let repaintTimer = 0;
     function repaintAll() {
       clearTimeout(repaintTimer);

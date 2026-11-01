@@ -507,7 +507,9 @@ window.createEpubContent = function(book, root, row, fixedLayout) {
       shadow.adoptedStyleSheets = hosts[i].shadowRoot.adoptedStyleSheets;
       shadow.append(...[...hosts[i].shadowRoot.childNodes].map(node => node.cloneNode(true)));
     });
-    copy.querySelectorAll('.page-back,.page-bleed,.epub-bleed,svg.epub-handwriting').forEach(el => el.remove());
+    // Handwriting stays: it shows through like the print (static/epub-ink.js
+    // draws it again in the copy whenever it changes).
+    copy.querySelectorAll('.page-back,.page-bleed,.epub-bleed').forEach(el => el.remove());
     for (const host of copy.querySelectorAll('.epub-page-content')) {
       const style = host.ownerDocument.createElement('style');
       style.textContent = '* {text-shadow:none !important;-webkit-text-stroke:0 !important;mix-blend-mode:normal !important}' + (bleed ? 'img,svg,hr,table {visibility:hidden !important}' : 'img {filter:saturate(.15)}');
