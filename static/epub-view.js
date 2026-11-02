@@ -237,26 +237,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   // mirrored, onto the other for the turn; and the spread on top, whose notes
   // show while a page turns, keeps those between its pages, not the turning
   // sheet's (that is still turning, not yet in a stack).
-  turns.onTurnStart = ({ frontPage, backPage, top }) => {
-    // Only the top sheet of pages held up turns, from its own edge, on either
-    // face of the turning sheet: the strip past it (the page under them, see
-    // setHeld) and the pages' edges are not of it, and stay where they are.
-    for (const page of [frontPage, backPage]) {
-      const strip = page?.querySelector(":scope > .epub-held");
-      if (!strip) continue;
-      page.style.setProperty("--held-band", strip.offsetWidth + "px");
-      page.classList.add("is-held-turning");
-      // (The face turning away leaves its strip lying where it was; the one
-      // turning in finds the strip of the page it comes down on.)
-      if (page !== frontPage) continue;
-      const right = page.classList.contains("page--right"), still = strip.cloneNode(true);
-      still.classList.add("is-still");
-      // (Where the page lies in its spread: its leaf's place, the page being deep in a plane.)
-      const leaf = page.parentElement.parentElement;
-      still.style.left = (leaf.offsetLeft + (right ? page.offsetWidth - strip.offsetWidth : 0)) + "px";
-      page.closest(".spread-inner").append(still);
-    }
-
+  turns.onTurnStart = ({ frontPage, backPage, top, under }) => {
     const cfis = new Set();
     for (const [from, to] of [[frontPage, backPage], [backPage, frontPage]]) {
       if (!from) continue;
@@ -270,6 +251,9 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
         to.append(twin);
       }
     }
+    // (Nor those of the page lying still beside it, under the turn: that one
+    // shows its own, on it.)
+    for (const note of under.querySelectorAll(".page .epub-tab.is-here")) cfis.add(note.dataset.cfi);
     for (const note of top.querySelectorAll(".epub-tabs--behind > .epub-tab")) note.classList.toggle("is-turning", cfis.has(note.dataset.cfi));
     // So with its sticky notes: each face's is copied, mirrored, onto the other
     // (tracing paper: seen from behind, its writing backwards and faint), so
@@ -290,12 +274,39 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     const turning = new Set([frontPage, backPage].filter(page => page?.dataset.section !== undefined)
       .map(page => String(pagination({ index: +page.dataset.section, sheet: +page.dataset.sheet }).page)));
     for (const edge of top.querySelectorAll(".epub-sticky-edge")) edge.classList.toggle("is-turning", turning.has(edge.dataset.page));
+    // Only the top sheet of pages held up turns, from its own edge, on either
+    // face of the turning sheet: the strip past it (the page under them, see
+    // setHeld) and the pages' edges are not of it, and stay where they are.
+    // The sheet is cut back to that edge for the turn, but for the notes on it
+    // (bookmarks, sticky notes) where they cross the strip: they go with it.
+    for (const page of [frontPage, backPage]) {
+      const strip = page?.querySelector(":scope > .epub-held");
+      if (!strip) continue;
+      const right = page.classList.contains("page--right"), W = page.offsetWidth, H = page.offsetHeight, w = strip.offsetWidth;
+      const x0 = right ? W - w : 0, x1 = right ? W : w, rect = (l, t, r, b) => `M${l} ${t}H${r}V${b}H${l}Z`;
+      let path = rect(-1e5, -1e5, 1e5, 1e5) + rect(x0, 0, x1, H);
+      for (const note of page.querySelectorAll(":scope > .epub-tab, :scope > .epub-stickies > .epub-sticky")) {
+        const box = note.getBoundingClientRect(), pageBox = page.getBoundingClientRect(), k = W / (pageBox.width || 1);
+        const l = Math.max(x0, (box.left - pageBox.left) * k), r = Math.min(x1, (box.right - pageBox.left) * k);
+        if (r > l) path += rect(l, (box.top - pageBox.top) * k, r, (box.bottom - pageBox.top) * k);
+      }
+      page.style.clipPath = `path(evenodd, "${path}")`;
+      page.classList.add("is-held-turning");
+      // (The face turning away leaves its strip lying where it was; the one
+      // turning in finds the strip of the page it comes down on.)
+      if (page !== frontPage) continue;
+      const still = strip.cloneNode(true);
+      still.classList.add("is-still");
+      // (Where the page lies in its spread: its leaf's place, the page being deep in a plane.)
+      still.style.left = (page.parentElement.parentElement.offsetLeft + x0) + "px";
+      page.closest(".spread-inner").append(still);
+    }
   };
   turns.onTurnEnd = () => {
     for (const el of mount.querySelectorAll(".epub-tab.is-twin")) el.remove();
     for (const el of mount.querySelectorAll(".is-turning")) el.classList.remove("is-turning");
     for (const el of mount.querySelectorAll(".epub-held.is-still")) el.remove();
-    for (const el of mount.querySelectorAll(".is-held-turning")) el.classList.remove("is-held-turning");
+    for (const el of mount.querySelectorAll(".is-held-turning")) { el.classList.remove("is-held-turning"); el.style.removeProperty("clip-path"); }
     for (const el of mount.querySelectorAll(".epub-sticky-twins")) el.remove();
   };
   // A sheet on top of pages held up turns from its edge where it shows, in

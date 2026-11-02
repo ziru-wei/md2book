@@ -41,10 +41,8 @@
 .epub-held--left::after { right: 0; }
 .epub-held--right::after { left: 0; }
 .epub-held.is-letting-go { width: 0; }
-/* While the sheet over them turns: it is cut back to its own edge, and the
-   strip past it stays put, under it (epub-view.js, onTurnStart). */
-.page--left.is-held-turning { clip-path: inset(0 0 0 var(--held-band)); }
-.page--right.is-held-turning { clip-path: inset(0 var(--held-band) 0 0); }
+/* While the sheet over them turns, the strip past it stays put, under it
+   (the sheet cut back to its own edge, epub-view.js, onTurnStart). */
 .epub-held.is-still { z-index: -1; right: auto; }
 /* Shown only when the book cannot be read; loading uses the shared #reader-loader. */
 #epub-status { position: fixed; z-index: 20; top: 1rem; left: 50%; transform: translateX(-50%); max-width: 90vw; background: var(--paper); padding: .8rem 1rem; }
