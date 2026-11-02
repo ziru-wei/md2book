@@ -248,6 +248,9 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
         twin.classList.add("is-twin");
         twin.classList.toggle("epub-tab--left", note.classList.contains("epub-tab--right"));
         twin.classList.toggle("epub-tab--right", note.classList.contains("epub-tab--left"));
+        // (A sheet over pages held up turns with its back already meeting its
+        // own edge, page-turn.js: the copy is not set in again.)
+        twin.style.removeProperty("--held-w");
         to.append(twin);
       }
     }
