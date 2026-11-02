@@ -395,7 +395,13 @@
       for (const page of pagesShown()) paint(page);
     }
     // Page pixels: the page may be scaled to fit the window.
-    const frameOf = page => { const r = page.getBoundingClientRect(); return { left: r.left, top: r.top, k: r.width / page.offsetWidth || 1 }; };
+    // (A sheet over pages held up shows narrower about its spine, `sx` about
+    // `ox`, epub-view.js: what is drawn on it is too.)
+    const frameOf = page => {
+      const r = page.getBoundingClientRect();
+      return { left: r.left, top: r.top, k: r.width / page.offsetWidth || 1,
+        sx: +page.style.getPropertyValue("--held-scale") || 1, ox: +page.dataset.heldSpine || 0 };
+    };
     // Ink lives on the single-column tablet pages only: 720 × 1000 on a computer
     // and on an iPad alike, with the same pagination, so a stroke is simply at
     // its place on its page (chapter, sheet) and shows nowhere else.
@@ -498,7 +504,7 @@
     const writes = event => event.pointerType === "pen" || (mode && event.pointerType === "mouse" && event.button === 0);
     // A pen's eraser end (or its barrel button held down) erases.
     const erasing = event => tool === "eraser" || event.button === 5 || (event.buttons & 32) === 32;
-    const local = (event, frame) => [(event.clientX - frame.left) / frame.k, (event.clientY - frame.top) / frame.k,
+    const local = (event, frame) => [frame.ox + ((event.clientX - frame.left) / frame.k - frame.ox) / frame.sx, (event.clientY - frame.top) / frame.k,
       event.pointerType === "pen" ? penPressure(event.pressure) : .5];
 
     // The eraser's reach, a circle round the pen (also while it hovers, on an
@@ -564,7 +570,7 @@
       const dpr = devicePixelRatio || 1, w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
       if (live.width !== w || live.height !== h) { live.width = w; live.height = h; }
       // Drawn in page pixels, like the page's own strokes.
-      liveContext.setTransform(dpr * frame.k, 0, 0, dpr * frame.k, dpr * frame.left, dpr * frame.top);
+      liveContext.setTransform(dpr * frame.k * frame.sx, 0, 0, dpr * frame.k, dpr * (frame.left + frame.k * frame.ox * (1 - frame.sx)), dpr * frame.top);
       liveContext.fillStyle = INKS[ink];
     }
     const clearLive = () => { liveContext.save(); liveContext.setTransform(1, 0, 0, 1, 0, 0); liveContext.clearRect(0, 0, live.width, live.height); liveContext.restore(); };

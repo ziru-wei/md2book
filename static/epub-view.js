@@ -145,16 +145,26 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     };
     return { side, w, block, outer, depth };
   }
+  // The top sheet over them keeps all it shows, its margins and what is
+  // written in them, drawn in towards the spine by the strip's width:
+  // narrower, never shorter (`--held-scale`, about its spine, `heldSpine`).
   function setHeld(spread) {
     for (const page of spread.pages) {
       page.querySelector(":scope > .epub-held")?.remove();
-      page.classList.remove("is-held-top"); delete page.dataset.heldInset;
+      page.classList.remove("is-held-top"); delete page.dataset.heldInset; delete page.dataset.heldSpine;
+      page.style.removeProperty("--held-scale");
+      for (const part of page.children) part.style.removeProperty("transform-origin");
     }
     const g = heldGeometry(spread);
     if (!g) return;
     const side = g.side, page = spread.pages[side === "left" ? 0 : spread.pages.length - 1];
     page.classList.add("is-held-top");
     page.dataset.heldInset = g.w;
+    const W = page.offsetWidth, spine = side === "left" ? W : 0;
+    page.dataset.heldSpine = spine;
+    page.style.setProperty("--held-scale", ((W - g.w) / W).toFixed(4));
+    // (Each part about the spine: one not the page's whole width says where that is for it.)
+    for (const part of page.children) if (part.offsetLeft || part.offsetWidth !== W) part.style.transformOrigin = `${spine - part.offsetLeft}px 50%`;
     const strip = element(`epub-held epub-held--${side}`);
     strip.setAttribute("role", "button"); strip.setAttribute("aria-label", "Back to the page held");
     strip.style.setProperty("--block", Math.min(g.block, g.w - 12).toFixed(2) + "px"); strip.style.width = g.w + "px";
@@ -237,7 +247,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   // mirrored, onto the other for the turn; and the spread on top, whose notes
   // show while a page turns, keeps those between its pages, not the turning
   // sheet's (that is still turning, not yet in a stack).
-  turns.onTurnStart = ({ frontPage, backPage, top, under }) => {
+  turns.onTurnStart = ({ frontPage, backPage, underPage, top, under }) => {
     const cfis = new Set();
     for (const [from, to] of [[frontPage, backPage], [backPage, frontPage]]) {
       if (!from) continue;
@@ -281,8 +291,11 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     // face of the turning sheet: the strip past it (the page under them, see
     // setHeld) and the pages' edges are not of it, and stay where they are.
     // The sheet is cut back to that edge for the turn, but for the notes on it
-    // (bookmarks, sticky notes) where they cross the strip: they go with it.
-    for (const page of [frontPage, backPage]) {
+    // (bookmarks, sticky notes) where they cross the strip: they go with it;
+    // and so is the page it lifts off (whose own strip would show there,
+    // not quite the same): the strip there is the one lying still.
+    const stillStrip = frontPage?.querySelector(":scope > .epub-held");
+    for (const page of [frontPage, backPage, stillStrip && underPage]) {
       const strip = page?.querySelector(":scope > .epub-held");
       if (!strip) continue;
       const right = page.classList.contains("page--right"), W = page.offsetWidth, H = page.offsetHeight, w = strip.offsetWidth;
@@ -1174,6 +1187,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     letGo() {
       if (!held) return;
       for (const strip of mount.querySelectorAll(".epub-held")) strip.classList.add("is-letting-go");
+      for (const page of mount.querySelectorAll(".page.is-held-top")) page.style.setProperty("--held-scale", "1");
       setTimeout(() => { held = null; restack(); }, 260);
     },
     next: () => enqueue(() => move(true)), prev: () => enqueue(() => move(false)),

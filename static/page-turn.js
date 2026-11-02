@@ -220,7 +220,7 @@ window.createPageTurn = function createPageTurn(state) {
       t0: performance.now(), lastFrame: performance.now(), frames: 0, worst: 0, worstAt: 0
     };
     // The reader may dress the turning sheet (both its faces) for the turn.
-    state.onTurnStart?.({ frontPage, backPage, top: state.spreads[top], under: state.spreads[top === from ? to : from] });
+    state.onTurnStart?.({ frontPage, backPage, underPage, top: state.spreads[top], under: state.spreads[top === from ? to : from] });
     drawTurn(0);
     return turn;
   }

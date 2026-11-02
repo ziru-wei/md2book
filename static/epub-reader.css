@@ -16,10 +16,14 @@
    pages' edges, many fine lines, darker toward the outside; as tall as the
    page where it meets it and lower toward the outside (--slope), the stack
    seen a little from the side. */
+/* The edges of the leaves, side by side: a soft wave (no hard-edged hairlines,
+   which, scaled with the spread and falling between pixels, came out thick
+   and thin in turn, like a fence, on one side and not the other). */
+html.epub-fixed-paper { --leaf-edges: repeating-linear-gradient(90deg, var(--paper) 0, #c9c4bb .75px, var(--paper) 1.5px); }
 .book-edge { position: absolute; top: 0; bottom: 0; pointer-events: none; z-index: -2;
   background:
     linear-gradient(var(--edge-dir), rgba(0, 0, 0, .02), rgba(0, 0, 0, .18)),
-    repeating-linear-gradient(90deg, var(--paper) 0 1.1px, #c9c4bb 1.1px 1.5px); }
+    var(--leaf-edges); }
 .book-edge[hidden] { display: none; }
 .book-edge--left { right: 100%; --edge-dir: to left;
   clip-path: polygon(0 var(--slope), 100% 0, 100% 100%, 0 calc(100% - var(--slope))); }
@@ -37,10 +41,14 @@
 .epub-held::before { left: 0; right: 0;
   background: linear-gradient(var(--edge-dir), rgba(0, 0, 0, .24) var(--block), rgba(0, 0, 0, .07) calc(var(--block) + 8px), transparent calc(var(--block) + 30px)); }
 .epub-held::after { width: max(1.5px, var(--block));
-  background: linear-gradient(var(--edge-dir), rgba(0, 0, 0, .04), rgba(0, 0, 0, .2)), repeating-linear-gradient(90deg, var(--paper) 0 1.1px, #c9c4bb 1.1px 1.5px); }
+  background: linear-gradient(var(--edge-dir), rgba(0, 0, 0, .04), rgba(0, 0, 0, .2)), var(--leaf-edges); }
 .epub-held--left::after { right: 0; }
 .epub-held--right::after { left: 0; }
 .epub-held.is-letting-go { width: 0; }
+/* The top sheet over them: all it shows narrower, about its spine (epub-view.js, setHeld). */
+.page.is-held-top > :not(.epub-held):not(.epub-tab) { scale: var(--held-scale) 1; transition: scale .25s ease; }
+.page--left.is-held-top > * { transform-origin: 100% 50%; }
+.page--right.is-held-top > * { transform-origin: 0 50%; }
 /* While the sheet over them turns, the strip past it stays put, under it
    (the sheet cut back to its own edge, epub-view.js, onTurnStart). */
 .epub-held.is-still { z-index: -1; right: auto; }
