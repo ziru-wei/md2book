@@ -145,7 +145,7 @@
   // The book's left and right edges are the bookmarks': a double tap (or
   // click) on one bookmarks the page on that side; a single one does nothing,
   // not even turn the page.
-  let lastSideTap = { side: null, at: -Infinity };
+  let lastSideTap = { side: null, at: -Infinity }, lastSpineTap = -Infinity;
   // (A double click there isn't the one beside the book that goes back to the
   // shelf, reader-opening.js, nor picks the word nearest.)
   document.addEventListener("dblclick", event => { if (sideStrip(event.clientX, event.clientY)) event.stopPropagation(); }, true);
@@ -169,8 +169,19 @@
     }
     const box = visibleBox();
     const fraction = (x - box.left) / box.width;
-    // The upper half of the gutter opens the menu, the lower half the pen kit.
-    if (Math.abs(fraction - .5) <= .08) { if (y - box.top <= box.height / 2) toggleMenu(); else ink.toggleBar(); return; }
+    // The upper half of the gutter opens the menu, the lower half the pen kit;
+    // with pages held up (see epub-view.js, `held`), a double tap on its
+    // middle lets go of them, there.
+    if (Math.abs(fraction - .5) <= .08) {
+      const along = (y - box.top) / box.height;
+      if (rendition?.held && along > .4 && along < .6) {
+        if (performance.now() - lastSpineTap < 450) { lastSpineTap = -Infinity; rendition.letGo(); }
+        else lastSpineTap = performance.now();
+        return;
+      }
+      if (along <= .5) toggleMenu(); else ink.toggleBar();
+      return;
+    }
     if (!touch) return;
     turn((fraction > .5) !== (book.package.metadata.direction === "rtl"));
   }
@@ -285,7 +296,7 @@
     let start = null;
     const doc = documentOrElement.ownerDocument || documentOrElement;
     const hasSelection = () => doc === document ? selectionActive() : Boolean(doc.getSelection()?.toString());
-    const interactive = target => target.closest?.("a, button, input, select, textarea, audio, video, [contenteditable], span.epub-hl, .epub-ribbon, .epub-tab, .epub-sticky");
+    const interactive = target => target.closest?.("a, button, input, select, textarea, audio, video, [contenteditable], span.epub-hl, .epub-ribbon, .epub-tab, .epub-sticky, .epub-held");
     const toViewer = (x, y) => {
       if (doc === document) return [x, y];
       const frame = doc.defaultView.frameElement, rect = frame.getBoundingClientRect();
@@ -430,7 +441,7 @@
       jump.firstChild.classList.toggle("is-starred", starred(bookmark));
       jump.firstChild.classList.toggle("is-latest", !starred(bookmark) && bookmark.cfi === latestCfi());
       if (bookmark.created) jump.title = new Date(bookmark.created).toLocaleString();
-      jump.addEventListener("click", () => { menu.close(); navigate(() => rendition.display(bookmark.cfi)); });
+      jump.addEventListener("click", () => { menu.close(); navigate(() => rendition.holdTurn(bookmark.cfi)); });
       const remove = document.createElement("button");
       remove.className = "epub-bookmark-remove";
       remove.innerHTML = '<span class="toc-title">×</span>';
@@ -602,7 +613,7 @@
   function openTab(cfi, el, how) {
     const b = bookmarks.find(x => x.cfi === cfi);
     if (!b || naming) return;
-    if (how === "jump") { closeTab(); navigate(() => rendition.display(cfi)); return; }
+    if (how === "jump") { closeTab(); navigate(() => rendition.holdTurn(cfi)); return; }
     if (how === "edit") { editTab(cfi); return; }
     if (how === "unpreview") { closeTab(); return; }
     markOpen(cfi);

@@ -25,6 +25,22 @@
   clip-path: polygon(0 var(--slope), 100% 0, 100% 100%, 0 calc(100% - var(--slope))); }
 .book-edge--right { left: 100%; --edge-dir: to right;
   clip-path: polygon(0 0, 100% var(--slope), 100% calc(100% - var(--slope)), 0 100%); }
+/* Pages held up over a finger left in the page read (epub-view.js, setHeld):
+   past the top sheet's outer edge, a strip of the page under them, in their
+   shadow, their edges standing at the top sheet's edge. Laid down, it closes. */
+.epub-held { position: absolute; top: 0; bottom: 0; width: max(44px, calc(var(--block) + 24px)); z-index: 2; cursor: pointer; pointer-events: auto;
+  transition: width .25s ease; }
+.epub-held--left { left: 0; background: var(--paper); --edge-dir: to left; }
+.epub-held--right { right: 0; background: var(--paper); --edge-dir: to right; }
+/* The pages held up over it (and over the notes on it): their shadow, and their edges. */
+.epub-held::before, .epub-held::after { content: ""; position: absolute; top: 0; bottom: 0; z-index: 5; pointer-events: none; }
+.epub-held::before { left: 0; right: 0;
+  background: linear-gradient(var(--edge-dir), rgba(0, 0, 0, .24) var(--block), rgba(0, 0, 0, .07) calc(var(--block) + 8px), transparent calc(var(--block) + 30px)); }
+.epub-held::after { width: max(1.5px, var(--block));
+  background: linear-gradient(var(--edge-dir), rgba(0, 0, 0, .04), rgba(0, 0, 0, .2)), repeating-linear-gradient(90deg, var(--paper) 0 1.1px, #c9c4bb 1.1px 1.5px); }
+.epub-held--left::after { right: 0; }
+.epub-held--right::after { left: 0; }
+.epub-held.is-letting-go { width: 0; }
 /* Shown only when the book cannot be read; loading uses the shared #reader-loader. */
 #epub-status { position: fixed; z-index: 20; top: 1rem; left: 50%; transform: translateX(-50%); max-width: 90vw; background: var(--paper); padding: .8rem 1rem; }
 .epub-access-menu { position: fixed; top: 8px; left: 8px; z-index: 30; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; }
@@ -167,11 +183,11 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
 /* A page's own note: only on the spread shown, and the two of a turn. */
 .spread:not(.is-current):not(.is-turn-under):not(.is-turn-top) .epub-tab.is-here { visibility: hidden; }
 /* A slim flag: as far down the edge as its place in the book (--at), from
-   its page in the stack (--depth) through to past the stack's outer edge
-   (--stack), sticking out --out beyond it. */
+   its page in the stack (--depth), as long as any other past its own sheet's
+   edge (--flag-len): a deeper sheet's edge is further out, so is its flag. */
 .epub-tab { position: absolute; top: calc(var(--at) * (100% - 28px)); height: 28px; cursor: pointer; pointer-events: auto;
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
-  width: calc(var(--stack, 0px) - var(--depth, 0px) + var(--out));
+  width: var(--flag-len);
   --tab: #fbfaf7; box-shadow: 0 0 0 .5px rgba(0, 0, 0, .2); }
 /* Where it comes out from under the sheets above it: a narrow shadow on it. */
 .epub-tab--left { right: calc(100% + var(--depth, 0px));
@@ -187,10 +203,10 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
 .epub-tab.is-starred.is-open { --tab: #a9dcf0; }
 /* On the page shown: stuck on its paper (28px), over the whole stack beside it
    and out beyond it. */
-.epub-tab.is-here { z-index: 4; width: calc(28px + var(--stack, 0px) + var(--out)); background: var(--tab);
+.epub-tab.is-here { z-index: 4; width: calc(28px + var(--flag-len)); background: var(--tab);
   box-shadow: 0 0 0 .5px rgba(0, 0, 0, .25), 0 1px 3px rgba(0, 0, 0, .3); }
-.epub-tab--left.is-here { right: calc(100% - 28px); }
-.epub-tab--right.is-here { left: calc(100% - 28px); }
+.epub-tab--left.is-here { right: calc(100% - 28px - var(--held-w, 0px)); }
+.epub-tab--right.is-here { left: calc(100% - 28px - var(--held-w, 0px)); }
 /* A finger-sized target round the slim flag. */
 .epub-tab::before { content: ""; position: absolute; inset: -3px 0; }
 .epub-tab.is-unnamed { height: 10px; }
@@ -224,16 +240,16 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
 .epub-stickies { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
 /* (Only on the spread shown, and the two of a turn: one prepared would stick out past it.) */
 .spread:not(.is-current):not(.is-turn-under):not(.is-turn-top) .epub-stickies { visibility: hidden; }
-.epub-sticky { position: absolute; box-sizing: border-box; padding: 5px 7px; width: calc(var(--sticky-w) + var(--stack-side, 0px) + 14px);
+.epub-sticky { position: absolute; box-sizing: border-box; padding: 5px 7px; width: calc(var(--sticky-w) + var(--sticky-out));
   /* (No backdrop blur: on a sheet turning, it broke the drawing of the pages.) */
   background: rgba(252, 252, 249, .7); color: #000;
   /* A faint, fine shadow to its left and below. */
   box-shadow: 0 0 0 .5px rgba(0, 0, 0, .12), -1px 1px 0 rgba(0, 0, 0, .06), -1.5px 1.5px 3px rgba(0, 0, 0, .1);
   font: 400 12px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; white-space: pre-wrap; word-break: break-word;
   cursor: pointer; pointer-events: auto; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-/* Past the page by the stack beside it, and a little more. */
-.epub-sticky--left { left: calc(-14px - var(--stack-left, 0px)); --stack-side: var(--stack-left, 0px); padding-left: calc(7px + 14px + var(--stack-left, 0px)); }
-.epub-sticky--right { right: calc(-14px - var(--stack-right, 0px)); --stack-side: var(--stack-right, 0px); padding-right: calc(7px + 14px + var(--stack-right, 0px)); }
+/* A little past its sheet's edge (--sticky-out, its own). */
+.epub-sticky--left { left: calc(-1 * var(--sticky-out)); padding-left: calc(7px + var(--sticky-out)); }
+.epub-sticky--right { right: calc(-1 * var(--sticky-out)); padding-right: calc(7px + var(--sticky-out)); }
 .epub-sticky-text { display: block; max-height: 118px; overflow: hidden; }
 /* (Faded at the bottom only when there is more of it than shows.) */
 .epub-sticky.is-cut:not(.is-editing) .epub-sticky-text {
@@ -245,7 +261,7 @@ html.is-touch .epub-page-content { -webkit-touch-callout: none; -webkit-tap-high
 .epub-sticky.is-twin { pointer-events: none; }
 .epub-sticky.is-twin .epub-sticky-text { transform: scaleX(-1); opacity: .3; }
 /* A turned page's sticky note: the bit sticking out of the edge. */
-.epub-sticky-edge { position: absolute; width: calc(var(--stack) - var(--depth) + 14px); pointer-events: none;
+.epub-sticky-edge { position: absolute; width: var(--sticky-out); pointer-events: none;
   background: rgba(252, 252, 249, .66); box-shadow: 0 0 0 .5px rgba(0, 0, 0, .12), -1px 1px 0 rgba(0, 0, 0, .06), -1.5px 1.5px 3px rgba(0, 0, 0, .1); }
 .epub-sticky-edge--left { right: calc(100% + var(--depth)); }
 .epub-sticky-edge--right { left: calc(100% + var(--depth)); }

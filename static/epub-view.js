@@ -72,9 +72,30 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   function fitScale() {
     edgeRoom = roomBeside();
     const fit = root.dataset.layout !== "phone" ? Math.min(geometry.viewportWidth() / (width * perSpread + edgeRoom), geometry.viewportHeight() / height) : 1;
-    // The room beside the pages, for the edges and the notes out of them.
-    mount.style.setProperty("--beside", ((geometry.viewportWidth() / fit - width * perSpread) / 2).toFixed(2) + "px");
+    // How far a bookmark or sticky note sticks out past its own sheet's edge,
+    // the same for all of them (and so out of the edge, each as far beyond the
+    // others as its sheet is deeper): past the whole thickness of the book's
+    // edge, and further as the screen leaves room for the top sheet's, within
+    // reason (the deepest sheets' may run off the screen a little).
+    const beside = (geometry.viewportWidth() / fit - width * perSpread) / 2, edge = bookEdges() ? thickness(bookTotal()) : 0;
+    mount.style.setProperty("--flag-len", Math.min(edge + NOTE_OUT_MAX, Math.max(edge + NOTE_OUT, beside - 6)).toFixed(2) + "px");
     return fit;
+  }
+  // A bookmark gone to as in a printed book: the pages between are turned over
+  // together and held up, 8/9 of the way over, a finger left in the page read
+  // (`held`: that spread's first and last page numbers, and where it begins).
+  // On each spread past it the held-up pages' top sheet (the page shown) stops
+  // short of the book's outer edge: a strip of the page held under them shows
+  // beyond, in their shadow, their edges standing there (setHeld), and the
+  // stack beyond is only the pages under the finger. A tap on the strip lets
+  // them fall back, to the page read; a double tap on the spine (epub-reader.js)
+  // lets go, here; turning back to the page read, the finger is out.
+  let held = null;
+  function heldSide(spread) {
+    if (!held || !spread.first || perSpread !== 2) return null;
+    const first = pagination(spread.first).page, last = pagination(spread.last || spread.first).page;
+    if (first === null || last === null) return null;
+    return first > held.last ? "left" : last < held.first ? "right" : null;
   }
   function setEdges(spread) {
     if (!spread.first || !spread.inner.isConnected) return;
@@ -83,7 +104,8 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     for (const side of ["left", "right"]) {
       let edge = spread.inner.querySelector(`:scope > .book-edge--${side}`);
       if (!show) { edge?.remove(); continue; }
-      const pages = side === "left" ? first.page - 1 : first.total - last.page;
+      const under = heldSide(spread) === side;
+      const pages = side === "left" ? (under ? held.first - 1 : first.page - 1) : (under ? first.total - held.last : first.total - last.page);
       const w = Math.round(thickness(first.total) * pages / first.total * 4) / 4;
       if (!edge) { edge = element(`book-edge book-edge--${side}`); edge.setAttribute("aria-hidden", "true"); spread.inner.append(edge); }
       edge.style.width = w + "px";
@@ -99,10 +121,64 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   function setStack(spread) {
     if (!spread.first) return;
     const first = pagination(spread.first), last = pagination(spread.last || spread.first);
-    const key = `${first.page}|${last.page}|${first.total}`;
+    const key = `${first.page}|${last.page}|${first.total}|${held?.first ?? ""}`;
     if (spread.stackKey === key) return;
     spread.stackKey = key;
-    setEdges(spread); setTabs(spread);
+    setEdges(spread); setHeld(spread); setTabs(spread);
+  }
+  // Held up on `side`: the strip's width (`w`: the top sheet's edge, that far
+  // in), how thick the pages held up are (`block`) and the stack under the
+  // finger beyond (`outer`), in page px; and how deep a page's edge is, by its
+  // number (`depth`: in the stack under the finger, or for one of the pages
+  // held up, negative: in from the outer edge, at their edges in the strip).
+  function heldGeometry(spread) {
+    const side = heldSide(spread), total = side && pagination(spread.first).total;
+    if (!total || !bookEdges()) return null;
+    const first = pagination(spread.first).page, last = pagination(spread.last || spread.first).page, stack = thickness(total);
+    const block = stack * (side === "left" ? first - held.first : held.last - last) / total;
+    const outer = stack * (side === "left" ? held.first - 1 : total - held.last) / total, w = Math.max(44, block + 24);
+    const depth = at => {
+      const inBlock = side === "left" ? at >= held.last : at <= held.first;
+      if (inBlock) return -(w - Math.min(Math.max(.5, stack * (side === "left" ? first - at : at - last) / total), Math.max(.5, block - .5)));
+      return Math.min(Math.max(outer - .5, 0), Math.max(.5, stack * (side === "left" ? held.first - at : at - held.last) / total));
+    };
+    return { side, w, block, outer, depth };
+  }
+  function setHeld(spread) {
+    for (const page of spread.pages) page.querySelector(":scope > .epub-held")?.remove();
+    const g = heldGeometry(spread);
+    if (!g) return;
+    const side = g.side, page = spread.pages[side === "left" ? 0 : spread.pages.length - 1];
+    const strip = element(`epub-held epub-held--${side}`);
+    strip.setAttribute("role", "button"); strip.setAttribute("aria-label", "Back to the page held");
+    strip.style.setProperty("--block", g.block.toFixed(2) + "px"); strip.style.width = g.w + "px";
+    strip.addEventListener("click", event => { event.stopPropagation(); returnHeld(); });
+    page.append(strip);
+  }
+  const restack = () => { for (const spread of spreads) setStack(spread); };
+  // A turn straight to `target` (not the next or previous spread), as one.
+  async function turnTo(target) {
+    await waitForPaper();
+    const from = current, section = book.spine.get(target.index ?? target);
+    for (const preceding of chapters) {
+      if (preceding.index === section?.index) break;
+      if (!chapterPages.has(preceding.index)) await chapter(preceding, Boolean(options.bookKey));
+    }
+    const next = await createSpread(target, false, true);
+    if (!from || matchMedia("(prefers-reduced-motion: reduce)").matches) { activate(next); trim(); prefetch(); return; }
+    const forward = compareCfi(next.location.start.cfi, from.location.start.cfi) > 0;
+    next.el.classList.add("is-near");
+    turns.current = forward ? 0 : 1;
+    turns.spreads = forward ? [from.el, next.el] : [next.el, from.el];
+    turns.spreadPages = forward ? [from.pages, next.pages] : [next.pages, from.pages];
+    await new Promise(resolve => { finishTurn({ from, next }, resolve); engine.turnPage(forward ? 1 : -1); });
+    trim(); prefetch();
+  }
+  function returnHeld() {
+    return enqueue(async () => {
+      if (!held) return;
+      await turnTo(held.cfi);
+    }).catch(error => emit("displayError", error));
   }
   function updatePageNumbers() {
     // The book counted (or its count changed): room for its edges.
@@ -181,7 +257,6 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
         const twin = note.cloneNode(true), left = note.classList.contains("epub-sticky--right");
         twin.classList.add("is-twin"); twin.classList.remove("is-editing");
         twin.classList.toggle("epub-sticky--left", left); twin.classList.toggle("epub-sticky--right", !left);
-        twin.style.setProperty(left ? "--stack-left" : "--stack-right", getComputedStyle(note).getPropertyValue("--stack-side"));
         layer.append(twin);
       }
       to.append(layer);
@@ -499,16 +574,11 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     const range = pageRange.get(page);
     return range && cfi.startsWith(`epubcfi(${range.base}!`) && compareCfi(cfi, range.start) >= 0 && (!range.end || compareCfi(cfi, range.end) < 0);
   });
-  // Each note sticks out its own little bit more or less (from its place, so always the same).
-  const jitter = cfi => { let h = 2166136261; for (let i = 0; i < cfi.length; i++) h = Math.imul(h ^ cfi.charCodeAt(i), 16777619); return ((h >>> 0) % 400) / 100; };
   function noteFor(tab, side) {
     // A note with no name given is a mere sliver.
     const el = element(`epub-tab epub-tab--${side}` + (tab.starred ? " is-starred" : tab.latest ? " is-latest" : "") + (tab.name ? "" : " is-unnamed"));
     el.dataset.cfi = tab.cfi;
     el.style.setProperty("--at", tab.at.toFixed(4));
-    // As far out as the screen leaves room beyond its side's edges (a name
-    // shows more of itself), within reason.
-    el.style.setProperty("--out", `calc(clamp(${NOTE_OUT}px, var(--beside) - var(--stack, 0px) - 6px, ${NOTE_OUT_MAX}px) - ${(4 - jitter(tab.cfi)).toFixed(2)}px)`);
     const name = element("epub-tab-name-short"), text = element("epub-tab-text");
     text.textContent = tab.name; name.append(text); el.append(name);
     el.setAttribute("role", "button"); el.setAttribute("aria-label", tab.label || "Bookmark");
@@ -539,30 +609,33 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   function setTabs(spread) {
     if (!spread.inner.isConnected) return;
     const tabs = bookmarkTabs();
-    for (const page of spread.pages) page.querySelectorAll(":scope > .epub-tab").forEach(el => el.remove());
+    for (const page of spread.pages) page.querySelectorAll(":scope > .epub-tab, :scope > .epub-held > .epub-tab").forEach(el => el.remove());
     let behind = spread.inner.querySelector(":scope > .epub-tabs--behind");
     if (!spread.first || !spread.location) { behind?.remove(); return; }
     const first = pagination(spread.first), last = pagination(spread.last || spread.first), total = first.total;
     const stack = bookEdges() ? thickness(total) : 0;
-    // How thick the stack is on either side of this spread (its pages' sticky
-    // notes stick out past it).
+    // How thick the stack is on either side of this spread.
     const sides = { left: total ? stack * ((first.page ?? 1) - 1) / total : 0, right: total ? stack * (total - (last.page ?? total)) / total : 0 };
-    spread.inner.style.setProperty("--stack-left", sides.left.toFixed(2) + "px");
-    spread.inner.style.setProperty("--stack-right", sides.right.toFixed(2) + "px");
+    // (Pages held up on one side: that stack is only those under the finger,
+    // and the top sheet's edge is in from the outer edge, see heldGeometry.)
+    const hg = heldGeometry(spread);
+    if (hg) sides[hg.side] = hg.outer;
+    const depthOf = (sideName, at) => hg?.side === sideName ? hg.depth(at)
+      : Math.min(Math.max(sides[sideName] - .5, 0), Math.max(.5, stack * (sideName === "right" ? at - (last.page ?? first.page) : (first.page ?? 1) - at) / total));
     // The sticky notes of pages turned (or still to turn): only the bit of each
     // that sticks out of the edge, from its page's depth there, where it was on
     // its page; under the bookmarks, and not to be pressed.
-    const slivers = [];
+    const slivers = [], heldSlivers = [];
     if (stack && total && first.page !== null && last.page !== null) for (const { id, place } of placedNotes()) {
       const right = place.page > last.page;
       if (!right && place.page >= first.page) continue;
-      const side = sides[right ? "right" : "left"];
-      const depth = Math.min(Math.max(side - .5, 0), Math.max(.5, stack * (right ? place.page - last.page : first.page - place.page) / total));
+      const depth = depthOf(right ? "right" : "left", place.page);
       const el = element(`epub-sticky-edge epub-sticky-edge--${right ? "right" : "left"}`);
       el.dataset.id = id; el.dataset.page = place.page;
       el.style.top = place.y + "px"; el.style.height = place.h + "px";
-      el.style.setProperty("--depth", depth.toFixed(2) + "px"); el.style.setProperty("--stack", side.toFixed(2) + "px");
-      slivers.push(el);
+      el.style.setProperty("--depth", depth.toFixed(2) + "px"); el.style.setProperty("--sticky-out", stickyOut(id) + "px");
+      // (One of the pages held up: over the strip, so with the bookmarks.)
+      (depth < 0 ? heldSlivers : slivers).push(el);
     }
     // (Under the pages, so under a page shown's own sticky notes too.)
     let edges = spread.inner.querySelector(":scope > .epub-sticky-edges");
@@ -570,18 +643,29 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       if (!edges) { edges = element("epub-sticky-edges"); spread.inner.prepend(edges); }
       edges.replaceChildren(...slivers);
     } else edges?.remove();
-    if (!tabs.length) { behind?.remove(); return; }
+    if (!tabs.length && !heldSlivers.length) { behind?.remove(); return; }
     if (!behind) { behind = element("epub-tabs epub-tabs--behind"); spread.inner.prepend(behind); }
-    const elsewhere = [], placed = [];
+    const elsewhere = [...heldSlivers], placed = [];
+    // The page under the finger shows in the strip past the pages held up: its
+    // notes are on it there, as on a page shown, under the pages held up.
+    const strip = hg && spread.inner.querySelector(`.epub-held--${hg.side}`);
+    const underPage = hg && (hg.side === "left" ? held.first : held.last);
     for (const tab of tabs) {
+      if (strip && tab.page === underPage) {
+        const note = noteFor(tab, hg.side);
+        note.classList.add("is-here");
+        strip.append(note);
+        placed.push({ el: note, side: hg.side, at: tab.at, h: tab.name ? FLAG : SLIVER });
+        continue;
+      }
       const page = pageOf(spread, tab.cfi);
       if (page) {
         // On its sheet, out of the sheet's outer edge (a lone page: by its place in the book).
         const right = perSpread === 2 ? page.classList.contains("page--right") : tab.at >= .5;
         const note = noteFor(tab, right ? "right" : "left");
         note.classList.add("is-here");
-        // The top sheet: the note lies across the whole stack beside it.
-        note.style.setProperty("--stack", sides[right ? "right" : "left"].toFixed(2) + "px");
+        // (Pages held up: the top sheet's edge is in from the outer edge.)
+        if (hg?.side === (right ? "right" : "left")) note.style.setProperty("--held-w", hg.w + "px");
         page.append(note);
         placed.push({ el: note, side: right ? "right" : "left", at: tab.at, h: tab.name ? FLAG : SLIVER });
         continue;
@@ -590,13 +674,9 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       // right, by its exact place (the page a percentage suggests can be off
       // by a few). How deep it lies: from that page, within its side's stack.
       const right = compareCfi(tab.cfi, spread.location.start.cfi) > 0;
-      const at = tab.page;
-      const side = sides[right ? "right" : "left"];
-      const depth = !total || !stack ? 0
-        : Math.min(Math.max(side - .5, 0), Math.max(.5, stack * (right ? at - (last.page ?? first.page) : (first.page ?? 1) - at) / total));
+      const depth = !total || !stack ? 0 : depthOf(right ? "right" : "left", tab.page);
       const note = noteFor(tab, right ? "right" : "left");
       note.style.setProperty("--depth", depth.toFixed(2) + "px");
-      note.style.setProperty("--stack", sides[right ? "right" : "left"].toFixed(2) + "px");
       elsewhere.push(note);
       placed.push({ el: note, side: right ? "right" : "left", at: tab.at, h: tab.name ? FLAG : SLIVER });
     }
@@ -619,6 +699,9 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   // begins, or just below the footnote or note above it there. The text keeps
   // the note's underline, where it belongs. A note being written on stays as
   // it is (only moved), and so does its delete button (epub-reader.js).
+  // How far a sticky note sticks out past its sheet: a little, each its own
+  // little bit more or less (by its note, so always the same).
+  const stickyOut = id => { let h = 2166136261; for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619); return 8 + (h >>> 0) % 5; };
   function setStickies(page) {
     let layer = page.querySelector(":scope > .epub-stickies");
     const keep = layer?.querySelector(".epub-sticky.is-editing");
@@ -638,6 +721,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       if (el !== keep) {
         const text = element("epub-sticky-text"); text.textContent = notes.get(id);
         el.dataset.id = id; el.append(text); el.style.setProperty("--sticky-w", Math.max(62, margin - 8) + "px");
+        el.style.setProperty("--sticky-out", stickyOut(id) + "px");
       }
       items.push({ el, top: (r.top - box.top) * k });
     }
@@ -843,6 +927,8 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       entry.el.inert = entry !== spread;
     }
     current = spread; lastActivity = performance.now();
+    // Back at the page held (or before it): the finger is out.
+    if (held && !heldSide(spread)) { held = null; restack(); }
     // Inert/destroyed chapter frames can otherwise leave keyboard focus in a
     // detached document after a turn or a Contents jump.
     if (!document.querySelector("dialog[open]")) mount.focus({ preventScroll: true });
@@ -1028,6 +1114,24 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     themes: { default(rules) { lastTheme = rules; } },
     on(name, fn) { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); },
     display: target => enqueue(() => display(target)),
+    // To a bookmark, the pages between held up (see `held`); again to another,
+    // the same page still held.
+    holdTurn: target => enqueue(async () => {
+      if (!held && current && perSpread === 2) {
+        const first = pagination(current.first).page, last = pagination(current.last || current.first).page;
+        if (first !== null && last !== null) { held = { first, last, cfi: current.location.start.cfi }; restack(); }
+      }
+      await turnTo(target);
+      restack();
+    }),
+    returnHeld,
+    get held() { return !!held; },
+    // The held-up pages laid down where they are: the finger out, here.
+    letGo() {
+      if (!held) return;
+      for (const strip of mount.querySelectorAll(".epub-held")) strip.classList.add("is-letting-go");
+      setTimeout(() => { held = null; restack(); }, 260);
+    },
     next: () => enqueue(() => move(true)), prev: () => enqueue(() => move(false)),
     toggleSpread: () => enqueue(() => { if (geometry.isTouch) return; wantsDouble = perSpread !== 2; return relayout(); }),
     dragTurn,
