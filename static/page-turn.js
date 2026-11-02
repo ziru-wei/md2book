@@ -193,6 +193,8 @@ window.createPageTurn = function createPageTurn(state) {
 
     turn = {
       dir, from, to, top, double, hingeX,
+      // How far in from the page's edge the sheet's free edge is (the reader may say).
+      inset: state.edgeInset?.(frontPage) || 0,
       frontLeaf, backLeaf, underLeaf, backPage, underPage, frontPage,
       frontShade, cast, backShade, backSheet, frontBand, castBand, backBand,
       // Where the flap's page lies, on the sheet.
@@ -223,7 +225,7 @@ window.createPageTurn = function createPageTurn(state) {
     const p = t.reversed ? 1 - t.progress : t.progress;
     const W = state.pageWidth;
     const H = state.pageHeight;
-    const freeX = W - t.hingeX;
+    const freeX = t.hingeX ? t.inset : W - t.inset;
     const endX = 2 * t.hingeX - freeX;
     const cy = t.corner;
 
@@ -262,7 +264,10 @@ window.createPageTurn = function createPageTurn(state) {
     const r12 = -2 * n[0] * n[1];
     const r22 = 1 - 2 * n[1] * n[1];
     const md = 2 * (M[0] * n[0] + M[1] * n[1]);
-    const flip = { a: -r11, b: -r12, c: r12, d: r22, e: r11 * W + md * n[0], f: r12 * W + md * n[1] };
+    // (A sheet turning from in from the page's edge, by `inset`: its other side
+    // meets that edge, not the page's.)
+    const mirror = W + (t.hingeX ? t.inset : -t.inset);
+    const flip = { a: -r11, b: -r12, c: r12, d: r22, e: r11 * mirror + md * n[0], f: r12 * mirror + md * n[1] };
 
     // Light: the page bends into the fold, the flap catches light where
     // it curls over, and it shades the page it uncovers.

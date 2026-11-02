@@ -136,7 +136,8 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     if (!total || !bookEdges()) return null;
     const first = pagination(spread.first).page, last = pagination(spread.last || spread.first).page, stack = thickness(total);
     const block = stack * (side === "left" ? first - held.first : held.last - last) / total;
-    const outer = stack * (side === "left" ? held.first - 1 : total - held.last) / total, w = Math.max(44, block + 24);
+    // (At most so wide that the top sheet's text, moved in by it, keeps clear of the spine.)
+    const outer = stack * (side === "left" ? held.first - 1 : total - held.last) / total, w = Math.min(64, Math.max(44, block + 24));
     const depth = at => {
       const inBlock = side === "left" ? at >= held.last : at <= held.first;
       if (inBlock) return -(w - Math.min(Math.max(.5, stack * (side === "left" ? first - at : at - last) / total), Math.max(.5, block - .5)));
@@ -145,13 +146,18 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     return { side, w, block, outer, depth };
   }
   function setHeld(spread) {
-    for (const page of spread.pages) page.querySelector(":scope > .epub-held")?.remove();
+    for (const page of spread.pages) {
+      page.querySelector(":scope > .epub-held")?.remove();
+      page.classList.remove("is-held-top"); delete page.dataset.heldInset;
+    }
     const g = heldGeometry(spread);
     if (!g) return;
     const side = g.side, page = spread.pages[side === "left" ? 0 : spread.pages.length - 1];
+    page.classList.add("is-held-top");
+    page.dataset.heldInset = g.w;
     const strip = element(`epub-held epub-held--${side}`);
     strip.setAttribute("role", "button"); strip.setAttribute("aria-label", "Back to the page held");
-    strip.style.setProperty("--block", g.block.toFixed(2) + "px"); strip.style.width = g.w + "px";
+    strip.style.setProperty("--block", Math.min(g.block, g.w - 12).toFixed(2) + "px"); strip.style.width = g.w + "px";
     strip.addEventListener("click", event => { event.stopPropagation(); returnHeld(); });
     page.append(strip);
   }
@@ -232,6 +238,25 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   // show while a page turns, keeps those between its pages, not the turning
   // sheet's (that is still turning, not yet in a stack).
   turns.onTurnStart = ({ frontPage, backPage, top }) => {
+    // Only the top sheet of pages held up turns, from its own edge, on either
+    // face of the turning sheet: the strip past it (the page under them, see
+    // setHeld) and the pages' edges are not of it, and stay where they are.
+    for (const page of [frontPage, backPage]) {
+      const strip = page?.querySelector(":scope > .epub-held");
+      if (!strip) continue;
+      page.style.setProperty("--held-band", strip.offsetWidth + "px");
+      page.classList.add("is-held-turning");
+      // (The face turning away leaves its strip lying where it was; the one
+      // turning in finds the strip of the page it comes down on.)
+      if (page !== frontPage) continue;
+      const right = page.classList.contains("page--right"), still = strip.cloneNode(true);
+      still.classList.add("is-still");
+      // (Where the page lies in its spread: its leaf's place, the page being deep in a plane.)
+      const leaf = page.parentElement.parentElement;
+      still.style.left = (leaf.offsetLeft + (right ? page.offsetWidth - strip.offsetWidth : 0)) + "px";
+      page.closest(".spread-inner").append(still);
+    }
+
     const cfis = new Set();
     for (const [from, to] of [[frontPage, backPage], [backPage, frontPage]]) {
       if (!from) continue;
@@ -269,8 +294,13 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   turns.onTurnEnd = () => {
     for (const el of mount.querySelectorAll(".epub-tab.is-twin")) el.remove();
     for (const el of mount.querySelectorAll(".is-turning")) el.classList.remove("is-turning");
+    for (const el of mount.querySelectorAll(".epub-held.is-still")) el.remove();
+    for (const el of mount.querySelectorAll(".is-held-turning")) el.classList.remove("is-held-turning");
     for (const el of mount.querySelectorAll(".epub-sticky-twins")) el.remove();
   };
+  // A sheet on top of pages held up turns from its edge where it shows, in
+  // from the page's (see setHeld).
+  turns.edgeInset = page => +page?.dataset.heldInset || 0;
   engine = window.createPageTurn(turns);
   function configure() {
     clearTimeout(indexTimer); indexEpoch++; indexing = false; paginationError = false;
