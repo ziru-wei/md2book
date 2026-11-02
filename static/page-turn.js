@@ -177,6 +177,15 @@ window.createPageTurn = function createPageTurn(state) {
     // cut at the page's edge — it slides away round the spine rather
     // than across the dark desk.
     const backShade = overlay("turn-back-shade" + (double ? "" : " turn-on-page"), [backSheet], topInner);
+    // A sheet whose free edge is in from its page's (the reader may say, for
+    // either face): its shades stop at that edge, not the page's.
+    const inset = state.edgeInset?.(frontPage) || 0, backInset = backPage ? state.edgeInset?.(backPage) || 0 : 0;
+    if (inset) {
+      const edge = hingeX ? inset : W - inset, far = hingeX ? 100000 : -100000;
+      frontShade.style.clipPath = cast.style.clipPath = `polygon(${edge}px -100000px, ${far}px -100000px, ${far}px 100000px, ${edge}px 100000px)`;
+    }
+    // (The flap's shade lies on the back face, mirrored: its edge band is on the far side of it.)
+    if (backInset) backSheet.style.clipPath = hingeX ? `inset(0 ${backInset}px 0 0)` : `inset(0 0 0 ${backInset}px)`;
 
     const frontLeaf = leafOf(frontPage);
     const backLeaf = backPage && leafOf(backPage);
@@ -193,8 +202,8 @@ window.createPageTurn = function createPageTurn(state) {
 
     turn = {
       dir, from, to, top, double, hingeX,
-      // How far in from the page's edge the sheet's free edge is (the reader may say).
-      inset: state.edgeInset?.(frontPage) || 0,
+      // How far in from the page's edge the sheet's free edge is.
+      inset,
       frontLeaf, backLeaf, underLeaf, backPage, underPage, frontPage,
       frontShade, cast, backShade, backSheet, frontBand, castBand, backBand,
       // Where the flap's page lies, on the sheet.
