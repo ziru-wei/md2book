@@ -268,6 +268,11 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     // shows its own, on it.)
     for (const note of under.querySelectorAll(".page .epub-tab.is-here")) cfis.add(note.dataset.cfi);
     for (const note of top.querySelectorAll(".epub-tabs--behind > .epub-tab")) note.classList.toggle("is-turning", cfis.has(note.dataset.cfi));
+    const topSpread = [...spreads].find(entry => entry.el === top);
+    if (topSpread) packFlags(topSpread);
+    // (Its edges on the turning sheet's side give way to those under it, the
+    // sheet's notes lying over them till it lifts.)
+    top.classList.add(frontPage?.classList.contains("page--left") ? "gives-edge-left" : "gives-edge-right");
     // So with its sticky notes: each face's is copied, mirrored, onto the other
     // (tracing paper: seen from behind, its writing backwards and faint), so
     // the bit sticking out past the sheet goes over with it.
@@ -321,6 +326,8 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
   turns.onTurnEnd = () => {
     for (const el of mount.querySelectorAll(".epub-tab.is-twin")) el.remove();
     for (const el of mount.querySelectorAll(".is-turning")) el.classList.remove("is-turning");
+    for (const el of mount.querySelectorAll(".gives-edge-left, .gives-edge-right")) el.classList.remove("gives-edge-left", "gives-edge-right");
+    for (const entry of spreads) packFlags(entry);
     for (const el of mount.querySelectorAll(".epub-held.is-still")) el.remove();
     for (const el of mount.querySelectorAll(".is-held-turning")) { el.classList.remove("is-held-turning"); el.style.removeProperty("clip-path"); }
     for (const el of mount.querySelectorAll(".epub-sticky-twins")) el.remove();
@@ -702,7 +709,7 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
     } else edges?.remove();
     if (!tabs.length && !heldSlivers.length) { behind?.remove(); return; }
     if (!behind) { behind = element("epub-tabs epub-tabs--behind"); spread.inner.prepend(behind); }
-    const elsewhere = [...heldSlivers], placed = [];
+    const elsewhere = [...heldSlivers];
     // The page under the finger shows in the strip past the pages held up: its
     // notes are on it there, as on a page shown, under the pages held up.
     const strip = hg && spread.inner.querySelector(`.epub-held--${hg.side}`);
@@ -712,7 +719,6 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
         const note = noteFor(tab, hg.side);
         note.classList.add("is-here");
         strip.append(note);
-        placed.push({ el: note, side: hg.side, at: tab.at, h: tab.name ? FLAG : SLIVER });
         continue;
       }
       const page = pageOf(spread, tab.cfi);
@@ -724,7 +730,6 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
         // (Pages held up: the top sheet's edge is in from the outer edge.)
         if (hg?.side === (right ? "right" : "left")) note.style.setProperty("--held-w", hg.w + "px");
         page.append(note);
-        placed.push({ el: note, side: right ? "right" : "left", at: tab.at, h: tab.name ? FLAG : SLIVER });
         continue;
       }
       // Between other pages: before this spread on the left, after it on the
@@ -735,14 +740,22 @@ window.createEpubView = function createEpubView(book, mount, row, options = {}) 
       const note = noteFor(tab, right ? "right" : "left");
       note.style.setProperty("--depth", depth.toFixed(2) + "px");
       elsewhere.push(note);
-      placed.push({ el: note, side: right ? "right" : "left", at: tab.at, h: tab.name ? FLAG : SLIVER });
     }
     behind.replaceChildren(...elsewhere);
-    // Down each side as far as its place in the book, but never on top of
-    // another (a name must stay readable): from the top down, each at least a
-    // flag below the one above; what runs off the bottom goes back up.
+    packFlags(spread);
+  }
+  // Down each side as far as its place in the book, but never on top of
+  // another (a name must stay readable): from the top down, each at least a
+  // flag below the one above; what runs off the bottom goes back up. (Not
+  // those of a sheet turning, hidden: the others make room for one only once
+  // it has come down.)
+  function packFlags(spread) {
+    const notes = [...spread.inner.querySelectorAll(":scope > .epub-tabs--behind > .epub-tab, .page > .epub-tab:not(.is-twin), .page > .epub-held > .epub-tab")]
+      .filter(el => !el.classList.contains("is-turning"))
+      .map(el => ({ el, side: el.classList.contains("epub-tab--left") ? "left" : "right", at: parseFloat(el.style.getPropertyValue("--at")) || 0,
+        h: el.classList.contains("is-unnamed") ? SLIVER : FLAG }));
     for (const side of ["left", "right"]) {
-      const list = placed.filter(p => p.side === side).sort((a, b) => a.at - b.at);
+      const list = notes.filter(p => p.side === side).sort((a, b) => a.at - b.at);
       let below = -Infinity;
       for (const p of list) { p.y = Math.max(p.at * (height - p.h), below + GAP); below = p.y + p.h; }
       let above = Infinity;

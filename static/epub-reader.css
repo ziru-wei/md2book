@@ -25,6 +25,8 @@ html.epub-fixed-paper { --leaf-edges: repeating-linear-gradient(90deg, var(--pap
     linear-gradient(var(--edge-dir), rgba(0, 0, 0, .02), rgba(0, 0, 0, .18)),
     var(--leaf-edges); }
 .book-edge[hidden] { display: none; }
+/* While a page turns: the spread on top shows the edges under it on that side. */
+.spread.gives-edge-left .book-edge--left, .spread.gives-edge-right .book-edge--right { visibility: hidden; }
 .book-edge--left { right: 100%; --edge-dir: to left;
   clip-path: polygon(0 var(--slope), 100% 0, 100% 100%, 0 calc(100% - var(--slope))); }
 .book-edge--right { left: 100%; --edge-dir: to right;
