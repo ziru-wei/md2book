@@ -2135,6 +2135,30 @@ dialog.toc-dialog::backdrop {
   color: rgba(241, 243, 244, .92);
 }
 
+/* Switches above the list (quotes shown or hidden, see reader.js) */
+.toc-switches {
+  margin: 0 0 .8em;
+}
+
+.toc-switch {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.toc-switch:hover {
+  color: rgba(241, 243, 244, .92);
+}
+
+/* Quotes hidden: no room for them when the pages are cut. */
+html.hide-quotes .body blockquote {
+  display: none;
+}
+
 /* TOC tag label above the list */
 .toc-tag-label {
   font-size: 9px;

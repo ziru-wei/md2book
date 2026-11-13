@@ -31,6 +31,12 @@
   const root = document.documentElement;
   const div = window.createPageTurn.element;
   const tocDialog = document.getElementById("toc-dialog");
+  // "> " quotes shown or hidden (the Space popup's switch), as last set on
+  // this device: hidden ones take no room when the pages are cut.
+  const QUOTES_KEY = "md2book.hideQuotes";
+  let hideQuotes = false;
+  try { hideQuotes = localStorage.getItem(QUOTES_KEY) === "1"; } catch { /* no storage */ }
+  root.classList.toggle("hide-quotes", hideQuotes);
   // /contents lists entries oldest-first but opens on the newest one's
   // first page (see renderContentsPage in server.js).
   const latestSlug = document.querySelector(".entry-page")?.dataset.latestSlug || "";
@@ -1532,6 +1538,23 @@
         tocDialog.close();
       });
     });
+    const quotes = tocDialog.querySelector('[data-act="quotes"]');
+    const showQuoteSwitch = () => {
+      quotes.setAttribute("aria-pressed", String(hideQuotes));
+      quotes.textContent = hideQuotes ? "Show quotes" : "Hide quotes";
+    };
+    if (quotes) {
+      showQuoteSwitch();
+      quotes.addEventListener("click", () => {
+        hideQuotes = !hideQuotes;
+        try { localStorage.setItem(QUOTES_KEY, hideQuotes ? "1" : "0"); } catch { /* no storage */ }
+        root.classList.toggle("hide-quotes", hideQuotes);
+        showQuoteSwitch();
+        // Cut again without them (or with them), as near the same place as can be.
+        navigated = true;
+        recut();
+      });
+    }
     tocDialog.addEventListener("click", e => {
       const r = tocDialog.getBoundingClientRect();
       if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) {
