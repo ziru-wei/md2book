@@ -105,3 +105,21 @@ window.createReaderLayout = function createReaderLayout(root, { tabletAspectRati
 
   return { isTouch, isTablet, viewportWidth, viewportHeight, tabletSingle, applyLayout, pagesPerSpread };
 };
+
+// Every effect off for a while (the Space menu's switch, in either reader):
+// the paper plain white, no shade in the gutter, none of the print effects
+// (show-through, letterpress, ink bleed, see book.css). Switched back, or the
+// page opened again, they are as they were.
+window.readerPlain = (() => {
+  const root = document.documentElement, effects = ["show-through", "letterpress", "ink-bleed"];
+  let saved = null;
+  return {
+    get on() { return !!saved; },
+    set(on) {
+      if (on === !!saved) return;
+      if (on) { saved = effects.filter(name => root.classList.contains(name)); root.classList.remove(...saved); }
+      else { root.classList.add(...saved); saved = null; }
+      root.classList.toggle("plain-page", on);
+    }
+  };
+})();

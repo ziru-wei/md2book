@@ -2154,6 +2154,19 @@ dialog.toc-dialog::backdrop {
   color: rgba(241, 243, 244, .92);
 }
 
+/* Every effect off for a while (reader-layout.js, readerPlain): the paper
+   plain white, no shade in the gutter, and the print effects' own layers
+   (show-through's back, ink bleed's copy, letterpress's pictures, the EPUB
+   highlights' bleed-through) not drawn. */
+html.plain-page {
+  --paper: #fff;
+}
+
+html.plain-page .is-double .page::after,
+html.plain-page :is(.page-back, .page-bleed, .page-pictures, .epub-bleed) {
+  display: none !important;
+}
+
 /* Quotes hidden: no room for them when the pages are cut. */
 html.hide-quotes .body blockquote {
   display: none;

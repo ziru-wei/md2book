@@ -1034,6 +1034,9 @@
   }, true);
   document.addEventListener("keydown", event => { if (event.key === "Escape") closeEditor(); }, true);
 
+  // Every effect off for a while (reader-layout.js): back when switched back
+  // or the book opened again.
+  $("epub-plain").addEventListener("change", event => window.readerPlain.set(event.target.checked));
   // Paper effects (show-through, letterpress, ink bleed, highlight bleed-through) are
   // heavy for a tablet or phone: off there until this switch turns them on.
   const effectsRow = $("epub-effects-row");

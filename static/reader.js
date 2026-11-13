@@ -1538,6 +1538,16 @@
         tocDialog.close();
       });
     });
+    // Every effect off for a while (reader-layout.js), and back: the pages
+    // are cut again then, for any effect left off a cut made meanwhile.
+    const plain = tocDialog.querySelector('[data-act="plain"]');
+    plain?.addEventListener("click", () => {
+      const on = !window.readerPlain.on;
+      window.readerPlain.set(on);
+      plain.setAttribute("aria-pressed", String(on));
+      plain.textContent = on ? "Turn effects on" : "Turn effects off";
+      if (!on) { navigated = true; recut(); }
+    });
     const quotes = tocDialog.querySelector('[data-act="quotes"]');
     const showQuoteSwitch = () => {
       quotes.setAttribute("aria-pressed", String(hideQuotes));
