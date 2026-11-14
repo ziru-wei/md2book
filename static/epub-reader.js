@@ -259,21 +259,23 @@
       }
       if (fingers.size > 1) { if (drag?.active) rendition?.settleTurn(0); drag = null; return; }
       if (drag || !rendition || selectionActive() || event.timeStamp === dismissedStamp) return;
-      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, lastX: event.clientX, lastT: event.timeStamp, v: 0, active: false };
+      // (Every effect off, the pages slide up and down: so does the finger turn them.)
+      const plain = document.documentElement.classList.contains("plain-page");
+      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, plain, last: plain ? event.clientY : event.clientX, lastT: event.timeStamp, v: 0, active: false };
     });
     viewer.addEventListener("pointermove", event => {
       if (!drag || event.pointerId !== drag.id) return;
       if (selecting) { drag = null; return; }
       if (!drag.active) {
-        const dx = event.clientX - drag.x;
-        if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(event.clientY - drag.y)) return;
+        const along = drag.plain ? event.clientY - drag.y : event.clientX - drag.x, across = drag.plain ? event.clientX - drag.x : event.clientY - drag.y;
+        if (Math.abs(along) < 8 || Math.abs(along) < Math.abs(across)) return;
         drag.active = true;
         try { viewer.setPointerCapture(event.pointerId); } catch { /* pointer already gone */ }
       }
-      const step = (drag.lastX - event.clientX) * rtl();
+      const at = drag.plain ? event.clientY : event.clientX, step = (drag.last - at) * (drag.plain ? 1 : rtl());
       const dt = Math.max(1, event.timeStamp - drag.lastT);
       drag.v = .7 * drag.v + .3 * (step / dt);
-      drag.lastX = event.clientX; drag.lastT = event.timeStamp;
+      drag.last = at; drag.lastT = event.timeStamp;
       // Zoomed in, the finger's travel is shorter on the page itself.
       if (step) rendition.dragTurn(step / zoom.s, "touch", event.clientY);
     });

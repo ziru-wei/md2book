@@ -225,8 +225,23 @@ window.createPageTurn = function createPageTurn(state) {
     return turn;
   }
 
+  // Every effect off (reader-layout.js, readerPlain): no fold, the spreads
+  // slide up and down instead, as rows of a page — the next one coming up
+  // from below (pages 1 2 over 3 4), a little apart.
+  const plain = () => document.documentElement.classList.contains("plain-page");
   function drawTurn(progress) {
     const t = turn;
+    if (plain()) {
+      t.progress = Math.min(1, Math.max(0, progress));
+      for (const el of [t.frontLeaf, t.backLeaf, t.underLeaf]) if (el) uncut(el);
+      for (const el of [t.backShade, t.cast, t.frontShade]) el.style.opacity = "0";
+      // (A row's height as shown, and the little gap.)
+      const row = state.pageHeight * state.viewScale + 24;
+      const away = `0 ${-t.dir * t.progress * row}px`, coming = `0 ${t.dir * (1 - t.progress) * row}px`;
+      state.spreads[t.from].style.translate = away;
+      state.spreads[t.to].style.translate = coming;
+      return;
+    }
     const now = performance.now();
     if (t.frames++ && now - t.lastFrame > t.worst) { t.worst = now - t.lastFrame; t.worstAt = t.frames - 1; }
     t.lastFrame = now;
@@ -315,7 +330,7 @@ window.createPageTurn = function createPageTurn(state) {
     if (t.follow) cancelAnimationFrame(t.follow);
     state.current = index;
     state.markSpreads();
-    for (const i of [t.from, t.to]) { state.spreads[i].style.zIndex = ""; state.spreads[i].classList.remove("is-turn-top", "is-turn-under"); }
+    for (const i of [t.from, t.to]) { state.spreads[i].style.zIndex = ""; state.spreads[i].style.translate = ""; state.spreads[i].classList.remove("is-turn-top", "is-turn-under"); }
     state.onTurnEnd?.();
     for (const el of [t.frontLeaf, t.backLeaf, t.underLeaf]) {
       if (!el) continue;

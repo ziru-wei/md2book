@@ -516,6 +516,25 @@ html.reader-loading #reader-loader {
   pointer-events: none;
 }
 
+/* Every effect off (reader.js): the spreads one under another, each as
+   tall as it shows, a little apart, in a column that scrolls. */
+html.plain-page .book {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+html.plain-page .spread {
+  position: relative;
+  height: var(--row-h);
+  margin-bottom: 24px;
+  visibility: visible;
+}
+
+/* (No blank page facing an odd last one: there's no book to close.) */
+html.plain-page .page-blank {
+  visibility: hidden;
+}
+
 /* Every spread stays laid out, stacked in the same place: only the
    current one shows, with its neighbours painted underneath (covered),
    ready to be uncovered by a turn — so a turn starts and ends without
@@ -2160,6 +2179,21 @@ dialog.toc-dialog::backdrop {
    highlights' bleed-through) not drawn. */
 html.plain-page {
   --paper: #fff;
+}
+
+/* (Two pages side by side kept apart by a narrow gap at the spine, over
+   their inner margins.) */
+html.plain-page .spread-inner.is-double::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 14px;
+  transform: translateX(-50%);
+  background: var(--entry-bg);
+  z-index: 3;
+  pointer-events: none;
 }
 
 html.plain-page .is-double .page::after,

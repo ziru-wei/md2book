@@ -1376,7 +1376,20 @@
       viewportHeight() / pageHeight
     );
     for (const spread of spreads) spread.firstElementChild.style.transform = `scale(${viewScale})`;
+    // (Every effect off: the spreads one under another, each as tall as it shows.)
+    book.style.setProperty("--row-h", pageHeight * viewScale + "px");
   }
+
+  // Every effect off (reader-layout.js, readerPlain): the spreads one under
+  // another in a column that scrolls, as in a PDF viewer; the spread at the
+  // top is the one being read. A key goes a row on or back.
+  const rowStep = () => spreads.length > 1 ? spreads[1].offsetTop - spreads[0].offsetTop : book.clientHeight;
+  function scrollRows(by) { book.scrollBy({ top: by * rowStep(), behavior: "smooth" }); }
+  function toRow(index) { book.scrollTop = index * rowStep(); }
+  book.addEventListener("scroll", () => {
+    if (!root.classList.contains("plain-page") || !spreads.length) return;
+    current = Math.min(spreads.length - 1, Math.max(0, Math.round(book.scrollTop / rowStep())));
+  }, { passive: true });
 
   // The pages shown side by side in each spread. An odd last page in a
   // two-page view gets a blank right-hand page, so it still reads as a
@@ -1455,6 +1468,7 @@
     buildSpreads();
     if (navigated) show(Math.floor(Math.round(progress * pages.length) / perSpread));
     else openingPosition();
+    if (root.classList.contains("plain-page")) toRow(current);
     requestAnimationFrame(() => {
       root.classList.remove("reader-loading");
       window.md2bookOpening?.ready();
@@ -1546,7 +1560,10 @@
       window.readerPlain.set(on);
       plain.setAttribute("aria-pressed", String(on));
       plain.textContent = on ? "Turn effects on" : "Turn effects off";
-      if (!on) { navigated = true; recut(); }
+      // (The column opens at the spread being read; closed, the book opens
+      // at the one scrolled to.)
+      if (on) { cancelTurn(); toRow(current); }
+      else { book.scrollTop = 0; show(current); navigated = true; recut(); }
     });
     const quotes = tocDialog.querySelector('[data-act="quotes"]');
     const showQuoteSwitch = () => {
@@ -1638,7 +1655,8 @@
         drag = null;
         return;
       }
-      if (drag || isZoomed()) return;
+      // (Every effect off, the pages scroll as one column: the finger scrolls them.)
+      if (drag || isZoomed() || root.classList.contains("plain-page")) return;
       drag = { id: e.pointerId, x: e.clientX, y: e.clientY, lastX: e.clientX, lastT: e.timeStamp, v: 0, active: false };
     });
     book.addEventListener("pointermove", e => {
@@ -1728,12 +1746,13 @@
       const isNext = e.key === "d" || e.key === "D" || e.key === "ArrowRight" || e.code === "ShiftRight";
       if (isPrev || isNext) {
         e.preventDefault();
-        turnPage(isNext ? 1 : -1);
+        if (root.classList.contains("plain-page")) scrollRows(isNext ? 1 : -1);
+        else turnPage(isNext ? 1 : -1);
       }
     });
 
     const wheel = window.createReaderWheel(pageTurn, {
-      blocked: () => tocDialog?.open || isZoomed()
+      blocked: () => tocDialog?.open || isZoomed() || root.classList.contains("plain-page")
     });
     window.addEventListener("wheel", wheel, { passive: false });
 

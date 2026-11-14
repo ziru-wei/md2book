@@ -20,9 +20,13 @@ window.createReaderWheel = function(pageTurn, { blocked = () => false, direction
       return a < b && b < c && c < d && abs > Math.max(14, lowest * 4);
     }
 
+    // Every effect off (reader-layout.js, readerPlain): the pages slide up and
+    // down, and so turn with the fingers going up and down (down: on).
+    const plain = () => document.documentElement.classList.contains("plain-page");
     const handle = e => {
       if (e.ctrlKey || blocked()) return;
-      if (!pageTurn.turn && !wheelDone && Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      const along = plain() ? e.deltaY : e.deltaX, across = plain() ? e.deltaX : e.deltaY;
+      if (!pageTurn.turn && !wheelDone && Math.abs(along) <= Math.abs(across)) return;
 
       e.preventDefault();
 
@@ -35,7 +39,7 @@ window.createReaderWheel = function(pageTurn, { blocked = () => false, direction
         creep = 0;
       }
       lastWheelAt = at;
-      let delta = (e.deltaMode === 1 ? e.deltaX * 16 : e.deltaX) * direction();
+      let delta = (e.deltaMode === 1 ? along * 16 : along) * (plain() ? 1 : direction());
       const abs = Math.abs(delta);
       const dir = Math.sign(delta);
       recent.push(abs);
