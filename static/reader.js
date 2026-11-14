@@ -31,12 +31,30 @@
   const root = document.documentElement;
   const div = window.createPageTurn.element;
   const tocDialog = document.getElementById("toc-dialog");
-  // "> " quotes shown or hidden (the Space popup's switch), as last set on
-  // this device: hidden ones take no room when the pages are cut.
-  const QUOTES_KEY = "md2book.hideQuotes";
-  let hideQuotes = false;
-  try { hideQuotes = localStorage.getItem(QUOTES_KEY) === "1"; } catch { /* no storage */ }
+  // The Space popup's switches, as last set for this note (or collection) on
+  // this device, kept when the browser is closed: "> " quotes hidden (they
+  // take no room when the pages are cut) and every effect off.
+  // In the browser reader (web/app.js, GitHub Pages) every page is shown in
+  // one srcdoc frame, whose own address is always the same: the page is the
+  // window's "#/entry/<slug>" there, within the folder opened.
+  const VIEW_KEY = "md2book.view:" + (() => {
+    try {
+      const app = window.parent !== window && window.parent.md2book;
+      if (app) return app.folderName + ":" + (decodeURI(window.parent.location.hash.slice(1)) || "/");
+    } catch { /* not ours */ }
+    return location.pathname;
+  })();
+  let view = {};
+  try { view = JSON.parse(localStorage.getItem(VIEW_KEY)) || {}; } catch { /* no storage */ }
+  const saveView = () => {
+    try {
+      if (view.hideQuotes || view.plain) localStorage.setItem(VIEW_KEY, JSON.stringify(view));
+      else localStorage.removeItem(VIEW_KEY);
+    } catch { /* no storage */ }
+  };
+  let hideQuotes = !!view.hideQuotes;
   root.classList.toggle("hide-quotes", hideQuotes);
+  if (view.plain) window.readerPlain.set(true);
   // /contents lists entries oldest-first but opens on the newest one's
   // first page (see renderContentsPage in server.js).
   const latestSlug = document.querySelector(".entry-page")?.dataset.latestSlug || "";
@@ -1555,11 +1573,18 @@
     // Every effect off for a while (reader-layout.js), and back: the pages
     // are cut again then, for any effect left off a cut made meanwhile.
     const plain = tocDialog.querySelector('[data-act="plain"]');
+    const showPlainSwitch = () => {
+      const on = window.readerPlain.on;
+      plain.setAttribute("aria-pressed", String(on));
+      plain.textContent = on ? "Turn effects on" : "Turn effects off";
+    };
+    if (plain) showPlainSwitch();
     plain?.addEventListener("click", () => {
       const on = !window.readerPlain.on;
       window.readerPlain.set(on);
-      plain.setAttribute("aria-pressed", String(on));
-      plain.textContent = on ? "Turn effects on" : "Turn effects off";
+      view.plain = on;
+      saveView();
+      showPlainSwitch();
       // (The column opens at the spread being read; closed, the book opens
       // at the one scrolled to.)
       if (on) { cancelTurn(); toRow(current); }
@@ -1574,7 +1599,8 @@
       showQuoteSwitch();
       quotes.addEventListener("click", () => {
         hideQuotes = !hideQuotes;
-        try { localStorage.setItem(QUOTES_KEY, hideQuotes ? "1" : "0"); } catch { /* no storage */ }
+        view.hideQuotes = hideQuotes;
+        saveView();
         root.classList.toggle("hide-quotes", hideQuotes);
         showQuoteSwitch();
         // Cut again without them (or with them), as near the same place as can be.
