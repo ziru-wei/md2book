@@ -17,6 +17,13 @@ globalThis.Buffer ||= { from: value => value, isBuffer: () => false };
 // project site lives under /<repo>/).
 const APP_BASE = new URL("./", location.href).href;
 
+// This build's version (see scripts/build-web.mjs), on every address of the
+// reader's own scripts and stylesheets in a page: after a deploy, a page
+// never mixes them with ones a browser kept from the build before.
+const BUILD = typeof MD2BOOK_BUILD === "string" ? MD2BOOK_BUILD : "";
+const STATIC_FILE_RE = new RegExp(`(${APP_BASE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}static/[^"'?#\\s]+\\.(?:js|css))(?=["'])`, "g");
+const versioned = html => BUILD ? html.replace(STATIC_FILE_RE, `$1?v=${BUILD}`) : html;
+
 const $ = selector => document.querySelector(selector);
 const frame = $("#page");
 const landing = $("#landing");
@@ -220,7 +227,7 @@ const currentPath = () => decodeURI(location.hash.slice(1)) || "/";
 
 async function pageHtml(path) {
   if (path === "/settings") {
-    const res = await fetch(new URL("static/settings.html", APP_BASE));
+    const res = await fetch(new URL(`static/settings.html${BUILD ? `?v=${BUILD}` : ""}`, APP_BASE));
     return res.text();
   }
   const epubMatch = /^\/epub\/([0-9a-f]+)$/.exec(path);
@@ -297,7 +304,7 @@ async function show() {
   const n = ++showing;
   let html;
   try {
-    html = await withAttachments(await pageHtml(path));
+    html = versioned(await withAttachments(await pageHtml(path)));
   } catch (error) {
     html = `<pre style="white-space: pre-wrap; padding: 2rem">${escapeText(t("couldNotRead"))} ${escapeText(t("noteRepo"))}\n\n${escapeText(error.stack || error)}</pre>`;
   }

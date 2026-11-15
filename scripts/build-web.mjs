@@ -5,6 +5,7 @@ import * as esbuild from "esbuild";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const out = path.join(root, "dist");
@@ -21,6 +22,20 @@ if (keep) {
   fs.renameSync(path.join(keep, ".vercel"), vercelLink);
   fs.rmSync(keep, { recursive: true });
 }
+
+// This build's version: a digest of the code it is made from. GitHub Pages
+// lets browsers keep a file for 10 minutes, so after a deploy a page could
+// run the new app.js with the old reader.js (or the other way round). Each
+// address of app.js and the reader's own scripts and stylesheets carries it
+// (?v=…; see versioned in web/app.js): a new build is a new address.
+const digest = createHash("sha256");
+for (const dir of ["lib", "static", "web"]) {
+  for (const file of fs.readdirSync(path.join(root, dir), { recursive: true }).sort()) {
+    const full = path.join(root, dir, file);
+    if (/\.(js|mjs|css|html)$/.test(file) && fs.statSync(full).isFile()) digest.update(file).update(fs.readFileSync(full));
+  }
+}
+const build = digest.digest("hex").slice(0, 10);
 
 await esbuild.build({
   absWorkingDir: root,
@@ -40,11 +55,13 @@ await esbuild.build({
     "cheerio": "./node_modules/cheerio/dist/esm/load-parse.js",
     "fs": "./web/empty.js"
   },
-  define: { TEMML_VERSION: JSON.stringify(temml.version) },
+  define: { TEMML_VERSION: JSON.stringify(temml.version), MD2BOOK_BUILD: JSON.stringify(build) },
   logLevel: "info"
 });
 
-fs.copyFileSync(path.join(root, "web/index.html"), path.join(out, "index.html"));
+const indexHtml = fs.readFileSync(path.join(root, "web/index.html"), "utf8");
+if (!indexHtml.includes('src="app.js"')) throw new Error('web/index.html: no <script src="app.js">');
+fs.writeFileSync(path.join(out, "index.html"), indexHtml.replace('src="app.js"', `src="app.js?v=${build}"`));
 fs.cpSync(path.join(root, "static"), path.join(out, "static"), { recursive: true });
 fs.cpSync(path.join(root, "node_modules/justif/dist"), path.join(out, "vendor/justif"), { recursive: true });
 fs.copyFileSync(path.join(root, "node_modules/justif/LICENSE"), path.join(out, "vendor/justif/LICENSE"));

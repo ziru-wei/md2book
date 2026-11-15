@@ -1679,6 +1679,12 @@ figure.md-table figcaption {
   color: inherit;
 }
 
+/* A reference split over two columns or pages: the part that runs on has
+   no number, and stays in the text's column (see split in reader.js). */
+.reference-list li[data-continued] > :first-child {
+  grid-column: 2;
+}
+
 .reference-list a {
   min-width: 0;
   color: inherit;
