@@ -2594,8 +2594,29 @@ html.acm :is(.figure-number, .table-number) .number-stop {
   display: none;
 }
 
-html.acm :is(.figure-number, .table-number)::after {
+html.acm figcaption:not(.caption--bare) :is(.figure-number, .table-number)::after {
   content: ":";
+}
+
+/* Citations as in the ACM template: "[14]", "[2, 3, 20]" — the text's
+   size, lining figures, the text's color. */
+html.acm :is(.reference-marker, .reference-marker-group) {
+  padding-left: 0;
+  color: inherit;
+  font-size: inherit;
+  font-variant-numeric: lining-nums;
+  letter-spacing: 0;
+}
+
+/* Lining figures throughout, as the template has them. */
+html.acm .page {
+  font-variant-numeric: lining-nums;
+}
+
+/* Libertine as the template prints it: no added stroke. */
+html.acm :is(.body, .references) :is(p, li, blockquote, td, .cjk),
+html.acm .comment-margin-marker {
+  -webkit-text-stroke-width: 0;
 }
 
 /* Side comments in the narrow margins: 5 pt. */
@@ -2606,8 +2627,14 @@ html.acm .comment-margin-marker {
 }
 
 /* References: a column wide, under their own heading, 7 pt. */
-html.acm .references {
-  width: calc((100% - var(--column-gap)) / 2);
+html.acm .references--flow {
+  position: static;
+  width: auto;
+}
+
+/* (Its heading only where the list starts, not where it runs on.) */
+html.acm .references--flow[data-continued]::before {
+  display: none;
 }
 
 html.acm .references::before {

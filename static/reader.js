@@ -324,7 +324,7 @@
     // where they are (see renderEntryBody in server.js for where that
     // is): if the spacer doesn't fit after the entry's last line, the
     // References go on a page of their own.
-    for (const refs of area.querySelectorAll(".references:not(.references--inline)")) {
+    for (const refs of area.querySelectorAll(".references:not(.references--inline, .references--flow)")) {
       const spacer = document.createElement("div");
       spacer.className = "references-spacer";
       spacer.setAttribute("aria-hidden", "true");
@@ -1329,7 +1329,7 @@
     // Pinned References stay exactly where and as wide as they are:
     // Safari prints their percentage width narrower, and the longer list
     // ran up over the text.
-    for (const refs of staging.querySelectorAll(".references:not(.references--inline)")) {
+    for (const refs of staging.querySelectorAll(".references:not(.references--inline, .references--flow)")) {
       refs.style.width = refs.getBoundingClientRect().width + "px";
     }
     if (!root.classList.contains("no-page-numbers")) numberPages(next);

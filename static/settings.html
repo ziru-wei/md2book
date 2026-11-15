@@ -1320,7 +1320,11 @@
       if (key === "privateHeading") value = value.trim();
       row[key] = value;
       if (key === "applyToAll" && !value) delete row.applyToAll;
-      if (key === "collection" || key === "applyToAll" || id === "epub") renderRules();
+      // A row made ACM starts with its section numbers off (an ACM paper's
+      // headings carry their own); they can be ticked back on.
+      const toAcm = key === "layout" && value === "acm";
+      if (toAcm) row.numberHeadings = false;
+      if (toAcm || key === "collection" || key === "applyToAll" || id === "epub") renderRules();
     }
 
     // The "select all" boxes follow their lists: ticked when every item is, half when some are.
