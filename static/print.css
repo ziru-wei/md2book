@@ -96,6 +96,25 @@ html.reader body {
   break-after: auto;
 }
 
+/* Every effect off (book.css, html.plain-page): no gap between the rows,
+   and no dark strip down the spine — each page prints on its own. */
+html.plain-page .spread {
+  margin: 0 !important;
+}
+
+html.plain-page .spread-inner::before {
+  display: none !important;
+}
+
+/* The ACM layout (book.css): the page prints at exactly a Letter sheet
+   (850 x 1100 px at 0.96 is 816 x 1056, 8.5 x 11 in), so its margins are
+   the ACM template's to the point. It takes up a hair less than its
+   height, so rounding never spills it onto a second sheet. */
+html.acm:not(.is-webkit-print) .page {
+  zoom: 0.96 !important;
+  margin-bottom: -2px !important;
+}
+
 /* The text area prints unclipped (there's nothing past its columns
    once a page is cut), and its paper (see .page-area in
    book.css) prints white like the page. */

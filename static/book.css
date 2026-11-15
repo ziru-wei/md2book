@@ -2494,6 +2494,213 @@ html:not(.is-touch) .page-zine .body :is(p, li).zh {
 }
 
 /* =========================================================
+   ACM layout (a layout row's "acm", html.acm, see rowClasses in
+   render.js): the paper layout set as the ACM article template
+   (acmart, sigconf), measured off one at 612 × 792 pt — this page's
+   850 × 1100 px, so 1 pt = 1.389 px. Text block 7 in wide (pt: 53 side
+   margins, a 24 pt gutter), Libertine 9/10.95 pt, Biolinum headings,
+   the permission notice at the foot of the first page's left column
+   (reserveFoot in reader.js). Phones and tablets cut their own pages,
+   as for every layout (below).
+   ========================================================= */
+
+html.acm {
+  /* CUSTOMIZABLE STYLE: ACM page */
+  /* acmart sigconf: 54 pt side margins (a 42 pc text block), a 2 pc
+     gutter. */
+  --pad-x: 75px;
+  --pad-top: 120px;
+  --pad-bottom: 113px;
+  --column-gap: 33.33px;
+  --body-size: 12.5px;
+  --body-leading: 1.2167;
+  --acm-sans: "Libertinus Sans", "source-han-serif-sc", sans-serif;
+  /* The margins hold side comments only narrowly. */
+  --note-width: 54px;
+  --note-inset: 8px;
+}
+
+html.acm .title {
+  margin: 0 auto 28px;
+  max-width: 92%;
+  font-family: var(--acm-sans);
+  font-size: calc(var(--body-size) * 17.28 / 9);
+  line-height: 1.15;
+  font-weight: 700;
+}
+
+html.acm .title-sub {
+  margin-top: .3em;
+  font-size: .72em;
+  font-style: normal;
+  font-weight: 400;
+}
+
+/* Paragraphs indented, not spaced; none after a heading. */
+html.acm .body p {
+  margin: 0;
+  text-indent: 14px;
+}
+
+html.acm .body > p:first-child,
+html.acm .body :is(h2, h3, h4, h5, h6, figure, .foot-room) + p,
+html.acm .body p[data-continued] {
+  text-indent: 0;
+}
+
+html.acm .body :is(h2, h3, h4, h5, h6) {
+  font-family: var(--acm-sans);
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: var(--body-leading);
+}
+
+html.acm .body h2 {
+  margin: 14px 0 4px;
+  font-size: calc(var(--body-size) * 11 / 9);
+  text-transform: uppercase;
+}
+
+html.acm .body h3 {
+  margin: 12px 0 4px;
+  font-size: calc(var(--body-size) * 11 / 9);
+}
+
+html.acm .body :is(h4, h5, h6) {
+  margin: 8px 0 0;
+  font-family: var(--serif);
+  font-size: var(--body-size);
+  font-style: italic;
+  font-weight: 400;
+}
+
+html.acm .body .heading-number {
+  margin-right: 1em;
+}
+
+html.acm .body :is(ul, ol) {
+  margin: .3em 0;
+}
+
+/* "Figure 1:" captions, bold, at the text's size. */
+html.acm :is(.body, .teaser-slot, .span-placed) figcaption {
+  font-style: normal;
+  font-weight: 700;
+  font-size: var(--body-size);
+  line-height: var(--body-leading);
+}
+
+html.acm :is(.figure-number, .table-number) .number-stop {
+  display: none;
+}
+
+html.acm :is(.figure-number, .table-number)::after {
+  content: ":";
+}
+
+/* Side comments in the narrow margins: 5 pt. */
+html.acm .comment-margin-marker {
+  font-size: calc(var(--body-size) * 5 / 9);
+  line-height: 1.25;
+  -webkit-text-stroke-width: 0.1px;
+}
+
+/* References: a column wide, under their own heading, 7 pt. */
+html.acm .references {
+  width: calc((100% - var(--column-gap)) / 2);
+}
+
+html.acm .references::before {
+  content: "References";
+  height: auto;
+  margin: 14px 0 4px;
+  font-family: var(--acm-sans);
+  font-size: calc(var(--body-size) * 11 / 9);
+  font-weight: 700;
+  line-height: var(--body-leading);
+  text-transform: uppercase;
+}
+
+html.acm .reference-list {
+  margin: 0;
+  padding: 0;
+  font-size: calc(var(--body-size) * 7 / 9);
+  line-height: 1.14;
+}
+
+html.acm .reference-list li {
+  grid-template-columns: 2.4em minmax(0, 1fr);
+  gap: 0;
+  margin: 0 0 1px;
+}
+
+/* The first page's foot: the permission notice, at the bottom of the
+   left column, under a hairline. */
+html.acm .page-foot {
+  top: auto;
+  bottom: var(--pad-bottom);
+  width: calc((var(--area-width) - var(--column-gap)) / 2);
+  height: auto;
+  display: block;
+}
+
+html.acm .acm-foot {
+  width: auto;
+  margin: 0;
+  padding: 14px 0 0;
+  font-family: var(--serif);
+  font-size: calc(var(--body-size) * 7 / 9);
+  font-style: normal;
+  line-height: 1.14;
+  text-align: left;
+}
+
+html.acm .acm-foot > p:first-child {
+  padding-top: 5px;
+  border-top: .5px solid currentColor;
+}
+
+html.acm .acm-foot p {
+  margin: 0;
+}
+
+html.acm .acm-foot .acm-foot-dates {
+  font-style: italic;
+}
+
+/* Where that foot sits in the left column's flow. */
+.foot-room {
+  break-inside: avoid;
+  break-after: column;
+}
+
+/* Page numbers (plain, see numberPages in reader.js) and running heads:
+   the title, on the left on odd pages and the right on even ones. */
+
+
+.page-head {
+  display: none;
+}
+
+html.acm .page-head {
+  position: absolute;
+  top: 87px;
+  left: var(--pad-left);
+  right: var(--pad-right);
+  display: block;
+  font-family: var(--serif);
+  font-size: calc(var(--body-size) * 7 / 9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+html.acm .page-head--even {
+  text-align: right;
+}
+
+/* =========================================================
    Phone and tablet layouts (html[data-layout], set by reader.js; the
    tablet one is also on laptops via the backslash key).
    Instead of shrinking the fixed desktop page, pages are cut to the
@@ -2715,4 +2922,16 @@ html[data-layout="phone"] .page-back[data-notes] :is(.page-area, .page-foot) {
 
 html[data-layout="phone"] .page-back:not([data-notes]) :is(.page-area, .page-foot) {
   left: calc((var(--paper-width) - var(--area-width)) / 2);
+}
+
+/* The ACM layout's page numbers: centered under the text, as in the
+   template (after the corner placement above, which they override). */
+html.acm :is(.page, .page-back, .page-bleed) > .page-number.page-number {
+  left: var(--pad-left);
+  width: var(--area-width);
+  bottom: 38px;
+  transform: none;
+  text-align: center;
+  font-size: calc(var(--body-size) * 7 / 9);
+  letter-spacing: 0;
 }

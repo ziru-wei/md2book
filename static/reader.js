@@ -44,11 +44,16 @@
     } catch { /* not ours */ }
     return location.pathname;
   })();
+  // The ACM layout (html.acm) opens with both on; any other, both off. Only
+  // what differs from that is kept.
+  const viewDefault = root.classList.contains("acm");
   let view = {};
   try { view = JSON.parse(localStorage.getItem(VIEW_KEY)) || {}; } catch { /* no storage */ }
+  for (const key of ["plain", "hideQuotes"]) view[key] = view[key] ?? viewDefault;
   const saveView = () => {
     try {
-      if (view.hideQuotes || view.plain) localStorage.setItem(VIEW_KEY, JSON.stringify(view));
+      const kept = Object.fromEntries(["plain", "hideQuotes"].filter(key => view[key] !== viewDefault).map(key => [key, view[key]]));
+      if (Object.keys(kept).length) localStorage.setItem(VIEW_KEY, JSON.stringify(kept));
       else localStorage.removeItem(VIEW_KEY);
     } catch { /* no storage */ }
   };
@@ -945,6 +950,40 @@
     }
   }
 
+  // The ACM layout (html.acm, see book.css): a note's first-page foot (the
+  // permission notice) sits at the bottom of the left column, as in the
+  // ACM template, and that column's text stops above it. Where the text
+  // would reach it, a room as tall as the foot goes in the flow, and the
+  // text after it starts the right column.
+  function reserveFoot(page, area, article, foot) {
+    const block = article.querySelector(":scope > .body");
+    if (!block || !isColumns(block)) return;
+    const probe = document.createElement("div");
+    probe.className = "page-foot";
+    probe.appendChild(foot);
+    page.appendChild(probe);
+    const height = Math.ceil(foot.getBoundingClientRect().height);
+    probe.remove();
+    const bottom = area.getBoundingClientRect().top + area.clientHeight;
+    const space = bottom - block.getBoundingClientRect().top;
+    if (space - height < 3 * parseFloat(getComputedStyle(block).lineHeight)) return;
+    block.style.columnFill = "auto";
+    block.style.height = space - height + "px";
+    const { box, width, gap } = columnsOf(block);
+    const limit = box.left + width + gap / 2;
+    const items = laidOutLeaves(block);
+    const i = firstLeafPast(items, limit);
+    block.style.height = "";
+    block.style.columnFill = "";
+    if (i >= items.length) return;
+    const point = pointPast(items[i], limit);
+    const room = document.createElement("div");
+    room.className = "foot-room";
+    room.style.height = height + "px";
+    const rest = split(block, point);
+    block.append(room, ...rest);
+  }
+
   // Distributes the prepared flow's articles over as many pages as it
   // takes, appending each page to `staging`.
   function paginate(flow, running, staging) {
@@ -972,6 +1011,8 @@
         area.appendChild(article);
       }
 
+      const foot = root.classList.contains("acm") && running.get(article);
+      if (foot && !article.hasAttribute("data-continued")) reserveFoot(page, area, article, foot);
       const rest = fitArticle(area, article);
 
       // //span figures put off to the next page (see liftSpanFigure)
@@ -1008,15 +1049,31 @@
   }
 
   // "01/09"-style number on every page.
+  // The ACM layout (html.acm): a plain number, and from the second page of
+  // a note on, its title as the running head.
   function numberPages(pages) {
     const digits = Math.max(2, String(pages.length).length);
     const pad = n => String(n).padStart(digits, "0");
+    const acm = root.classList.contains("acm");
+    let title = "";
     pages.forEach((page, i) => {
       const label = document.createElement("div");
       label.className = "page-number";
       label.setAttribute("aria-hidden", "true");
-      label.textContent = pad(i + 1) + "/" + pad(pages.length);
+      label.textContent = acm ? String(i + 1) : pad(i + 1) + "/" + pad(pages.length);
       page.appendChild(label);
+      if (!acm) return;
+      const opening = page.querySelector(".page-area .title");
+      if (opening) {
+        title = (opening.querySelector(".title-main") || opening).textContent.trim();
+        return;
+      }
+      if (!title) return;
+      const head = document.createElement("div");
+      head.className = `page-head page-head--${i % 2 ? "even" : "odd"}`;
+      head.setAttribute("aria-hidden", "true");
+      head.textContent = title;
+      page.appendChild(head);
     });
   }
 

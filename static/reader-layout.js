@@ -40,6 +40,9 @@ window.createReaderLayout = function createReaderLayout(root, { tabletAspectRati
   }
 
   function layoutFor(wantsTablet) {
+    // The ACM layout (html.acm) is the ACM template's page, margins and
+    // all, on every screen: always the fixed page, scaled to fit.
+    if (root.classList.contains("acm")) return "book";
     if (!isTouch) return wantsTablet ? "tablet" : "book";
     // EPUB's fixed paper is the same on a phone as on an iPad (same pages,
     // same page numbers), only smaller.

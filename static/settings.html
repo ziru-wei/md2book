@@ -1239,7 +1239,7 @@
     function cell(key, row, isAll) {
       const v = row[key];
       switch (key) {
-        case "layout": return select(key, v, [["paper", "Paper"], ["zine", "Zine"]]);
+        case "layout": return select(key, v, [["paper", "Paper"], ["acm", "ACM"], ["zine", "Zine"]]);
         case "open": return select(key, v, [["latest", t("openNewest")], ["first", t("openStart")]]);
         case "applyToAll": return isAll ? `<span class="na">—</span>` : `<input type="checkbox" data-key="${key}" ${v ? "checked" : ""} />`;
         case "columns": return select(key, v, [["1", "1"], ["2", "2"]]);
