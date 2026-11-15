@@ -621,6 +621,13 @@ html.reader.is-zoomed body {
   overscroll-behavior: auto;
 }
 
+/* Every effect off, the pages scroll in a column of their own: zoomed in,
+   a two-finger move it can't take (sideways, or past its end) goes on to
+   the window, which pans the zoomed page. */
+html.reader.is-zoomed .book {
+  overscroll-behavior: auto;
+}
+
 /* =========================================================
    Page turn (see "Page turning" in reader.js). Each page lies on a
    .leaf: a large square .leaf-plane, centred on the leaf's corner,
@@ -2969,4 +2976,52 @@ html.acm :is(.page, .page-back, .page-bleed) > .page-number.page-number {
   text-align: center;
   font-size: calc(var(--body-size) * 7 / 9);
   letter-spacing: 0;
+}
+
+/* A citation's [N] inverted on hover in every layout (ACM's own colour
+   for it, above, included). */
+html :is(.reference-marker, .reference-marker-group a):hover {
+  color: var(--paper);
+  background: var(--ink);
+}
+
+/* Its reference, floating just below it (reader.js). */
+.ref-glance {
+  position: fixed;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  max-width: min(420px, calc(100vw - 16px));
+  padding: 8px 11px;
+  background: var(--ink, #1a1a1a);
+  color: var(--paper, #fff);
+  font-family: var(--serif, serif);
+  font-size: 13px;
+  line-height: 1.35;
+  font-variant-numeric: lining-nums;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .22);
+  pointer-events: none;
+}
+
+.ref-glance.is-pinned {
+  pointer-events: auto;
+}
+
+.ref-glance.is-pinned a:hover {
+  text-decoration: underline;
+}
+
+.ref-glance[hidden] {
+  display: none;
+}
+
+.ref-glance a {
+  color: inherit;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+@media print {
+  .ref-glance { display: none !important; }
 }

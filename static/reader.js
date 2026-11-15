@@ -1736,17 +1736,25 @@
     if (gestureZoom < 1.02) gestureZoom = 1;
     updateZoom();
   });
+  // In the browser app (web/app.js) the page sits in a full-window
+  // iframe: the pinch zooms the window around it, whose viewport is the
+  // one that shows the zoom.
+  const outerViewport = (() => {
+    try { return window.parent !== window ? window.parent.visualViewport : null; } catch { return null; }
+  })();
   function isZoomed() {
-    const vv = window.visualViewport;
-    if (vv && (vv.scale > 1.02 || vv.width < root.clientWidth - 2)) return true;
+    for (const vv of [window.visualViewport, outerViewport]) {
+      if (vv && (vv.scale > 1.02 || (vv === window.visualViewport && vv.width < root.clientWidth - 2))) return true;
+    }
     return gestureZoom > 1.02;
   }
   function updateZoom() {
     root.classList.toggle("is-zoomed", isZoomed());
   }
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", updateZoom);
-    window.visualViewport.addEventListener("scroll", updateZoom);
+  for (const vv of [window.visualViewport, outerViewport]) {
+    if (!vv) continue;
+    vv.addEventListener("resize", updateZoom);
+    vv.addEventListener("scroll", updateZoom);
   }
 
   if (isTouch) {
@@ -1863,6 +1871,73 @@
       blocked: () => tocDialog?.open || isZoomed() || root.classList.contains("plain-page")
     });
     window.addEventListener("wheel", wheel, { passive: false });
+
+    // A citation's [N] under the pointer: its reference, whole (the parts
+    // of one split over columns or pages put together), floats just below
+    // it, to be read at a glance without going to the end. A click pins
+    // it: its links then open in a new tab, and a click anywhere else, or
+    // Escape, puts it away.
+    const glance = document.createElement("div");
+    glance.className = "ref-glance";
+    glance.hidden = true;
+    document.body.appendChild(glance);
+    let glanceFor = null, pinned = false;
+    const markerAt = target => target?.closest?.("a.reference-marker[href^='#ref-']");
+    function showGlance(marker) {
+      const parts = book.querySelectorAll(`li[id="${CSS.escape(marker.getAttribute("href").slice(1))}"]`);
+      if (!parts.length) return false;
+      glanceFor = marker;
+      glance.replaceChildren();
+      const number = parts[0].querySelector(".reference-number");
+      if (number) glance.appendChild(number.cloneNode(true));
+      const text = document.createElement("span");
+      text.className = "ref-glance-text";
+      parts.forEach((li, i) => {
+        if (i) text.append(" ");
+        for (const child of li.children) if (!child.classList.contains("reference-number")) text.appendChild(child.cloneNode(true));
+      });
+      for (const a of text.querySelectorAll("a[href]")) { a.target = "_blank"; a.rel = "noopener noreferrer"; }
+      glance.appendChild(text);
+      glance.hidden = false;
+      const r = marker.getBoundingClientRect(), w = glance.offsetWidth, h = glance.offsetHeight;
+      const left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), innerWidth - w - 8);
+      const below = r.bottom + 6 + h <= innerHeight - 8;
+      glance.style.left = left + "px";
+      glance.style.top = (below ? r.bottom + 6 : r.top - 6 - h) + "px";
+      return true;
+    }
+    function hideGlance() {
+      glanceFor = null;
+      pinned = false;
+      glance.hidden = true;
+      glance.classList.remove("is-pinned");
+    }
+    book.addEventListener("mouseover", e => {
+      const marker = markerAt(e.target);
+      if (pinned || !marker || marker === glanceFor) return;
+      showGlance(marker);
+    });
+    book.addEventListener("mouseout", e => {
+      if (pinned || !glanceFor || glanceFor.contains(e.relatedTarget)) return;
+      hideGlance();
+    });
+    // (Capture: before the reader takes the click as a jump to the list.)
+    document.addEventListener("click", e => {
+      if (glance.contains(e.target)) return;
+      const marker = markerAt(e.target);
+      if (marker && book.contains(marker)) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (pinned && glanceFor === marker) { hideGlance(); return; }
+        if (glanceFor !== marker && !showGlance(marker)) return;
+        pinned = true;
+        glance.classList.add("is-pinned");
+        return;
+      }
+      if (pinned) hideGlance();
+    }, true);
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && pinned) hideGlance(); });
+    book.addEventListener("scroll", hideGlance, { passive: true });
 
   }
 
