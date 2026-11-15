@@ -104,8 +104,14 @@
     return parseInt(style.columnCount, 10) > 1 || style.columnWidth !== "auto";
   }
 
+  // Nothing of it shows: no text, or only what's hidden (a section number
+  // a layout turns off) — a heading cut right before its text is no shell
+  // left at the foot of a column.
   function isBlank(el) {
-    return !el.firstElementChild && !el.textContent.trim();
+    if (!el.firstElementChild) return !el.textContent.trim();
+    return Array.from(el.childNodes).every(n =>
+      n.nodeType === Node.TEXT_NODE ? !n.data.trim()
+        : n.nodeType !== Node.ELEMENT_NODE || getComputedStyle(n).display === "none");
   }
 
   function newPage() {
@@ -413,14 +419,33 @@
   // the content continues in a later column (or past the page). Headings
   // right after it don't count as its text; a figure, table or other
   // block without text lines counts as enough.
+  // The lines of text in `el`, in order: its text's own boxes only. (A
+  // range over a block's contents also gives the boxes of the blocks in it,
+  // each piece of them in every column it runs through — a long list's
+  // box in the next column would come before its first lines.)
+  function* textRects(el, r) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node; (node = walker.nextNode());) {
+      if (!node.data.trim()) continue;
+      r.selectNodeContents(node);
+      for (const rect of r.getClientRects()) if (rect.width && rect.height) yield rect;
+    }
+  }
+
   function linesAfterHeading(h, cols, col) {
     const tops = new Set();
     const r = document.createRange();
     for (let el = h.nextElementSibling; el; el = el.nextElementSibling) {
       if (isOutOfFlow(el) || !el.getClientRects().length) continue;
       const heading = /^H[2-6]$/.test(el.tagName);
-      r.selectNodeContents(el);
-      const rects = Array.from(r.getClientRects()).filter(rect => rect.width && rect.height);
+      // (A long block is read only as far as it needs to be.)
+      const rects = [];
+      const seen = new Set(tops);
+      for (const rect of textRects(el, r)) {
+        rects.push(rect);
+        seen.add(Math.round(rect.top / 3));
+        if (cols.of(rect.left) > col || seen.size >= MIN_LINES_AFTER_HEADING) break;
+      }
       if (!rects.length) {
         const box = el.getBoundingClientRect();
         if (cols.of(box.left) > col) return { lines: tops.size, continues: true };

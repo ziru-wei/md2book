@@ -2680,6 +2680,8 @@ html.acm .page-foot {
 html.acm .acm-foot {
   width: auto;
   margin: 0;
+  /* (One hairline, over the notice: not the byline's own rule too.) */
+  border: 0;
   padding: 14px 0 0;
   font-family: var(--serif);
   font-size: calc(var(--body-size) * 7 / 9);
