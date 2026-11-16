@@ -202,15 +202,20 @@
         host.style.width = width + "px";
         let fitted = null;
         try {
-          if (fit.fitTable(table, width, host)) fitted = table.querySelector(":scope > colgroup").outerHTML;
+          if (fit.fitTable(table, width, host)) fitted = { cols: table.querySelector(":scope > colgroup").outerHTML, camel: table.classList.contains("table--camel") };
         } catch { /* the browser's own widths stay */ }
         tableFits.set(key, fitted);
         continue;
       }
       const fitted = tableFits.get(key);
       if (fitted) {
-        table.insertAdjacentHTML("afterbegin", fitted);
+        table.insertAdjacentHTML("afterbegin", fitted.cols);
         table.classList.add("table--fitted");
+        // (Its CamelCase names allowed to break, as when it was fitted.)
+        if (fitted.camel) {
+          fit.breakCamelNames(table);
+          table.classList.add("table--camel");
+        }
       }
     }
     host.remove();

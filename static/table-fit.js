@@ -10,7 +10,9 @@
 
    - no column narrower than its longest word (so no word is split
      mid-word; long URLs are the exception, and may break), nor than a
-     few characters;
+     few characters — but a name run together in CamelCase
+     ("ResourceBooking") may break where its words meet, with no hyphen,
+     when that saves more than half a line for each name broken;
    - a prose column keeps lines of at least about 20 characters;
    - a column of numbers or dates never wraps them;
    - no cell's content overflows;
@@ -39,17 +41,56 @@
   // The pieces of a cell's text that can't be broken across lines: words
   // between spaces, and each CJK character on its own (CJK text breaks
   // between any two characters). `url`: the piece may break anyway.
-  function tokens(text) {
+  // `camel`: a CamelCase name breaks into its words (see CAMEL).
+  function tokens(text, camel = false) {
     const out = [];
     for (const word of String(text).split(/\s+/)) {
       if (!word) continue;
       if (HAS_CJK.test(word)) {
         for (const piece of word.match(CJK_OR_LATIN)) out.push({ text: piece, url: false });
+      } else if (camel && !URL_LIKE.test(word) && CAMEL.test(word)) {
+        for (const piece of word.split(CAMEL_SPLIT)) out.push({ text: piece, url: false });
       } else {
         out.push({ text: word, url: URL_LIKE.test(word) });
       }
     }
     return out;
+  }
+
+  // A name run together in CamelCase ("ResourceBooking", "IoTControl"):
+  // it may break between a lower-case letter and the capital after it.
+  const CAMEL = /[a-z][A-Z]/;
+  const CAMEL_SPLIT = /(?<=[a-z])(?=[A-Z])/;
+
+  // Marks each CamelCase name in `root`'s text as one (span.camel-name),
+  // with a place it may break (<wbr>) between its words. Returns how many.
+  function breakCamelNames(root) {
+    const doc = root.ownerDocument;
+    const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (CAMEL.test(node.data) && !node.parentElement.closest(".camel-name, code, a")) nodes.push(node);
+    }
+    let count = 0;
+    for (const node of nodes) {
+      const frag = doc.createDocumentFragment();
+      for (const part of node.data.split(/(\s+)/)) {
+        if (part && !URL_LIKE.test(part) && CAMEL.test(part)) {
+          const span = doc.createElement("span");
+          span.className = "camel-name";
+          part.split(CAMEL_SPLIT).forEach((piece, i) => {
+            if (i) span.appendChild(doc.createElement("wbr"));
+            span.appendChild(doc.createTextNode(piece));
+          });
+          frag.appendChild(span);
+          count++;
+        } else if (part) {
+          frag.appendChild(doc.createTextNode(part));
+        }
+      }
+      node.replaceWith(frag);
+    }
+    return count;
   }
 
   function isNumeric(text) {
@@ -283,12 +324,12 @@
     };
     // Each column's unbreakable pieces, measured where they stand, in
     // their own style (a bold word is wider): all of one column's at once.
-    const piecesOf = j => {
+    const piecesOf = (j, camel = false) => {
       const pending = [];
       for (const [r, row] of copyRows.entries()) {
         const walker = doc.createTreeWalker(row.cells[j], NodeFilter.SHOW_TEXT);
         for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-          for (const t of tokens(node.data)) {
+          for (const t of tokens(node.data, camel)) {
             const span = doc.createElement("span");
             span.style.whiteSpace = "nowrap";
             span.textContent = t.text;
@@ -353,7 +394,27 @@
     const nativeStart = measure(fromNative);
     const balancedStart = balanced ? measure(balanced) : null;
     const start = balancedStart !== null && (nativeStart === null || balancedStart <= nativeStart + lineHeight / 2) ? balanced : fromNative;
-    const result = searchWidths({ start, mins, measure, step: Math.max(4, Math.round(width * 0.04)) });
+    let result = searchWidths({ start, mins, measure, step: Math.max(4, Math.round(width * 0.04)) });
+
+    // CamelCase names allowed to break where their words meet: worth it
+    // only if the table comes out shorter by more than half a line for
+    // each name that does break.
+    let camel = false;
+    const camelPieces = columns.map((col, j) => col.cells.some(c => CAMEL.test(c)) || CAMEL.test(col.header) ? piecesOf(j, true) : col.pieces);
+    if (result.height !== null && camelPieces.some((p, j) => p !== columns[j].pieces) && breakCamelNames(copy)) {
+      const names = Array.from(copy.querySelectorAll(".camel-name"));
+      const camelMins = minimumWidths(columns.map((col, j) => ({ ...col, pieces: camelPieces[j] })), textWidth, width);
+      const broken = () => names.filter(n => n.getClientRects().length > 1).length;
+      const cost = w => {
+        const h = measure(w);
+        return h === null ? null : h + broken() * lineHeight / 2;
+      };
+      const tried = searchWidths({ start: result.widths, mins: camelMins, measure: cost, step: Math.max(4, Math.round(width * 0.04)) });
+      if (tried.height !== null && tried.height < result.height - 0.5) {
+        result = { ...tried, height: measure(tried.widths) };
+        camel = true;
+      }
+    }
     host.replaceChildren();
     if (!isImprovement({ nativeHeight, nativeReadable, nativeOverflows, height: result.height, lineHeight })) return false;
 
@@ -367,9 +428,13 @@
     table.querySelector(":scope > colgroup")?.remove();
     table.prepend(final);
     table.classList.add("table--fitted");
+    if (camel) {
+      breakCamelNames(table);
+      table.classList.add("table--camel");
+    }
     return true;
   }
 
-  const api = { tokens, isNumeric, isNumericColumn, columnStats, minimumWidths, balancedWidths, respectMinimums, searchWidths, isImprovement, fitTable };
+  const api = { tokens, breakCamelNames, isNumeric, isNumericColumn, columnStats, minimumWidths, balancedWidths, respectMinimums, searchWidths, isImprovement, fitTable };
   root.md2bookTableFit = api;
 })(typeof window !== "undefined" ? window : globalThis);
